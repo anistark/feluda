@@ -19,4 +19,9 @@ pub struct Cli {
     /// Show only restrictive dependencies in strict mode
     #[arg(long)]
     pub strict: bool,
+
+    /// Enable TUI table
+    #[arg(long, short)]
+    pub gui: bool,
+
 }

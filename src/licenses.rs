@@ -25,6 +25,18 @@ impl LicenseInfo {
             }
         }
     }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    pub fn is_restrictive(&self) -> &bool {
+        &self.is_restrictive
+    }
 }
 
 pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
