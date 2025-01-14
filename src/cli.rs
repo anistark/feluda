@@ -4,8 +4,8 @@ use clap::{Parser, ArgGroup};
 #[command(author, version, about, long_about = None)]
 #[command(group(ArgGroup::new("output").args(["json"])))]
 pub struct Cli {
-    /// Path to the Cargo.toml file
-    #[arg(short, long, default_value = "./Cargo.toml")]
+    /// Path to the local project directory
+    #[arg(short, long, default_value = "./")]
     pub path: String,
 
     /// Output in JSON format

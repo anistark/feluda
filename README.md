@@ -1,13 +1,22 @@
 # Feluda
 
-Feluda is a Rust-based command-line tool that analyzes the dependencies of a Rust project, notes down their licenses, and flags any permissions that restrict personal or commercial usage. Currently, Feluda supports analyzing `Cargo.toml` files and provides a comprehensive summary of the project's dependencies and their license details.
+**Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage.
 
 ## Features
 
-- Parse `Cargo.toml` to identify dependencies and their licenses.
+- Parse your project to identify dependencies and their licenses.
 - Classify licenses into permissive, restrictive, or unknown categories.
 - Flag dependencies with licenses that may restrict personal or commercial use.
 - Output results in plain text or JSON format.
+
+### Support Languages
+
+- [x] [Rust](https://www.rust-lang.org/)
+- [x] [NodeJs](https://nodejs.org/)
+- [ ] [Go](https://go.dev/)
+- [ ] [Python](https://www.python.org/)
+
+_If your fav language or framework isn't supported, feel free to open an feature request issue! 👋_
 
 ## Installation
 
@@ -35,16 +44,16 @@ export PATH="$PWD/target/release:$PATH"
 
 ### Basic Usage
 
-Run the tool in the directory containing your Cargo.toml file:
+Run the tool in the project directory:
 
 ```sh
 feluda
 ```
 
-### Specify a Path to Cargo.toml
+### Specify a Path to your project directory
 
 ```sh
-feluda --path /path/to/Cargo.toml
+feluda --path /path/to/project/
 ```
 
 ### Output Format
@@ -133,7 +142,7 @@ cargo build
 ./target/debug/feluda --help
 ```
 
-3. Run tests to ensure everything is working:
+4. Run tests to ensure everything is working:
 
 ```sh
 cargo test

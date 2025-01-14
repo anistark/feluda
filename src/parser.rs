@@ -1,11 +1,50 @@
-use cargo_metadata::{MetadataCommand, Package};
+use cargo_metadata::MetadataCommand;
 use std::path::Path;
 
-pub fn parse_dependencies(cargo_toml_path: &str) -> Vec<Package> {
-    let metadata = MetadataCommand::new()
-        .manifest_path(Path::new(cargo_toml_path))
-        .exec()
-        .expect("Failed to fetch cargo metadata");
+use crate::licenses::{LicenseInfo, analyze_rust_licenses, analyze_js_licenses};
 
-    metadata.packages
+// Detect what type of project is this
+fn detect_project_type(args_path: &str) -> Option<&'static str> {
+    let project_path = std::fs::canonicalize(args_path)
+        .unwrap_or_else(|_| panic!("❌ Error: Invalid path '{}'", args_path));
+
+    if Path::new(&project_path).join("Cargo.toml").exists() {
+        // println!("🦀");
+        Some("rust")
+    } else if Path::new(&project_path).join("package.json").exists() {
+        // println!("⬢");
+        Some("node")
+    } else {
+        None
+    }
+}
+
+pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
+    match detect_project_type(project_path) {
+        Some("rust") => {
+            let project_path = Path::new(project_path).join("Cargo.toml");
+            let metadata = MetadataCommand::new()
+                .manifest_path(Path::new(&project_path))
+                .exec()
+                .expect("Failed to fetch cargo metadata");
+
+            let analyzed_data = analyze_rust_licenses(metadata.packages);
+
+            analyzed_data
+        }
+        Some("node") => {
+            let project_path = Path::new(project_path).join("package.json");
+            let analyzed_data = analyze_js_licenses(project_path.to_str().expect("Failed to convert path to string"));
+
+            analyzed_data
+        }
+        Some(_) => {
+            eprintln!("⚠️ Unsupported project type detected.");
+            std::process::exit(1);
+        }
+        None => {
+            eprintln!("❌ Unable to detect project type.");
+            std::process::exit(1);
+        }
+    }
 }
