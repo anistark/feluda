@@ -1,6 +1,6 @@
 [package]
 name = "feluda"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "A CLI tool to check dependency licenses."
 readme = "README.md"
@@ -20,8 +20,9 @@ include = [
 cargo_metadata = "0.19.1"
 clap = { version = "4.5.26", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
-reqwest = { version = "0.12.12", features = ["json"] }
+reqwest = { version = "0.12.12", features = ["json", "blocking"] }
 serde_json = "1.0.135"
+scraper = "0.22.0"
 
 [[bin]]
 name = "feluda"

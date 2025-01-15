@@ -1,8 +1,9 @@
 # Feluda
 
 [![Crates.io Version](https://img.shields.io/crates/v/feluda)
-](https://crates.io/crates/feluda)
- ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
+](https://crates.io/crates/feluda) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
+
+![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)
 
 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage.
 
@@ -17,7 +18,7 @@
 
 - [x] [Rust](https://www.rust-lang.org/)
 - [x] [NodeJs](https://nodejs.org/)
-- [ ] [Go](https://go.dev/)
+- [x] [Go](https://go.dev/)
 - [ ] [Python](https://www.python.org/)
 
 _If your fav language or framework isn't supported, feel free to open an feature request issue! 👋_
