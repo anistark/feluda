@@ -40,6 +40,10 @@ impl LicenseInfo {
 }
 
 pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
+    if packages.is_empty() {
+        return vec![];
+    }
+
     packages
         .into_iter()
         .map(|package| {
@@ -185,4 +189,76 @@ fn extract_license_from_html(html: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use mockall::mock;
+    use mockall::predicate::*;
+    use reqwest;
+    use super::*;
+
+    #[test]
+    fn test_extract_license_from_html() {
+        let html_content = r#"
+            <html>
+                <body>
+                    <span class="go-Main-headerDetailItem" data-test-id="UnitHeader-licenses">
+                        <a data-test-id="UnitHeader-license">MIT</a>
+                    </span>
+                </body>
+            </html>
+        "#;
+        let license = extract_license_from_html(html_content);
+        assert_eq!(license, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_extract_license_from_html_no_license() {
+        let html_content = r#"
+            <html>
+                <body>
+                    <span class="go-Main-headerDetailItem" data-test-id="UnitHeader-licenses">
+                    </span>
+                </body>
+            </html>
+        "#;
+        let license = extract_license_from_html(html_content);
+        assert_eq!(license, None);
+    }
+
+    pub trait HttpClient {
+        fn get(&self, url: &str) -> Result<reqwest::blocking::Response, reqwest::Error>;
+    }
+
+    mock! {
+        pub HttpClient {
+            fn get(&self, url: &str) -> Result<reqwest::blocking::Response, reqwest::Error>;
+        }
+    }
+
+    impl HttpClient for MockHttpClient {
+        fn get(&self, url: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
+            self.get(url)
+        }
+    }
+
+    #[test]
+    fn test_fetch_license_for_go_dependency() {
+        let mut mock_http_client = MockHttpClient::new();
+
+        mock_http_client.expect_get()
+            .with(eq("https://pkg.go.dev/github.com/stretchr/testify"))
+            .returning(|_| {
+                let response = reqwest::blocking::Client::new()
+                    .get("https://pkg.go.dev/github.com/stretchr/testify")
+                    .send()
+                    .unwrap();
+                Ok(response)
+            });
+
+        let license = fetch_license_for_go_dependency("github.com/stretchr/testify", "v1.7.0");
+        assert_eq!(license, "MIT");
+    }
+
 }

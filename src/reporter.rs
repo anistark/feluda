@@ -28,3 +28,98 @@ pub fn generate_report(data: Vec<LicenseInfo>, json: bool, verbose: bool, strict
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_report_empty_data() {
+        let data = vec![];
+        generate_report(data, false, false, false);
+        // Expected output: 🎉 All dependencies passed the license check! No restrictive licenses found.
+    }
+
+    #[test]
+    fn test_generate_report_non_strict() {
+        let data = vec![
+            LicenseInfo {
+                name: "crate1".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+            },
+            LicenseInfo {
+                name: "crate2".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("GPL".to_string()),
+                is_restrictive: true,
+            },
+        ];
+        generate_report(data, false, false, false);
+        // Expected output: crate1@1.0.0 - Some("MIT")
+        //                  crate2@2.0.0 - Some("GPL")
+    }
+
+    #[test]
+    fn test_generate_report_strict() {
+        let data = vec![
+            LicenseInfo {
+                name: "crate1".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+            },
+            LicenseInfo {
+                name: "crate2".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("GPL".to_string()),
+                is_restrictive: true,
+            },
+        ];
+        generate_report(data, false, false, true);
+        // Expected output: crate2@2.0.0 - Some("GPL")
+    }
+
+    #[test]
+    fn test_generate_report_json() {
+        let data = vec![
+            LicenseInfo {
+                name: "crate1".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+            },
+            LicenseInfo {
+                name: "crate2".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("GPL".to_string()),
+                is_restrictive: true,
+            },
+        ];
+        generate_report(data, true, false, false);
+        // Expected output: JSON formatted string of the data
+    }
+
+    #[test]
+    fn test_generate_report_verbose() {
+        let data = vec![
+            LicenseInfo {
+                name: "crate1".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+            },
+            LicenseInfo {
+                name: "crate2".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("GPL".to_string()),
+                is_restrictive: true,
+            },
+        ];
+        generate_report(data, false, true, false);
+        // Expected output: 
+        // Name: crate1, Version: 1.0.0, License: Some("MIT"), Restrictive: false
+        // Name: crate2, Version: 2.0.0, License: Some("GPL"), Restrictive: true
+    }
+}
