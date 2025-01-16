@@ -15,6 +15,7 @@ include = [
     "README.md",
     "LICENSE"
 ]
+documentation = "https://docs.rs/feluda"
 
 [dependencies]
 cargo_metadata = "0.19.1"
