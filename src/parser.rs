@@ -116,7 +116,12 @@ mod tests {
         fs::write(&lib_rs_path, "").unwrap();
 
         let result = parse_dependencies(temp_dir.path().to_str().unwrap());
-        assert!(!result.is_empty());
+        let mut license_names = vec![];
+        for license in &result {
+            license_names.push(&license.name)
+        }
+        assert!(license_names.iter().any(|name| *name == "serde" ));
+        assert!(!result.is_empty())
     }
 
     #[test]
