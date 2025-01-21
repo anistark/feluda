@@ -38,6 +38,14 @@ If you already had it, make sure it's up-to-date and update if needed.
 cargo install feluda
 ```
 
+### Install on NetBSD
+
+On NetBSD a package is available from the [official repositories](https://pkgsrc.se/devel/feluda/). To install it, simply run:
+
+```sh
+pkgin install feluda
+```
+
 ## Usage
 
 ### Basic Usage
