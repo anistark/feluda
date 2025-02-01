@@ -55,7 +55,7 @@ jobs:
 
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin: cargo-feluda
+          bin: feluda
           target: ${{ matrix.target }}
           tar: all
           zip: windows
