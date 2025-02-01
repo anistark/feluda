@@ -9,19 +9,18 @@ repository = "https://github.com/anistark/feluda"
 homepage = "https://github.com/anistark/feluda"
 keywords = ["cli", "license", "dependencies", "node", "check"]
 categories = ["command-line-utilities", "development-tools"]
-include = [
-    "src/**",
-    "Cargo.toml",
-    "README.md",
-    "LICENSE"
-]
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
 documentation = "https://docs.rs/feluda"
 
 [dependencies]
 cargo_metadata = "0.19.1"
 clap = { version = "4.5.26", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
-reqwest = { version = "0.12.12", features = ["json", "blocking"] }
+reqwest = { version = "0.12.12", default-features = false, features = [
+    "json",
+    "blocking",
+    "rustls-tls",
+] }
 serde_json = "1.0.135"
 scraper = "0.22.0"
 color-eyre = "0.6.3"
