@@ -1,11 +1,12 @@
 use cargo_metadata::Package;
+use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
-use std::process::Command;
 use std::fs::File;
 use std::io::{self, BufRead};
-use scraper::{Html, Selector};
-use std::collections::HashSet;
+use std::process::Command;
 
 #[derive(Serialize, Debug)]
 pub struct LicenseInfo {
@@ -18,12 +19,8 @@ pub struct LicenseInfo {
 impl LicenseInfo {
     pub fn get_license(&self) -> String {
         match &self.license {
-            Some(license_name) => {
-                String::from(license_name)
-            }
-            None => {
-                String::from("No License")
-            }
+            Some(license_name) => String::from(license_name),
+            None => String::from("No License"),
         }
     }
 
@@ -70,11 +67,39 @@ struct PackageJson {
     dev_dependencies: Option<std::collections::HashMap<String, String>>,
 }
 
+/// Analyze the licenses of Python dependencies
+pub fn analyze_python_licenses(requirements_txt_path: &str) -> Vec<LicenseInfo> {
+    let file = File::open(requirements_txt_path).expect("Failed to open requirements.txt file");
+    let reader = io::BufReader::new(file);
+
+    let mut licenses = Vec::new();
+
+    for line in reader.lines() {
+        let line = line.expect("Failed to read line");
+        let parts: Vec<&str> = line.split("==").collect();
+        if parts.len() >= 2 {
+            let name = parts[0].to_string();
+            let version = parts[1].to_string();
+            let license = Some(fetch_license_for_python_dependency(&name, &version));
+            let is_restrictive = is_license_restrictive(&license);
+
+            licenses.push(LicenseInfo {
+                name,
+                version,
+                license,
+                is_restrictive,
+            });
+        }
+    }
+
+    licenses
+}
+
+/// Analyze the licenses of JavaScript dependencies
 pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
-    let content = fs::read_to_string(package_json_path)
-        .expect("Failed to read package.json file");
-    let package_json: PackageJson = serde_json::from_str(&content)
-        .expect("Failed to parse package.json");
+    let content = fs::read_to_string(package_json_path).expect("Failed to read package.json file");
+    let package_json: PackageJson =
+        serde_json::from_str(&content).expect("Failed to parse package.json");
 
     let mut licenses = Vec::new();
 
@@ -94,7 +119,12 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
                 let license = output_str
                     .lines()
                     .find(|line| line.starts_with("license ="))
-                    .map(|line| line.replace("license =", "").replace("\'", "").trim().to_string())
+                    .map(|line| {
+                        line.replace("license =", "")
+                            .replace("\'", "")
+                            .trim()
+                            .to_string()
+                    })
                     .unwrap_or_else(|| "No License".to_string());
                 let is_restrictive = is_license_restrictive(&Some(license.clone()));
 
@@ -111,9 +141,10 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     process_deps(package_json.dependencies);
     process_deps(package_json.dev_dependencies);
 
-    licenses   
+    licenses
 }
 
+/// Analyze the licenses of Go dependencies
 pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
     let file = File::open(go_mod_path).expect("Failed to open go.mod file");
     let reader = io::BufReader::new(file);
@@ -152,6 +183,40 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
     licenses
 }
 
+/// Fetch the license for a Python dependency from the Python Package Index (PyPI)
+pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String {
+    let api_url = format!("https://pypi.org/pypi/{}/{}/json", name, version);
+    match reqwest::blocking::get(&api_url) {
+        Ok(response) => {
+            if response.status().is_success() {
+                // Parse the HTML to extract license information
+                if let Ok(json) = response.json::<Value>() {
+                    let license = json["info"]["license"]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .expect("No license found");
+                    if license.is_empty() {
+                        eprintln!("No license found for {}: {}", name, version);
+                        format!("Unknown license for {}: {}", name, version)
+                    } else {
+                        license
+                    }
+                } else {
+                    eprintln!("Failed to parse JSON for {}: {}", name, version);
+                    String::from("Unknown")
+                }
+            } else {
+                eprintln!("Failed to fetch metadata for {}: {}", name, version);
+                String::from("Unknown")
+            }
+        }
+        Err(err) => {
+            eprintln!("Failed to fetch metadata for {}: {}", name, err);
+            String::from("")
+        }
+    }
+}
+
 /// Fetch the license for a Go dependency from the Go Package Index (pkg.go.dev)
 pub fn fetch_license_for_go_dependency(name: &str, _version: &str) -> String {
     // Format the URL for the Go package metadata
@@ -179,12 +244,21 @@ pub fn fetch_license_for_go_dependency(name: &str, _version: &str) -> String {
 /// Extract license information from the HTML content
 fn extract_license_from_html(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
-    let span_selector = Selector::parse(r#"span.go-Main-headerDetailItem[data-test-id="UnitHeader-licenses"]"#).unwrap();
+    let span_selector =
+        Selector::parse(r#"span.go-Main-headerDetailItem[data-test-id="UnitHeader-licenses"]"#)
+            .unwrap();
     let a_selector = Selector::parse(r#"a[data-test-id="UnitHeader-license"]"#).unwrap();
 
     if let Some(span_element) = document.select(&span_selector).next() {
         if let Some(a_element) = span_element.select(&a_selector).next() {
-            return Some(a_element.text().collect::<Vec<_>>().join(" ").trim().to_string());
+            return Some(
+                a_element
+                    .text()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .trim()
+                    .to_string(),
+            );
         }
     }
     None
@@ -192,9 +266,20 @@ fn extract_license_from_html(html: &str) -> Option<String> {
 
 fn is_license_restrictive(license: &Option<String>) -> bool {
     let restrictive_licenses: HashSet<&str> = [
-        "GPL-3.0", "GPL-2.0", "AGPL-3.0", "LGPL-3.0", "LGPL-2.1", 
-        "CC-BY-NC", "CC-BY-NC-SA", "Elastic-License", "SSPL-1.0", 
-        "Oracle-Binary-Code-License", "ODbL-1.0", "AFL-3.0", "Ms-LPL", "Ms-LRL"
+        "GPL-3.0",
+        "GPL-2.0",
+        "AGPL-3.0",
+        "LGPL-3.0",
+        "LGPL-2.1",
+        "CC-BY-NC",
+        "CC-BY-NC-SA",
+        "Elastic-License",
+        "SSPL-1.0",
+        "Oracle-Binary-Code-License",
+        "ODbL-1.0",
+        "AFL-3.0",
+        "Ms-LPL",
+        "Ms-LRL",
     ]
     .iter()
     .cloned()
@@ -208,10 +293,10 @@ fn is_license_restrictive(license: &Option<String>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use mockall::mock;
     use mockall::predicate::*;
     use reqwest;
-    use super::*;
 
     #[test]
     fn test_extract_license_from_html() {
@@ -262,7 +347,8 @@ mod tests {
     fn test_fetch_license_for_go_dependency() {
         let mut mock_http_client = MockHttpClient::new();
 
-        mock_http_client.expect_get()
+        mock_http_client
+            .expect_get()
             .with(eq("https://pkg.go.dev/github.com/stretchr/testify"))
             .returning(|_| {
                 let response = reqwest::blocking::Client::new()
@@ -276,4 +362,22 @@ mod tests {
         assert_eq!(license, "MIT");
     }
 
+    #[test]
+    fn test_fetch_license_for_python_dependency() {
+        let mut mock_http_client = MockHttpClient::new();
+
+        mock_http_client
+            .expect_get()
+            .with(eq("https://pypi.org/pypi/requests/2.25.1/json"))
+            .returning(|_| {
+                let response = reqwest::blocking::Client::new()
+                    .get("https://pypi.org/pypi/requests/2.25.1/json")
+                    .send()
+                    .unwrap();
+                Ok(response)
+            });
+
+        let license = fetch_license_for_python_dependency("requests", "2.25.1");
+        assert_eq!(license, "Apache 2.0");
+    }
 }
