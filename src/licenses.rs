@@ -70,6 +70,10 @@ struct PackageJson {
     dev_dependencies: Option<std::collections::HashMap<String, String>>,
 }
 
+pub fn analyze_python_licenses(requirements_txt_path: &str) -> Vec<LicenseInfo> {
+    todo!()
+}
+
 pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     let content = fs::read_to_string(package_json_path)
         .expect("Failed to read package.json file");

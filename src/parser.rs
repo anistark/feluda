@@ -1,13 +1,14 @@
 use cargo_metadata::MetadataCommand;
 use std::{path::Path};
 
-use crate::licenses::{analyze_js_licenses, analyze_rust_licenses, analyze_go_licenses, LicenseInfo};
+use crate::licenses::{analyze_js_licenses, analyze_rust_licenses, analyze_go_licenses,analyze_python_licenses, LicenseInfo};
 
 #[derive(Debug, PartialEq)]
 pub enum ProjectType {
     Rust,
     Node,
     Go,
+    Python
 }
 
 /// Detect what type of project is this
@@ -24,6 +25,9 @@ fn detect_project_type(args_path: &str) -> Option<ProjectType> {
     } else if Path::new(&project_path).join("go.mod").exists() {
         // println!("🐹");
         Some(ProjectType::Go)
+    } else if Path::new(&project_path).join("requirements.txt").exists() {
+        // println!("🐍");
+        Some(ProjectType::Python) 
     } else {
         None
     }
@@ -55,6 +59,15 @@ pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
         Some(ProjectType::Go) => {
             let project_path = Path::new(project_path).join("go.mod");
             let analyzed_data = analyze_go_licenses(
+                project_path
+                    .to_str()
+                    .expect("Failed to convert path to string"),
+            );
+            analyzed_data
+        }
+        Some(ProjectType::Python) => {
+            let project_path = Path::new(project_path).join("requirements.txt");
+            let analyzed_data = analyze_python_licenses(
                 project_path
                     .to_str()
                     .expect("Failed to convert path to string"),
