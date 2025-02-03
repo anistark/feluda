@@ -197,7 +197,7 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
                         .expect("No license found");
                     if license.is_empty() {
                         eprintln!("No license found for {}: {}", name, version);
-                        String::from("Unknown")
+                        format!("Unknown license for {}: {}", name, version)
                     } else {
                         license
                     }
