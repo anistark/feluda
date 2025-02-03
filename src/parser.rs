@@ -1,14 +1,17 @@
 use cargo_metadata::MetadataCommand;
 use std::{path::Path};
 
-use crate::licenses::{analyze_js_licenses, analyze_rust_licenses, analyze_go_licenses, LicenseInfo};
+use crate::licenses::{analyze_js_licenses, analyze_rust_licenses, analyze_go_licenses,analyze_python_licenses, LicenseInfo};
 
 #[derive(Debug, PartialEq)]
 pub enum ProjectType {
     Rust,
     Node,
     Go,
+    Python
 }
+
+const PYTHON_PATHS: [&str; 3] = ["requirements.txt", "Pipfile.lock", "pip_freeze.txt"];
 
 /// Detect what type of project is this
 fn detect_project_type(args_path: &str) -> Option<ProjectType> {
@@ -24,9 +27,22 @@ fn detect_project_type(args_path: &str) -> Option<ProjectType> {
     } else if Path::new(&project_path).join("go.mod").exists() {
         // println!("🐹");
         Some(ProjectType::Go)
-    } else {
+    } else if PYTHON_PATHS.iter().any(|path| Path::new(&project_path).join(path).exists()) {
+        // println!("🐍");
+        Some(ProjectType::Python)
+    }
+    else {
         None
     }
+}
+
+fn check_which_python_file_exists(project_path: &str) -> Option<&str> {
+    for path in PYTHON_PATHS.iter() {
+        if Path::new(project_path).join(path).exists() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
@@ -55,6 +71,16 @@ pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
         Some(ProjectType::Go) => {
             let project_path = Path::new(project_path).join("go.mod");
             let analyzed_data = analyze_go_licenses(
+                project_path
+                    .to_str()
+                    .expect("Failed to convert path to string"),
+            );
+            analyzed_data
+        }
+        Some(ProjectType::Python) => {
+            let python_package_file = check_which_python_file_exists(project_path).expect("Python package file not found");
+            let project_path = Path::new(project_path).join(python_package_file);
+            let analyzed_data = analyze_python_licenses(
                 project_path
                     .to_str()
                     .expect("Failed to convert path to string"),
