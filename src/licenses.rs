@@ -1,12 +1,12 @@
 use cargo_metadata::Package;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::process::Command;
-use serde_json::Value;
 
 #[derive(Serialize, Debug)]
 pub struct LicenseInfo {
@@ -191,7 +191,16 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
             if response.status().is_success() {
                 // Parse the HTML to extract license information
                 if let Ok(json) = response.json::<Value>() {
-                    return json["info"]["license"].as_str().map(|s| s.to_string()).expect("No license found");
+                    let license = json["info"]["license"]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .expect("No license found");
+                    if license.is_empty() {
+                        eprintln!("No license found for {}: {}", name, version);
+                        String::from("Unknown")
+                    } else {
+                        license
+                    }
                 } else {
                     eprintln!("Failed to parse JSON for {}: {}", name, version);
                     String::from("Unknown")
@@ -352,7 +361,7 @@ mod tests {
         let license = fetch_license_for_go_dependency("github.com/stretchr/testify", "v1.7.0");
         assert_eq!(license, "MIT");
     }
-    
+
     #[test]
     fn test_fetch_license_for_python_dependency() {
         let mut mock_http_client = MockHttpClient::new();
