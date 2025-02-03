@@ -11,6 +11,8 @@ pub enum ProjectType {
     Python
 }
 
+const PYTHON_PATHS: [&str; 3] = ["requirements.txt", "Pipfile.lock", "pip_freeze.txt"];
+
 /// Detect what type of project is this
 fn detect_project_type(args_path: &str) -> Option<ProjectType> {
     let project_path = std::fs::canonicalize(args_path)
@@ -25,12 +27,22 @@ fn detect_project_type(args_path: &str) -> Option<ProjectType> {
     } else if Path::new(&project_path).join("go.mod").exists() {
         // println!("🐹");
         Some(ProjectType::Go)
-    } else if Path::new(&project_path).join("requirements.txt").exists() {
+    } else if PYTHON_PATHS.iter().any(|path| Path::new(&project_path).join(path).exists()) {
         // println!("🐍");
-        Some(ProjectType::Python) 
-    } else {
+        Some(ProjectType::Python)
+    }
+    else {
         None
     }
+}
+
+fn check_which_python_file_exists(project_path: &str) -> Option<&str> {
+    for path in PYTHON_PATHS.iter() {
+        if Path::new(project_path).join(path).exists() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
@@ -66,7 +78,8 @@ pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
             analyzed_data
         }
         Some(ProjectType::Python) => {
-            let project_path = Path::new(project_path).join("requirements.txt");
+            let python_package_file = check_which_python_file_exists(project_path).expect("Python package file not found");
+            let project_path = Path::new(project_path).join(python_package_file);
             let analyzed_data = analyze_python_licenses(
                 project_path
                     .to_str()
