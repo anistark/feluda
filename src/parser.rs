@@ -1,22 +1,29 @@
 use cargo_metadata::MetadataCommand;
-use std::path::Path;
+use std::{path::Path};
 
 use crate::licenses::{analyze_js_licenses, analyze_rust_licenses, analyze_go_licenses, LicenseInfo};
 
-// Detect what type of project is this
-fn detect_project_type(args_path: &str) -> Option<&'static str> {
+#[derive(Debug, PartialEq)]
+pub enum ProjectType {
+    Rust,
+    Node,
+    Go,
+}
+
+/// Detect what type of project is this
+fn detect_project_type(args_path: &str) -> Option<ProjectType> {
     let project_path = std::fs::canonicalize(args_path)
         .unwrap_or_else(|_| panic!("❌ Error: Invalid path '{}'", args_path));
 
     if Path::new(&project_path).join("Cargo.toml").exists() {
         // println!("🦀");
-        Some("rust")
+        Some(ProjectType::Rust)
     } else if Path::new(&project_path).join("package.json").exists() {
         // println!("⬢");
-        Some("node")
+        Some(ProjectType::Node)
     } else if Path::new(&project_path).join("go.mod").exists() {
         // println!("🐹");
-        Some("go")
+        Some(ProjectType::Go)
     } else {
         None
     }
@@ -24,7 +31,7 @@ fn detect_project_type(args_path: &str) -> Option<&'static str> {
 
 pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
     match detect_project_type(project_path) {
-        Some("rust") => {
+        Some(ProjectType::Rust) => {
             let project_path = Path::new(project_path).join("Cargo.toml");
             let metadata = MetadataCommand::new()
                 .manifest_path(Path::new(&project_path))
@@ -35,7 +42,7 @@ pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
 
             analyzed_data
         }
-        Some("node") => {
+        Some(ProjectType::Node) => {
             let project_path = Path::new(project_path).join("package.json");
             let analyzed_data = analyze_js_licenses(
                 project_path
@@ -45,7 +52,7 @@ pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
 
             analyzed_data
         }
-        Some("go") => {
+        Some(ProjectType::Go) => {
             let project_path = Path::new(project_path).join("go.mod");
             let analyzed_data = analyze_go_licenses(
                 project_path
@@ -53,10 +60,6 @@ pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
                     .expect("Failed to convert path to string"),
             );
             analyzed_data
-        }
-        Some(_) => {
-            eprintln!("⚠️ Unsupported project type detected.");
-            std::process::exit(1);
         }
         None => {
             eprintln!("❌ Unable to detect project type.");
@@ -77,7 +80,7 @@ mod tests {
         let cargo_toml_path = temp_dir.path().join("Cargo.toml");
         fs::write(&cargo_toml_path, "[package]\nname = \"test\"\nversion = \"0.1.0\"").unwrap();
 
-        assert_eq!(detect_project_type(temp_dir.path().to_str().unwrap()), Some("rust"));
+        assert_eq!(detect_project_type(temp_dir.path().to_str().unwrap()), Some(ProjectType::Rust));
     }
 
     #[test]
@@ -86,7 +89,7 @@ mod tests {
         let package_json_path = temp_dir.path().join("package.json");
         fs::write(&package_json_path, "{\n  \"name\": \"test\",\n  \"version\": \"1.0.0\"\n}").unwrap();
 
-        assert_eq!(detect_project_type(temp_dir.path().to_str().unwrap()), Some("node"));
+        assert_eq!(detect_project_type(temp_dir.path().to_str().unwrap()), Some(ProjectType::Node));
     }
 
     #[test]
@@ -95,7 +98,7 @@ mod tests {
         let go_mod_path = temp_dir.path().join("go.mod");
         fs::write(&go_mod_path, "").unwrap();
 
-        assert_eq!(detect_project_type(temp_dir.path().to_str().unwrap()), Some("go"));
+        assert_eq!(detect_project_type(temp_dir.path().to_str().unwrap()), Some(ProjectType::Go));
     }
 
     #[test]
