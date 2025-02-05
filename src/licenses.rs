@@ -2,29 +2,29 @@ use cargo_metadata::Package;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::process::Command;
-use std::collections::HashMap;
 
 // This is used to deserialize the license files from the choosealicense.com repository
 #[derive(Debug, Deserialize, Serialize)]
 struct License {
-    title: String, // The full name of the license
-    spdx_id: String, // A list of permissions granted by the license
+    title: String,            // The full name of the license
+    spdx_id: String,          // A list of permissions granted by the license
     permissions: Vec<String>, // A list of permissions granted by the license
-    conditions: Vec<String>, // A list of conditions that must be met under the license
+    conditions: Vec<String>,  // A list of conditions that must be met under the license
     limitations: Vec<String>, // A list of limitations imposed by the license
 }
 
 // This struct is used to store information about the licenses of dependencies
 #[derive(Serialize, Debug)]
 pub struct LicenseInfo {
-    pub name: String, // The name of the software or library
-    pub version: String, // The version of the software or library
+    pub name: String,            // The name of the software or library
+    pub version: String,         // The version of the software or library
     pub license: Option<String>, // An optional field that contains the license type (e.g., MIT, Apache 2.0)
-    pub is_restrictive: bool, // A boolean indicating whether the license is restrictive or not
+    pub is_restrictive: bool,    // A boolean indicating whether the license is restrictive or not
 }
 
 impl LicenseInfo {
@@ -139,7 +139,8 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
                             .to_string()
                     })
                     .unwrap_or_else(|| "No License".to_string());
-                let is_restrictive = is_license_restrictive(&Some(license.clone()), &known_licenses);
+                let is_restrictive =
+                    is_license_restrictive(&Some(license.clone()), &known_licenses);
 
                 licenses.push(LicenseInfo {
                     name: name.clone(),
@@ -279,19 +280,25 @@ fn extract_license_from_html(html: &str) -> Option<String> {
     None
 }
 
-fn is_license_restrictive(license: &Option<String>, known_licenses: &HashMap<String, License>) -> bool {
+fn is_license_restrictive(
+    license: &Option<String>,
+    known_licenses: &HashMap<String, License>,
+) -> bool {
     if let Some(license) = license {
         if let Some(license_data) = known_licenses.get(license) {
             const CONDITIONS: [&str; 2] = ["source-disclosure", "network-use-disclosure"];
 
-            return CONDITIONS.iter().any(|&condition| license_data.conditions.contains(&condition.to_string()));
+            return CONDITIONS
+                .iter()
+                .any(|&condition| license_data.conditions.contains(&condition.to_string()));
         }
     }
     false
 }
 
 fn fetch_licenses_from_github() -> std::collections::HashMap<String, License> {
-    let licenses_url = "https://raw.githubusercontent.com/github/choosealicense.com/gh-pages/_licenses/";
+    let licenses_url =
+        "https://raw.githubusercontent.com/github/choosealicense.com/gh-pages/_licenses/";
     let response = reqwest::blocking::get(licenses_url).expect("Failed to fetch licenses list");
     let content = response.text().expect("Failed to read response text");
     let mut licenses_map = std::collections::HashMap::new();
@@ -303,7 +310,8 @@ fn fetch_licenses_from_github() -> std::collections::HashMap<String, License> {
                 .expect("Failed to fetch license content")
                 .text()
                 .expect("Failed to read license content");
-            let license: License = serde_yaml::from_str(&license_content).expect("Failed to parse license content");
+            let license: License =
+                serde_yaml::from_str(&license_content).expect("Failed to parse license content");
             licenses_map.insert(license_name, license);
         }
     }
@@ -315,7 +323,6 @@ mod tests {
     use super::*;
     use mockall::mock;
     use mockall::predicate::*;
-    use reqwest;
 
     #[test]
     fn test_extract_license_from_html() {
@@ -347,6 +354,7 @@ mod tests {
     }
 
     pub trait HttpClient {
+        #[allow(dead_code)]
         fn get(&self, url: &str) -> Result<reqwest::blocking::Response, reqwest::Error>;
     }
 

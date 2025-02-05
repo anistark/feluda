@@ -1,18 +1,16 @@
 mod cli;
-mod parser;
 mod licenses;
+mod parser;
 mod reporter;
 mod table;
 
 use clap::Parser;
-use cli::{Cli, clear_last_line};
+use cli::{clear_last_line, Cli};
 use parser::parse_dependencies;
 use reporter::generate_report;
-use ratatui;
-use color_eyre;
-use table::App;
-use std::error::Error;
 use spinners::{Spinner, Spinners};
+use std::error::Error;
+use table::App;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::parse();
