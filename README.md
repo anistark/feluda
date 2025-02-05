@@ -147,10 +147,12 @@ feluda --gui
 
 Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.
 
+> Currently, using [choosealicense](https://choosealicense.com/) license directory for source of truth.
+
 ---
 
 ## License
 
-Feluda is licensed under the [MIT License with Commons Clause](./LICENSE).
+Feluda is licensed under the [MIT License](./LICENSE).
 
 _Happy coding with Feluda!_ 🚀

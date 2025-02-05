@@ -2,18 +2,29 @@ use cargo_metadata::Package;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::process::Command;
+use std::collections::HashMap;
 
+// This is used to deserialize the license files from the choosealicense.com repository
+#[derive(Debug, Deserialize, Serialize)]
+struct License {
+    title: String, // The full name of the license
+    spdx_id: String, // A list of permissions granted by the license
+    permissions: Vec<String>, // A list of permissions granted by the license
+    conditions: Vec<String>, // A list of conditions that must be met under the license
+    limitations: Vec<String>, // A list of limitations imposed by the license
+}
+
+// This struct is used to store information about the licenses of dependencies
 #[derive(Serialize, Debug)]
 pub struct LicenseInfo {
-    pub name: String,
-    pub version: String,
-    pub license: Option<String>,
-    pub is_restrictive: bool,
+    pub name: String, // The name of the software or library
+    pub version: String, // The version of the software or library
+    pub license: Option<String>, // An optional field that contains the license type (e.g., MIT, Apache 2.0)
+    pub is_restrictive: bool, // A boolean indicating whether the license is restrictive or not
 }
 
 impl LicenseInfo {
@@ -45,11 +56,11 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
     if packages.is_empty() {
         return vec![];
     }
-
+    let known_licenses = fetch_licenses_from_github();
     packages
         .into_iter()
         .map(|package| {
-            let is_restrictive = is_license_restrictive(&package.license);
+            let is_restrictive = is_license_restrictive(&package.license, &known_licenses);
 
             LicenseInfo {
                 name: package.name,
@@ -74,6 +85,7 @@ pub fn analyze_python_licenses(requirements_txt_path: &str) -> Vec<LicenseInfo> 
 
     let mut licenses = Vec::new();
 
+    let known_licenses = fetch_licenses_from_github();
     for line in reader.lines() {
         let line = line.expect("Failed to read line");
         let parts: Vec<&str> = line.split("==").collect();
@@ -81,7 +93,7 @@ pub fn analyze_python_licenses(requirements_txt_path: &str) -> Vec<LicenseInfo> 
             let name = parts[0].to_string();
             let version = parts[1].to_string();
             let license = Some(fetch_license_for_python_dependency(&name, &version));
-            let is_restrictive = is_license_restrictive(&license);
+            let is_restrictive = is_license_restrictive(&license, &known_licenses);
 
             licenses.push(LicenseInfo {
                 name,
@@ -105,6 +117,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
 
     let mut process_deps = |deps: Option<std::collections::HashMap<String, String>>| {
         if let Some(deps) = deps {
+            let known_licenses = fetch_licenses_from_github();
             for (name, version) in &deps {
                 let output = Command::new("npm")
                     .arg("view")
@@ -126,7 +139,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
                             .to_string()
                     })
                     .unwrap_or_else(|| "No License".to_string());
-                let is_restrictive = is_license_restrictive(&Some(license.clone()));
+                let is_restrictive = is_license_restrictive(&Some(license.clone()), &known_licenses);
 
                 licenses.push(LicenseInfo {
                     name: name.clone(),
@@ -152,6 +165,8 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
     let mut licenses = Vec::new();
     let mut in_require_block = false;
 
+    let known_licenses = fetch_licenses_from_github();
+
     for line in reader.lines() {
         let line = line.expect("Failed to read line");
         if line.starts_with("require (") {
@@ -168,7 +183,7 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
                 let version = parts[1].to_string();
                 let license = Some(fetch_license_for_go_dependency(&name, &version));
                 // println!("{}: {}", name, license.as_ref().unwrap());
-                let is_restrictive = is_license_restrictive(&license);
+                let is_restrictive = is_license_restrictive(&license, &known_licenses);
 
                 licenses.push(LicenseInfo {
                     name,
@@ -264,31 +279,35 @@ fn extract_license_from_html(html: &str) -> Option<String> {
     None
 }
 
-fn is_license_restrictive(license: &Option<String>) -> bool {
-    let restrictive_licenses: HashSet<&str> = [
-        "GPL-3.0",
-        "GPL-2.0",
-        "AGPL-3.0",
-        "LGPL-3.0",
-        "LGPL-2.1",
-        "CC-BY-NC",
-        "CC-BY-NC-SA",
-        "Elastic-License",
-        "SSPL-1.0",
-        "Oracle-Binary-Code-License",
-        "ODbL-1.0",
-        "AFL-3.0",
-        "Ms-LPL",
-        "Ms-LRL",
-    ]
-    .iter()
-    .cloned()
-    .collect();
+fn is_license_restrictive(license: &Option<String>, known_licenses: &HashMap<String, License>) -> bool {
+    if let Some(license) = license {
+        if let Some(license_data) = known_licenses.get(license) {
+            const CONDITIONS: [&str; 2] = ["source-disclosure", "network-use-disclosure"];
 
-    match license {
-        Some(license) => restrictive_licenses.contains(license.as_str()),
-        None => false,
+            return CONDITIONS.iter().any(|&condition| license_data.conditions.contains(&condition.to_string()));
+        }
     }
+    false
+}
+
+fn fetch_licenses_from_github() -> std::collections::HashMap<String, License> {
+    let licenses_url = "https://raw.githubusercontent.com/github/choosealicense.com/gh-pages/_licenses/";
+    let response = reqwest::blocking::get(licenses_url).expect("Failed to fetch licenses list");
+    let content = response.text().expect("Failed to read response text");
+    let mut licenses_map = std::collections::HashMap::new();
+    for line in content.lines() {
+        if line.ends_with(".txt") {
+            let license_name = line.replace(".txt", "");
+            let license_url = format!("{}{}", licenses_url, line);
+            let license_content = reqwest::blocking::get(&license_url)
+                .expect("Failed to fetch license content")
+                .text()
+                .expect("Failed to read license content");
+            let license: License = serde_yaml::from_str(&license_content).expect("Failed to parse license content");
+            licenses_map.insert(license_name, license);
+        }
+    }
+    licenses_map
 }
 
 #[cfg(test)]
