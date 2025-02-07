@@ -25,6 +25,9 @@ pub struct Cli {
     #[arg(long, short)]
     pub gui: bool,
 
+    /// Enable debug mode
+    #[arg(long)]
+    pub debug: bool,
 }
 
 pub fn clear_last_line() {

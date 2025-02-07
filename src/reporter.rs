@@ -4,18 +4,23 @@ use std::collections::HashMap;
 pub fn generate_report(data: Vec<LicenseInfo>, json: bool, verbose: bool, strict: bool) {
     let total_packages = data.len();
     let filtered_data: Vec<LicenseInfo> = if strict {
-        data.into_iter().filter(|info| info.is_restrictive).collect()
+        data.into_iter()
+            .filter(|info| info.is_restrictive)
+            .collect()
     } else {
         data
     };
 
     if filtered_data.is_empty() {
-        println!("\n🎉 All dependencies passed the license check! No restrictive licenses found.\n");
+        println!(
+            "\n🎉 All dependencies passed the license check! No restrictive licenses found.\n"
+        );
         return;
     }
 
     if json {
-        let json_output = serde_json::to_string_pretty(&filtered_data).expect("Failed to serialize data");
+        let json_output =
+            serde_json::to_string_pretty(&filtered_data).expect("Failed to serialize data");
         println!("{}", json_output);
     } else {
         let mut restrictive_licenses: Vec<LicenseInfo> = Vec::new();
@@ -24,7 +29,10 @@ pub fn generate_report(data: Vec<LicenseInfo>, json: bool, verbose: bool, strict
             if verbose {
                 println!(
                     "Name: {}, Version: {}, License: {:?}, Restrictive: {}",
-                    info.name, info.version, info.get_license(), info.is_restrictive
+                    info.name,
+                    info.version,
+                    info.get_license(),
+                    info.is_restrictive
                 );
             }
             // else {
@@ -41,16 +49,25 @@ pub fn generate_report(data: Vec<LicenseInfo>, json: bool, verbose: bool, strict
         println!("{:<49} {:<5}", "License Type", "Dependencies");
         println!("{:<53} {:<5}", "---------------------", "------------");
         for (license, count) in license_count {
-            println!("{:<58} {:<5}", license.unwrap_or_else(|| "Unknown".to_string()), count);
+            println!(
+                "{:<58} {:<5}",
+                license.unwrap_or_else(|| "Unknown".to_string()),
+                count
+            );
         }
         println!("\nTotal dependencies scanned: {}", total_packages);
         if restrictive_licenses.is_empty() {
             println!("\n✅ No restrictive licenses found! 🎉\n");
         } else {
-            println!("\n{:<49} {:<5}", "Restrictive License Type", "Dependencies");
-            println!("{:<53} {:<5}", "---------------------", "------------");
+            println!("\n⚠️ Warning: Restrictive licenses may have been found! ⚠️");
+            println!("\n{:<50} {:<5}", "Restrictive License Type", "Dependencies");
+            println!("{:<50} {:<5}", "---------------------", "------------");
             for info in restrictive_licenses {
-            println!("{:<58} {:<5}", info.license.unwrap_or_else(|| "Unknown".to_string()), 1);
+                println!(
+                    "{:<50} {:<5}",
+                    info.license.unwrap_or_else(|| "Unknown".to_string()),
+                    info.name
+                );
             }
         }
     }
@@ -145,7 +162,7 @@ mod tests {
             },
         ];
         generate_report(data, false, true, false);
-        // Expected output: 
+        // Expected output:
         // Name: crate1, Version: 1.0.0, License: Some("MIT"), Restrictive: false
         // Name: crate2, Version: 2.0.0, License: Some("GPL"), Restrictive: true
     }

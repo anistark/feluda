@@ -17,7 +17,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut sp = Spinner::new(Spinners::Dots10, "🔎".into());
     let analyzed_data = parse_dependencies(&args.path);
     sp.stop();
-    clear_last_line();
+    if !args.debug {
+        clear_last_line();
+    }
     if args.gui {
         color_eyre::install()?;
         let terminal = ratatui::init();

@@ -27,6 +27,16 @@ pub struct LicenseInfo {
     pub is_restrictive: bool,    // A boolean indicating whether the license is restrictive or not
 }
 
+const RESTRICTIVE_LICENSES: &[&str] = &[
+    "GPL-3.0",
+    "AGPL-3.0",
+    "LGPL-3.0",
+    "MPL-2.0",
+    "SEE LICENSE IN LICENSE",
+    "CC-BY-SA-4.0",
+    "EPL-2.0",
+];
+
 impl LicenseInfo {
     pub fn get_license(&self) -> String {
         match &self.license {
@@ -284,13 +294,20 @@ fn is_license_restrictive(
     license: &Option<String>,
     known_licenses: &HashMap<String, License>,
 ) -> bool {
+    if license.as_deref() == Some("No License") {
+        return true;
+    }
     if let Some(license) = license {
+        // println!("License: {}", license);
+        // println!("Known Licenses: {:?}", known_licenses);
         if let Some(license_data) = known_licenses.get(license) {
+            // println!("License Data: {:?}", license_data);
             const CONDITIONS: [&str; 2] = ["source-disclosure", "network-use-disclosure"];
-
             return CONDITIONS
                 .iter()
                 .any(|&condition| license_data.conditions.contains(&condition.to_string()));
+        } else if RESTRICTIVE_LICENSES.iter().any(|&restrictive_license| license.contains(restrictive_license)) {
+            return true;
         }
     }
     false
