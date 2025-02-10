@@ -1,12 +1,13 @@
 use cargo_metadata::MetadataCommand;
 use std::path::Path;
+use colored::*;
 
 use crate::licenses::{
     analyze_go_licenses, analyze_js_licenses, analyze_python_licenses, analyze_rust_licenses,
     LicenseInfo,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ProjectType {
     Rust,
     Node,
@@ -21,23 +22,51 @@ fn detect_project_type(args_path: &str) -> Option<ProjectType> {
     let project_path = std::fs::canonicalize(args_path)
         .unwrap_or_else(|_| panic!("❌ Error: Invalid path '{}'", args_path));
 
-    if Path::new(&project_path).join("Cargo.toml").exists() {
-        // println!("🦀");
-        Some(ProjectType::Rust)
-    } else if Path::new(&project_path).join("package.json").exists() {
-        // println!("⬢");
-        Some(ProjectType::Node)
-    } else if Path::new(&project_path).join("go.mod").exists() {
-        // println!("🐹");
-        Some(ProjectType::Go)
-    } else if PYTHON_PATHS
+    let is_rust = Path::new(&project_path).join("Cargo.toml").exists();
+    let is_node = Path::new(&project_path).join("package.json").exists();
+    let is_go = Path::new(&project_path).join("go.mod").exists();
+    let is_python = PYTHON_PATHS
         .iter()
-        .any(|path| Path::new(&project_path).join(path).exists())
-    {
-        // println!("🐍");
-        Some(ProjectType::Python)
-    } else {
-        None
+        .any(|path| Path::new(&project_path).join(path).exists());
+
+    let mut project_types = vec![];
+
+    if is_rust {
+        project_types.push(ProjectType::Rust);
+    }
+    if is_node {
+        project_types.push(ProjectType::Node);
+    }
+    if is_go {
+        project_types.push(ProjectType::Go);
+    }
+    if is_python {
+        project_types.push(ProjectType::Python);
+    }
+
+    match project_types.len() {
+        0 => None,
+        1 => Some(project_types[0].clone()),
+        _ => {
+            println!("❌ Multiple project types detected: {:?}", project_types);
+            println!("Please specify which one to run Feluda for by entering the corresponding number:");
+
+            for (index, project_type) in project_types.iter().enumerate() {
+                println!("{}: {:?}", index + 1, project_type);
+            }
+
+            let mut input = String::new();
+            println!("{}", "Please enter your choice:".cyan());
+            std::io::stdin().read_line(&mut input).expect("Failed to read input");
+            let choice: usize = input.trim().parse().expect("Invalid input");
+
+            if choice == 0 || choice > project_types.len() {
+                eprintln!("❌ Invalid choice.");
+                std::process::exit(1);
+            }
+
+            Some(project_types[choice - 1].clone())
+        }
     }
 }
 
