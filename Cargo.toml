@@ -37,3 +37,8 @@ http = "1.2.0"
 
 [[bin]]
 name = "feluda"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
