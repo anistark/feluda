@@ -1,4 +1,5 @@
 use cargo_metadata::Package;
+use rayon::prelude::*;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -68,14 +69,14 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
     }
     let known_licenses = fetch_licenses_from_github();
     packages
-        .into_iter()
+        .par_iter()
         .map(|package| {
             let is_restrictive = is_license_restrictive(&package.license, &known_licenses);
 
             LicenseInfo {
-                name: package.name,
+                name: package.name.clone(),
                 version: package.version.to_string(),
-                license: package.license,
+                license: package.license.clone(),
                 is_restrictive,
             }
         })
@@ -84,8 +85,23 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
 
 #[derive(Deserialize, Serialize, Debug)]
 struct PackageJson {
-    dependencies: Option<std::collections::HashMap<String, String>>,
-    dev_dependencies: Option<std::collections::HashMap<String, String>>,
+    dependencies: Option<HashMap<String, String>>,
+    dev_dependencies: Option<HashMap<String, String>>,
+}
+
+impl PackageJson {
+    fn get_all_dependencies(self) -> HashMap<String, String> {
+        let mut all_dependencies: HashMap<String, String> = HashMap::new();
+        match self.dev_dependencies {
+            Some(deps) => all_dependencies.extend(deps),
+            None => (),
+        };
+        match self.dependencies {
+            Some(deps) => all_dependencies.extend(deps),
+            None => (),
+        };
+        all_dependencies
+    }
 }
 
 /// Analyze the licenses of Python dependencies
@@ -122,50 +138,42 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     let content = fs::read_to_string(package_json_path).expect("Failed to read package.json file");
     let package_json: PackageJson =
         serde_json::from_str(&content).expect("Failed to parse package.json");
+    let all_dependencies = package_json.get_all_dependencies();
+    let known_licenses = fetch_licenses_from_github();
 
-    let mut licenses = Vec::new();
+    all_dependencies
+        .par_iter()
+        .map(|(name, version)| {
+            let output = Command::new("npm")
+                .arg("view")
+                .arg(name)
+                .arg("version")
+                .arg(version)
+                .arg("license")
+                .output()
+                .expect("Failed to execute npm command");
 
-    let mut process_deps = |deps: Option<std::collections::HashMap<String, String>>| {
-        if let Some(deps) = deps {
-            let known_licenses = fetch_licenses_from_github();
-            for (name, version) in &deps {
-                let output = Command::new("npm")
-                    .arg("view")
-                    .arg(name)
-                    .arg("version")
-                    .arg(version)
-                    .arg("license")
-                    .output()
-                    .expect("Failed to execute npm command");
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let license = output_str
+                .lines()
+                .find(|line| line.starts_with("license ="))
+                .map(|line| {
+                    line.replace("license =", "")
+                        .replace("\'", "")
+                        .trim()
+                        .to_string()
+                })
+                .unwrap_or_else(|| "No License".to_string());
+            let is_restrictive = is_license_restrictive(&Some(license.clone()), &known_licenses);
 
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                let license = output_str
-                    .lines()
-                    .find(|line| line.starts_with("license ="))
-                    .map(|line| {
-                        line.replace("license =", "")
-                            .replace("\'", "")
-                            .trim()
-                            .to_string()
-                    })
-                    .unwrap_or_else(|| "No License".to_string());
-                let is_restrictive =
-                    is_license_restrictive(&Some(license.clone()), &known_licenses);
-
-                licenses.push(LicenseInfo {
-                    name: name.clone(),
-                    version: version.clone(),
-                    license: Some(license),
-                    is_restrictive,
-                });
+            LicenseInfo {
+                name: name.clone(),
+                version: version.clone(),
+                license: Some(license),
+                is_restrictive,
             }
-        }
-    };
-
-    process_deps(package_json.dependencies);
-    process_deps(package_json.dev_dependencies);
-
-    licenses
+        })
+        .collect()
 }
 
 /// Analyze the licenses of Go dependencies
@@ -306,7 +314,10 @@ fn is_license_restrictive(
             return CONDITIONS
                 .iter()
                 .any(|&condition| license_data.conditions.contains(&condition.to_string()));
-        } else if RESTRICTIVE_LICENSES.iter().any(|&restrictive_license| license.contains(restrictive_license)) {
+        } else if RESTRICTIVE_LICENSES
+            .iter()
+            .any(|&restrictive_license| license.contains(restrictive_license))
+        {
             return true;
         }
     }
