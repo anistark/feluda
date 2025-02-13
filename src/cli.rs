@@ -1,5 +1,13 @@
 use clap::{Parser, ArgGroup};
 use std::io::{self, Write};
+use spinners::{Spinner, Spinners};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_debug_mode(debug: bool) {
+    DEBUG_MODE.store(debug, Ordering::Relaxed);
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -33,4 +41,19 @@ pub struct Cli {
 pub fn clear_last_line() {
     print!("\x1b[1A\x1b[2K");
     io::stdout().flush().unwrap();
+}
+
+pub fn with_spinner<F, T>(message: &str, f: F) -> T 
+where
+    F: FnOnce() -> T
+{
+    if DEBUG_MODE.load(Ordering::Relaxed) {
+        f()
+    } else {
+        let mut sp = Spinner::new(Spinners::Dots10, message.into());
+        let result = f();
+        sp.stop();
+        clear_last_line();
+        result
+    }
 }

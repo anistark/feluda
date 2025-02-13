@@ -1,6 +1,7 @@
 use cargo_metadata::MetadataCommand;
 use std::path::Path;
 use colored::*;
+use crate::cli;
 
 use crate::licenses::{
     analyze_go_licenses, analyze_js_licenses, analyze_python_licenses, analyze_rust_licenses,
@@ -77,51 +78,51 @@ fn check_which_python_file_exists(project_path: &str) -> Option<&str> {
 }
 
 pub fn parse_dependencies(project_path: &str) -> Vec<LicenseInfo> {
-    match detect_project_type(project_path) {
-        Some(ProjectType::Rust) => {
-            let project_path = Path::new(project_path).join("Cargo.toml");
-            let metadata = MetadataCommand::new()
-                .manifest_path(Path::new(&project_path))
-                .exec()
-                .expect("Failed to fetch cargo metadata");
+    let project_type = detect_project_type(project_path);
+    
+    cli::with_spinner("🔎", || {
+        match project_type {
+            Some(ProjectType::Rust) => {
+                let project_path = Path::new(project_path).join("Cargo.toml");
+                let metadata = MetadataCommand::new()
+                    .manifest_path(Path::new(&project_path))
+                    .exec()
+                    .expect("Failed to fetch cargo metadata");
 
-            analyze_rust_licenses(metadata.packages)
+                analyze_rust_licenses(metadata.packages)
+            }
+            Some(ProjectType::Node) => {
+                let project_path = Path::new(project_path).join("package.json");
+                analyze_js_licenses(
+                    project_path
+                        .to_str()
+                        .expect("Failed to convert path to string"),
+                )
+            }
+            Some(ProjectType::Go) => {
+                let project_path = Path::new(project_path).join("go.mod");
+                analyze_go_licenses(
+                    project_path
+                        .to_str()
+                        .expect("Failed to convert path to string"),
+                )
+            }
+            Some(ProjectType::Python) => {
+                let python_package_file = check_which_python_file_exists(project_path)
+                    .expect("Python package file not found");
+                let project_path = Path::new(project_path).join(python_package_file);
+                analyze_python_licenses(
+                    project_path
+                        .to_str()
+                        .expect("Failed to convert path to string"),
+                )
+            }
+            None => {
+                eprintln!("❌ Unable to detect project type.");
+                std::process::exit(1);
+            }
         }
-        Some(ProjectType::Node) => {
-            let project_path = Path::new(project_path).join("package.json");
-            let analyzed_data = analyze_js_licenses(
-                project_path
-                    .to_str()
-                    .expect("Failed to convert path to string"),
-            );
-
-            analyzed_data
-        }
-        Some(ProjectType::Go) => {
-            let project_path = Path::new(project_path).join("go.mod");
-            let analyzed_data = analyze_go_licenses(
-                project_path
-                    .to_str()
-                    .expect("Failed to convert path to string"),
-            );
-            analyzed_data
-        }
-        Some(ProjectType::Python) => {
-            let python_package_file = check_which_python_file_exists(project_path)
-                .expect("Python package file not found");
-            let project_path = Path::new(project_path).join(python_package_file);
-            let analyzed_data = analyze_python_licenses(
-                project_path
-                    .to_str()
-                    .expect("Failed to convert path to string"),
-            );
-            analyzed_data
-        }
-        None => {
-            eprintln!("❌ Unable to detect project type.");
-            std::process::exit(1);
-        }
-    }
+    })
 }
 
 // Tests

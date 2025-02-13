@@ -5,21 +5,18 @@ mod reporter;
 mod table;
 
 use clap::Parser;
-use cli::{clear_last_line, Cli};
+use cli::Cli;
 use parser::parse_dependencies;
 use reporter::generate_report;
-use spinners::{Spinner, Spinners};
 use std::error::Error;
 use table::App;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::parse();
-    let mut sp = Spinner::new(Spinners::Dots10, "🔎".into());
-    let analyzed_data = parse_dependencies(&args.path);
-    sp.stop();
-    if !args.debug {
-        clear_last_line();
+    if args.debug {
+        cli::set_debug_mode(true);
     }
+    let analyzed_data = parse_dependencies(&args.path);
     if args.gui {
         color_eyre::install()?;
         let terminal = ratatui::init();
