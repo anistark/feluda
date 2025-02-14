@@ -1,4 +1,5 @@
 mod cli;
+mod config;
 mod licenses;
 mod parser;
 mod reporter;

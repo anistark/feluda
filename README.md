@@ -179,6 +179,50 @@ Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to cont
 
 > Currently, using [choosealicense](https://choosealicense.com/) license directory for source of truth.
 
+## Configuration
+
+Feluda allows you to customize which licenses are considered restrictive through configuration. This can be done in three ways, listed in order of precedence (highest to lowest):
+
+1. Environment variables
+2. `.feluda.toml` configuration file
+3. Default values
+
+### Default Restrictive Licenses
+
+By default, Feluda considers the following licenses as restrictive:
+- GPL-3.0
+- AGPL-3.0
+- LGPL-3.0
+- MPL-2.0
+- SEE LICENSE IN LICENSE
+- CC-BY-SA-4.0
+- EPL-2.0
+
+### Configuration File
+
+Create a `.feluda.toml` file in your project root to override the default restrictive licenses:
+
+```toml
+[licenses]
+# Override the default list of restrictive licenses
+restrictive = [
+    "GPL-3.0",      # GNU General Public License v3.0
+    "AGPL-3.0",     # GNU Affero General Public License v3.0
+    "Custom-1.0",   # Your custom license identifier
+]
+```
+
+### Environment Variables
+
+You can also override the configuration using environment variables:
+
+```sh
+# Override restrictive licenses list
+export FELUDA_LICENSES_RESTRICTIVE='["GPL-3.0","AGPL-3.0","Custom-1.0"]'
+```
+
+The environment variables take precedence over both the configuration file and default values.
+
 ---
 
 ## License

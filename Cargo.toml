@@ -30,11 +30,13 @@ spinners = "4.1.1"
 serde_yaml = "0.9.34"
 colored = "3.0.0"
 rayon = "1.10.0"
+figment = { version = "0.10", features = ["toml", "env"] }
 
 [dev-dependencies]
 tempfile = "3.2"
 mockall = "0.13.1"
 http = "1.2.0"
+temp-env = "0.3.1"
 
 [[bin]]
 name = "feluda"

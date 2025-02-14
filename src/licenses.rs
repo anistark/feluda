@@ -9,6 +9,8 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::process::Command;
 
+use crate::config;
+
 // This is used to deserialize the license files from the choosealicense.com repository
 #[derive(Debug, Deserialize, Serialize)]
 struct License {
@@ -27,16 +29,6 @@ pub struct LicenseInfo {
     pub license: Option<String>, // An optional field that contains the license type (e.g., MIT, Apache 2.0)
     pub is_restrictive: bool,    // A boolean indicating whether the license is restrictive or not
 }
-
-const RESTRICTIVE_LICENSES: &[&str] = &[
-    "GPL-3.0",
-    "AGPL-3.0",
-    "LGPL-3.0",
-    "MPL-2.0",
-    "SEE LICENSE IN LICENSE",
-    "CC-BY-SA-4.0",
-    "EPL-2.0",
-];
 
 impl LicenseInfo {
     pub fn get_license(&self) -> String {
@@ -302,6 +294,14 @@ fn is_license_restrictive(
     license: &Option<String>,
     known_licenses: &HashMap<String, License>,
 ) -> bool {
+    let config = match config::load_config() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Error loading configuration: {}", e);
+            config::FeludaConfig::default()
+        }
+    };
+
     if license.as_deref() == Some("No License") {
         return true;
     }
@@ -314,11 +314,12 @@ fn is_license_restrictive(
             return CONDITIONS
                 .iter()
                 .any(|&condition| license_data.conditions.contains(&condition.to_string()));
-        } else if RESTRICTIVE_LICENSES
-            .iter()
-            .any(|&restrictive_license| license.contains(restrictive_license))
-        {
-            return true;
+        } else {
+            return config
+                .licenses
+                .restrictive
+                .iter()
+                .any(|restrictive_license| license.contains(restrictive_license));
         }
     }
     false
@@ -351,6 +352,141 @@ mod tests {
     use super::*;
     use mockall::mock;
     use mockall::predicate::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn setup() -> TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    #[test]
+    fn test_license_restrictive_with_default_config() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let known_licenses = HashMap::new();
+            assert!(is_license_restrictive(
+                &Some("GPL-3.0".to_string()),
+                &known_licenses
+            ));
+            assert!(!is_license_restrictive(
+                &Some("MIT".to_string()),
+                &known_licenses
+            ));
+        });
+    }
+
+    #[test]
+    fn test_license_restrictive_with_toml_config() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+restrictive = ["CUSTOM-1.0"]"#,
+            )
+            .unwrap();
+
+            let known_licenses = HashMap::new();
+            assert!(is_license_restrictive(
+                &Some("CUSTOM-1.0".to_string()),
+                &known_licenses
+            ));
+            assert!(!is_license_restrictive(
+                &Some("GPL-3.0".to_string()),
+                &known_licenses
+            ));
+        });
+    }
+
+    #[test]
+    fn test_license_restrictive_with_env_config() {
+        temp_env::with_vars(
+            vec![("FELUDA_LICENSES_RESTRICTIVE", Some(r#"["ENV-LICENSE"]"#))],
+            || {
+                let dir = setup();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                let known_licenses = HashMap::new();
+                assert!(is_license_restrictive(
+                    &Some("ENV-LICENSE".to_string()),
+                    &known_licenses
+                ));
+                assert!(!is_license_restrictive(
+                    &Some("GPL-3.0".to_string()),
+                    &known_licenses
+                ));
+            },
+        );
+    }
+
+    #[test]
+    fn test_env_overrides_toml() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", Some("[\"ENV-1.0\"]"), || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+restrictive = ["TOML-1.0", "TOML-2.0"]"#,
+            )
+            .unwrap();
+
+            let known_licenses = HashMap::new();
+            assert!(is_license_restrictive(
+                &Some("ENV-1.0".to_string()),
+                &known_licenses
+            ));
+            assert!(!is_license_restrictive(
+                &Some("TOML-1.0".to_string()),
+                &known_licenses
+            ));
+        });
+    }
+
+    #[test]
+    fn test_license_restrictive_no_license() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            let known_licenses = HashMap::new();
+            assert!(is_license_restrictive(
+                &Some("No License".to_string()),
+                &known_licenses
+            ));
+        });
+    }
+
+    #[test]
+    fn test_license_restrictive_with_known_licenses() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            let mut known_licenses = HashMap::new();
+            known_licenses.insert(
+                "TEST-LICENSE".to_string(),
+                License {
+                    title: "Test License".to_string(),
+                    spdx_id: "TEST-LICENSE".to_string(),
+                    permissions: vec![],
+                    conditions: vec!["source-disclosure".to_string()],
+                    limitations: vec![],
+                },
+            );
+
+            assert!(is_license_restrictive(
+                &Some("TEST-LICENSE".to_string()),
+                &known_licenses
+            ));
+            assert!(!is_license_restrictive(
+                &Some("OTHER-LICENSE".to_string()),
+                &known_licenses
+            ));
+        });
+    }
 
     #[test]
     fn test_extract_license_from_html() {
