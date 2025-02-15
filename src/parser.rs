@@ -94,43 +94,46 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
     let project_path = &root.path;
     let project_type = root.project_type;
 
-    cli::with_spinner("🔎", || match project_type {
-        ProjectType::Rust => {
-            let project_path = Path::new(project_path).join("Cargo.toml");
-            let metadata = MetadataCommand::new()
-                .manifest_path(Path::new(&project_path))
-                .exec()
-                .expect("Failed to fetch cargo metadata");
+    cli::with_spinner(
+        &format!("🔎: {}", project_path.display()),
+        || match project_type {
+            ProjectType::Rust => {
+                let project_path = Path::new(project_path).join("Cargo.toml");
+                let metadata = MetadataCommand::new()
+                    .manifest_path(Path::new(&project_path))
+                    .exec()
+                    .expect("Failed to fetch cargo metadata");
 
-            analyze_rust_licenses(metadata.packages)
-        }
-        ProjectType::Node => {
-            let project_path = Path::new(project_path).join("package.json");
-            analyze_js_licenses(
-                project_path
-                    .to_str()
-                    .expect("Failed to convert path to string"),
-            )
-        }
-        ProjectType::Go => {
-            let project_path = Path::new(project_path).join("go.mod");
-            analyze_go_licenses(
-                project_path
-                    .to_str()
-                    .expect("Failed to convert path to string"),
-            )
-        }
-        ProjectType::Python => {
-            let python_package_file = check_which_python_file_exists(project_path)
-                .expect("Python package file not found");
-            let project_path = Path::new(project_path).join(python_package_file);
-            analyze_python_licenses(
-                project_path
-                    .to_str()
-                    .expect("Failed to convert path to string"),
-            )
-        }
-    })
+                analyze_rust_licenses(metadata.packages)
+            }
+            ProjectType::Node => {
+                let project_path = Path::new(project_path).join("package.json");
+                analyze_js_licenses(
+                    project_path
+                        .to_str()
+                        .expect("Failed to convert path to string"),
+                )
+            }
+            ProjectType::Go => {
+                let project_path = Path::new(project_path).join("go.mod");
+                analyze_go_licenses(
+                    project_path
+                        .to_str()
+                        .expect("Failed to convert path to string"),
+                )
+            }
+            ProjectType::Python => {
+                let python_package_file = check_which_python_file_exists(project_path)
+                    .expect("Python package file not found");
+                let project_path = Path::new(project_path).join(python_package_file);
+                analyze_python_licenses(
+                    project_path
+                        .to_str()
+                        .expect("Failed to convert path to string"),
+                )
+            }
+        },
+    )
 }
 
 // Tests
