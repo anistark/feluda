@@ -23,7 +23,14 @@
 - [x] [Rust](https://www.rust-lang.org/)
 - [x] [NodeJs](https://nodejs.org/)
 - [x] [Go](https://go.dev/)
-- [ ] [Python](https://www.python.org/)
+- [x] [Python](https://www.python.org/)
+
+Feluda supports analyzing dependencies across multiple languages simultaneously. You can also filter the analysis to a specific language using the `--language` flag.
+
+
+```sh
+feluda --language {rust|node|go|python}
+```
 
 _If your fav language or framework isn't supported, feel free to open an feature request issue! 👋_
 

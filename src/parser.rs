@@ -9,22 +9,22 @@ use crate::licenses::{
 };
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum Ecosystem {
+pub enum Language {
     Rust(&'static str),
     Node(&'static str),
     Go(&'static str),
     Python(&'static [&'static str]),
 }
 
-impl Ecosystem {
+impl Language {
     fn from_file_name(file_name: &str) -> Option<Self> {
         match file_name {
-            "Cargo.toml" => Some(Ecosystem::Rust("Cargo.toml")),
-            "package.json" => Some(Ecosystem::Node("package.json")),
-            "go.mod" => Some(Ecosystem::Go("go.mod")),
+            "Cargo.toml" => Some(Language::Rust("Cargo.toml")),
+            "package.json" => Some(Language::Node("package.json")),
+            "go.mod" => Some(Language::Go("go.mod")),
             _ => {
                 if PYTHON_PATHS.contains(&file_name) {
-                    Some(Ecosystem::Python(&PYTHON_PATHS[..]))
+                    Some(Language::Python(&PYTHON_PATHS[..]))
                 } else {
                     None
                 }
@@ -38,7 +38,7 @@ const PYTHON_PATHS: [&str; 3] = ["requirements.txt", "Pipfile.lock", "pip_freeze
 #[derive(Debug)]
 struct ProjectRoot {
     pub path: PathBuf,
-    pub project_type: Ecosystem,
+    pub project_type: Language,
 }
 
 /// Walk through a directory and find all project-related roots
@@ -58,7 +58,7 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> Vec<ProjectRoot> {
             let parent_path = path.parent();
 
             if let Some(parent) = parent_path {
-                if let Some(project_type) = Ecosystem::from_file_name(file_name) {
+                if let Some(project_type) = Language::from_file_name(file_name) {
                     project_roots.push(ProjectRoot {
                         path: parent.to_path_buf(),
                         project_type,
@@ -78,14 +78,14 @@ fn check_which_python_file_exists(project_path: impl AsRef<Path>) -> Option<Stri
         .map(|&path| path.to_string())
 }
 
-pub fn parse_root(root_path: impl AsRef<Path>, ecosystem: Option<&str>) -> Vec<LicenseInfo> {
+pub fn parse_root(root_path: impl AsRef<Path>, language: Option<&str>) -> Vec<LicenseInfo> {
     let project_roots = find_project_roots(root_path);
 
     let mut licenses = Vec::new();
 
     for root in project_roots {
-        if let Some(ecosystem) = ecosystem {
-            if !matches_ecosystem(root.project_type, ecosystem) {
+        if let Some(language) = language {
+            if !matches_language(root.project_type, language) {
                 continue;
             }
         }
@@ -95,12 +95,12 @@ pub fn parse_root(root_path: impl AsRef<Path>, ecosystem: Option<&str>) -> Vec<L
     licenses
 }
 
-fn matches_ecosystem(project_type: Ecosystem, ecosystem: &str) -> bool {
-    match (project_type, ecosystem.to_lowercase().as_str()) {
-        (Ecosystem::Rust(_), "rust") => true,
-        (Ecosystem::Node(_), "node") => true,
-        (Ecosystem::Go(_), "go") => true,
-        (Ecosystem::Python(_), "python") => true,
+fn matches_language(project_type: Language, language: &str) -> bool {
+    match (project_type, language.to_lowercase().as_str()) {
+        (Language::Rust(_), "rust") => true,
+        (Language::Node(_), "node") => true,
+        (Language::Go(_), "go") => true,
+        (Language::Python(_), "python") => true,
         _ => false,
     }
 }
@@ -112,7 +112,7 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
     cli::with_spinner(
         &format!("🔎: {}", project_path.display()),
         || match project_type {
-            Ecosystem::Rust(_) => {
+            Language::Rust(_) => {
                 let project_path = Path::new(project_path).join("Cargo.toml");
                 let metadata = MetadataCommand::new()
                     .manifest_path(Path::new(&project_path))
@@ -121,7 +121,7 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
 
                 analyze_rust_licenses(metadata.packages)
             }
-            Ecosystem::Node(_) => {
+            Language::Node(_) => {
                 let project_path = Path::new(project_path).join("package.json");
                 analyze_js_licenses(
                     project_path
@@ -129,7 +129,7 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
                         .expect("Failed to convert path to string"),
                 )
             }
-            Ecosystem::Go(_) => {
+            Language::Go(_) => {
                 let project_path = Path::new(project_path).join("go.mod");
                 analyze_go_licenses(
                     project_path
@@ -137,7 +137,7 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
                         .expect("Failed to convert path to string"),
                 )
             }
-            Ecosystem::Python(_) => {
+            Language::Python(_) => {
                 let python_package_file = check_which_python_file_exists(project_path)
                     .expect("Python package file not found");
                 let project_path = Path::new(project_path).join(python_package_file);
@@ -194,7 +194,7 @@ mod tests {
 
         let result = parse_dependencies(&ProjectRoot {
             path: temp_dir.path().to_path_buf(),
-            project_type: Ecosystem::Node("package.json"),
+            project_type: Language::Node("package.json"),
         });
         assert!(result.is_empty());
     }
@@ -207,7 +207,7 @@ mod tests {
 
         let result = parse_dependencies(&ProjectRoot {
             path: temp_dir.path().to_path_buf(),
-            project_type: Ecosystem::Go("go.mod"),
+            project_type: Language::Go("go.mod"),
         });
         assert!(result.is_empty());
     }
@@ -250,8 +250,8 @@ mod tests {
 
         // Verify each project type is found
         let file_types: Vec<_> = files.iter().map(|f| f.project_type).collect();
-        assert!(file_types.contains(&Ecosystem::Rust("Cargo.toml")));
-        assert!(file_types.contains(&Ecosystem::Node("package.json")));
-        assert!(file_types.contains(&Ecosystem::Python(&PYTHON_PATHS)));
+        assert!(file_types.contains(&Language::Rust("Cargo.toml")));
+        assert!(file_types.contains(&Language::Node("package.json")));
+        assert!(file_types.contains(&Language::Python(&PYTHON_PATHS)));
     }
 }

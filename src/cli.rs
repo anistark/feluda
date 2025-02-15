@@ -37,9 +37,9 @@ pub struct Cli {
     #[arg(long)]
     pub debug: bool,
 
-    /// Specify the package ecosystem to scan
+    /// Specify the language to scan
     #[arg(long)]
-    pub ecosystem: Option<String>,
+    pub language: Option<String>,
 }
 
 pub fn clear_last_line() {
