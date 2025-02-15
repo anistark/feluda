@@ -32,6 +32,7 @@ colored = "3.0.0"
 rayon = "1.10.0"
 figment = { version = "0.10", features = ["toml", "env"] }
 ignore = "0.4.23"
+toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3.2"

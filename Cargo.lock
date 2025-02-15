@@ -539,6 +539,7 @@ dependencies = [
  "spinners",
  "temp-env",
  "tempfile",
+ "toml",
  "unicode-width 0.2.0",
 ]
 

@@ -33,7 +33,12 @@ impl Language {
     }
 }
 
-const PYTHON_PATHS: [&str; 3] = ["requirements.txt", "Pipfile.lock", "pip_freeze.txt"];
+const PYTHON_PATHS: [&str; 4] = [
+    "requirements.txt",
+    "Pipfile.lock",
+    "pip_freeze.txt",
+    "pyproject.toml",
+];
 
 #[derive(Debug)]
 struct ProjectRoot {
@@ -253,5 +258,22 @@ mod tests {
         assert!(file_types.contains(&Language::Rust("Cargo.toml")));
         assert!(file_types.contains(&Language::Node("package.json")));
         assert!(file_types.contains(&Language::Python(&PYTHON_PATHS)));
+    }
+
+    #[test]
+    fn test_parse_dependencies_python() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let pyproject_toml_path = temp_dir.path().join("pyproject.toml");
+        fs::write(
+            &pyproject_toml_path,
+            "[project]\nname = \"test\"\nversion = \"0.1.0\"\n\n[project.dependencies]\nrequests = \"^2.31.0\"",
+        )
+        .unwrap();
+
+        let result = parse_dependencies(&ProjectRoot {
+            path: temp_dir.path().to_path_buf(),
+            project_type: Language::Python(&PYTHON_PATHS),
+        });
+        assert!(!result.is_empty());
     }
 }

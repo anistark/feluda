@@ -8,6 +8,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::process::Command;
+use toml::Value as TomlValue;
 
 use crate::config;
 
@@ -97,28 +98,60 @@ impl PackageJson {
 }
 
 /// Analyze the licenses of Python dependencies
-pub fn analyze_python_licenses(requirements_txt_path: &str) -> Vec<LicenseInfo> {
-    let file = File::open(requirements_txt_path).expect("Failed to open requirements.txt file");
-    let reader = io::BufReader::new(file);
-
+pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
     let mut licenses = Vec::new();
-
     let known_licenses = fetch_licenses_from_github();
-    for line in reader.lines() {
-        let line = line.expect("Failed to read line");
-        let parts: Vec<&str> = line.split("==").collect();
-        if parts.len() >= 2 {
-            let name = parts[0].to_string();
-            let version = parts[1].to_string();
-            let license = Some(fetch_license_for_python_dependency(&name, &version));
-            let is_restrictive = is_license_restrictive(&license, &known_licenses);
 
-            licenses.push(LicenseInfo {
-                name,
-                version,
-                license,
-                is_restrictive,
-            });
+    // Check if it's a pyproject.toml file
+    if package_file_path.ends_with("pyproject.toml") {
+        let content =
+            fs::read_to_string(package_file_path).expect("Failed to read pyproject.toml file");
+        let config: TomlValue = toml::from_str(&content).expect("Failed to parse pyproject.toml");
+
+        if let Some(project) = config.as_table().and_then(|t| t.get("project")) {
+            if let Some(deps) = project
+                .as_table()
+                .and_then(|t| t.get("dependencies"))
+                .and_then(|d| d.as_table())
+            {
+                for (name, version_value) in deps.iter() {
+                    let version = match version_value.as_str() {
+                        Some(v) => v.trim_matches('"').replace("^", "").replace("~", ""),
+                        None => "latest".to_string(),
+                    };
+                    let license = Some(fetch_license_for_python_dependency(name, &version));
+                    let is_restrictive = is_license_restrictive(&license, &known_licenses);
+
+                    licenses.push(LicenseInfo {
+                        name: name.to_string(),
+                        version,
+                        license,
+                        is_restrictive,
+                    });
+                }
+            }
+        }
+    } else {
+        // Handle requirements.txt format
+        let file = File::open(package_file_path).expect("Failed to open requirements.txt file");
+        let reader = io::BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line.expect("Failed to read line");
+            let parts: Vec<&str> = line.split("==").collect();
+            if parts.len() >= 2 {
+                let name = parts[0].to_string();
+                let version = parts[1].to_string();
+                let license = Some(fetch_license_for_python_dependency(&name, &version));
+                let is_restrictive = is_license_restrictive(&license, &known_licenses);
+
+                licenses.push(LicenseInfo {
+                    name,
+                    version,
+                    license,
+                    is_restrictive,
+                });
+            }
         }
     }
 
@@ -570,5 +603,28 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
 
         let license = fetch_license_for_python_dependency("requests", "2.25.1");
         assert_eq!(license, "Apache 2.0");
+    }
+
+    #[test]
+    fn test_analyze_python_licenses_pyproject_toml() {
+        let temp_dir = setup();
+        let pyproject_toml_path = temp_dir.path().join("pyproject.toml");
+        fs::write(
+            &pyproject_toml_path,
+            r#"[project]
+name = "test-project"
+version = "0.1.0"
+
+[project.dependencies]
+requests = "^2.31.0"
+flask = "~2.0.0"
+"#,
+        )
+        .unwrap();
+
+        let result = analyze_python_licenses(pyproject_toml_path.to_str().unwrap());
+        assert!(!result.is_empty());
+        assert!(result.iter().any(|info| info.name == "requests"));
+        assert!(result.iter().any(|info| info.name == "flask"));
     }
 }
