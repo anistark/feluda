@@ -7,7 +7,7 @@ mod table;
 
 use clap::Parser;
 use cli::Cli;
-use parser::parse_dependencies;
+use parser::parse_root;
 use reporter::generate_report;
 use std::error::Error;
 use table::App;
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.debug {
         cli::set_debug_mode(true);
     }
-    let analyzed_data = parse_dependencies(&args.path);
+    let analyzed_data = parse_root(&args.path);
     if args.gui {
         color_eyre::install()?;
         let terminal = ratatui::init();

@@ -31,6 +31,7 @@ serde_yaml = "0.9.34"
 colored = "3.0.0"
 rayon = "1.10.0"
 figment = { version = "0.10", features = ["toml", "env"] }
+ignore = "0.4.23"
 
 [dev-dependencies]
 tempfile = "3.2"
