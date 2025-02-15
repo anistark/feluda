@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.debug {
         cli::set_debug_mode(true);
     }
-    let analyzed_data = parse_root(&args.path);
+    let analyzed_data = parse_root(&args.path, args.ecosystem.as_deref());
     if args.gui {
         color_eyre::install()?;
         let terminal = ratatui::init();

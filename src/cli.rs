@@ -1,6 +1,6 @@
-use clap::{Parser, ArgGroup};
-use std::io::{self, Write};
+use clap::{ArgGroup, Parser};
 use spinners::{Spinner, Spinners};
+use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
@@ -36,6 +36,10 @@ pub struct Cli {
     /// Enable debug mode
     #[arg(long)]
     pub debug: bool,
+
+    /// Specify the package ecosystem to scan
+    #[arg(long)]
+    pub ecosystem: Option<String>,
 }
 
 pub fn clear_last_line() {
@@ -43,9 +47,9 @@ pub fn clear_last_line() {
     io::stdout().flush().unwrap();
 }
 
-pub fn with_spinner<F, T>(message: &str, f: F) -> T 
+pub fn with_spinner<F, T>(message: &str, f: F) -> T
 where
-    F: FnOnce() -> T
+    F: FnOnce() -> T,
 {
     if DEBUG_MODE.load(Ordering::Relaxed) {
         f()

@@ -9,11 +9,28 @@ use crate::licenses::{
 };
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum ProjectType {
-    Rust,
-    Node,
-    Go,
-    Python,
+pub enum Ecosystem {
+    Rust(&'static str),
+    Node(&'static str),
+    Go(&'static str),
+    Python(&'static [&'static str]),
+}
+
+impl Ecosystem {
+    fn from_file_name(file_name: &str) -> Option<Self> {
+        match file_name {
+            "Cargo.toml" => Some(Ecosystem::Rust("Cargo.toml")),
+            "package.json" => Some(Ecosystem::Node("package.json")),
+            "go.mod" => Some(Ecosystem::Go("go.mod")),
+            _ => {
+                if PYTHON_PATHS.contains(&file_name) {
+                    Some(Ecosystem::Python(&PYTHON_PATHS[..]))
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 const PYTHON_PATHS: [&str; 3] = ["requirements.txt", "Pipfile.lock", "pip_freeze.txt"];
@@ -21,7 +38,7 @@ const PYTHON_PATHS: [&str; 3] = ["requirements.txt", "Pipfile.lock", "pip_freeze
 #[derive(Debug)]
 struct ProjectRoot {
     pub path: PathBuf,
-    pub project_type: ProjectType,
+    pub project_type: Ecosystem,
 }
 
 /// Walk through a directory and find all project-related roots
@@ -32,7 +49,6 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> Vec<ProjectRoot> {
 
     for result in Walk::new(root_path) {
         if let Ok(entry) = result {
-            // Skip if it's not a file
             if !entry.file_type().map_or(false, |ft| ft.is_file()) {
                 continue;
             }
@@ -42,27 +58,11 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> Vec<ProjectRoot> {
             let parent_path = path.parent();
 
             if let Some(parent) = parent_path {
-                match file_name {
-                    "Cargo.toml" => project_roots.push(ProjectRoot {
+                if let Some(project_type) = Ecosystem::from_file_name(file_name) {
+                    project_roots.push(ProjectRoot {
                         path: parent.to_path_buf(),
-                        project_type: ProjectType::Rust,
-                    }),
-                    "package.json" => project_roots.push(ProjectRoot {
-                        path: parent.to_path_buf(),
-                        project_type: ProjectType::Node,
-                    }),
-                    "go.mod" => project_roots.push(ProjectRoot {
-                        path: parent.to_path_buf(),
-                        project_type: ProjectType::Go,
-                    }),
-                    _ => {
-                        if PYTHON_PATHS.contains(&file_name) {
-                            project_roots.push(ProjectRoot {
-                                path: parent.to_path_buf(),
-                                project_type: ProjectType::Python,
-                            });
-                        }
-                    }
+                        project_type,
+                    });
                 }
             }
         }
@@ -78,16 +78,31 @@ fn check_which_python_file_exists(project_path: impl AsRef<Path>) -> Option<Stri
         .map(|&path| path.to_string())
 }
 
-pub fn parse_root(root_path: impl AsRef<Path>) -> Vec<LicenseInfo> {
+pub fn parse_root(root_path: impl AsRef<Path>, ecosystem: Option<&str>) -> Vec<LicenseInfo> {
     let project_roots = find_project_roots(root_path);
 
     let mut licenses = Vec::new();
 
     for root in project_roots {
+        if let Some(ecosystem) = ecosystem {
+            if !matches_ecosystem(root.project_type, ecosystem) {
+                continue;
+            }
+        }
         licenses.extend(parse_dependencies(&root));
     }
 
     licenses
+}
+
+fn matches_ecosystem(project_type: Ecosystem, ecosystem: &str) -> bool {
+    match (project_type, ecosystem.to_lowercase().as_str()) {
+        (Ecosystem::Rust(_), "rust") => true,
+        (Ecosystem::Node(_), "node") => true,
+        (Ecosystem::Go(_), "go") => true,
+        (Ecosystem::Python(_), "python") => true,
+        _ => false,
+    }
 }
 
 fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
@@ -97,7 +112,7 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
     cli::with_spinner(
         &format!("🔎: {}", project_path.display()),
         || match project_type {
-            ProjectType::Rust => {
+            Ecosystem::Rust(_) => {
                 let project_path = Path::new(project_path).join("Cargo.toml");
                 let metadata = MetadataCommand::new()
                     .manifest_path(Path::new(&project_path))
@@ -106,7 +121,7 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
 
                 analyze_rust_licenses(metadata.packages)
             }
-            ProjectType::Node => {
+            Ecosystem::Node(_) => {
                 let project_path = Path::new(project_path).join("package.json");
                 analyze_js_licenses(
                     project_path
@@ -114,7 +129,7 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
                         .expect("Failed to convert path to string"),
                 )
             }
-            ProjectType::Go => {
+            Ecosystem::Go(_) => {
                 let project_path = Path::new(project_path).join("go.mod");
                 analyze_go_licenses(
                     project_path
@@ -122,7 +137,7 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
                         .expect("Failed to convert path to string"),
                 )
             }
-            ProjectType::Python => {
+            Ecosystem::Python(_) => {
                 let python_package_file = check_which_python_file_exists(project_path)
                     .expect("Python package file not found");
                 let project_path = Path::new(project_path).join(python_package_file);
@@ -179,7 +194,7 @@ mod tests {
 
         let result = parse_dependencies(&ProjectRoot {
             path: temp_dir.path().to_path_buf(),
-            project_type: ProjectType::Node,
+            project_type: Ecosystem::Node("package.json"),
         });
         assert!(result.is_empty());
     }
@@ -192,7 +207,7 @@ mod tests {
 
         let result = parse_dependencies(&ProjectRoot {
             path: temp_dir.path().to_path_buf(),
-            project_type: ProjectType::Go,
+            project_type: Ecosystem::Go("go.mod"),
         });
         assert!(result.is_empty());
     }
@@ -235,8 +250,8 @@ mod tests {
 
         // Verify each project type is found
         let file_types: Vec<_> = files.iter().map(|f| f.project_type).collect();
-        assert!(file_types.contains(&ProjectType::Rust));
-        assert!(file_types.contains(&ProjectType::Node));
-        assert!(file_types.contains(&ProjectType::Python));
+        assert!(file_types.contains(&Ecosystem::Rust("Cargo.toml")));
+        assert!(file_types.contains(&Ecosystem::Node("package.json")));
+        assert!(file_types.contains(&Ecosystem::Python(&PYTHON_PATHS)));
     }
 }
