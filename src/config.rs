@@ -37,6 +37,7 @@ use serde::{Deserialize, Serialize};
 
 /// Main configuration structure for Feluda
 #[derive(Debug, Deserialize, Serialize)]
+#[derive(Default)]
 pub struct FeludaConfig {
     #[serde(default)]
     pub licenses: LicenseConfig,
@@ -68,13 +69,6 @@ impl Default for LicenseConfig {
     }
 }
 
-impl Default for FeludaConfig {
-    fn default() -> Self {
-        Self {
-            licenses: LicenseConfig::default(),
-        }
-    }
-}
 
 /// Returns the default list of restrictive licenses
 fn default_restrictive_licenses() -> Vec<String> {

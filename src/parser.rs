@@ -52,23 +52,21 @@ struct ProjectRoot {
 fn find_project_roots(root_path: impl AsRef<Path>) -> Vec<ProjectRoot> {
     let mut project_roots = Vec::new();
 
-    for result in Walk::new(root_path) {
-        if let Ok(entry) = result {
-            if !entry.file_type().map_or(false, |ft| ft.is_file()) {
-                continue;
-            }
+    for entry in Walk::new(root_path).flatten() {
+        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+            continue;
+        }
 
-            let path = entry.path();
-            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let parent_path = path.parent();
+        let path = entry.path();
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let parent_path = path.parent();
 
-            if let Some(parent) = parent_path {
-                if let Some(project_type) = Language::from_file_name(file_name) {
-                    project_roots.push(ProjectRoot {
-                        path: parent.to_path_buf(),
-                        project_type,
-                    });
-                }
+        if let Some(parent) = parent_path {
+            if let Some(project_type) = Language::from_file_name(file_name) {
+                project_roots.push(ProjectRoot {
+                    path: parent.to_path_buf(),
+                    project_type,
+                });
             }
         }
     }
