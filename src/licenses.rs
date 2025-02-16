@@ -85,14 +85,8 @@ struct PackageJson {
 impl PackageJson {
     fn get_all_dependencies(self) -> HashMap<String, String> {
         let mut all_dependencies: HashMap<String, String> = HashMap::new();
-        match self.dev_dependencies {
-            Some(deps) => all_dependencies.extend(deps),
-            None => (),
-        };
-        match self.dependencies {
-            Some(deps) => all_dependencies.extend(deps),
-            None => (),
-        };
+        if let Some(deps) = self.dev_dependencies { all_dependencies.extend(deps) };
+        if let Some(deps) = self.dependencies { all_dependencies.extend(deps) };
         all_dependencies
     }
 }
