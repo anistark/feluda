@@ -1,5 +1,6 @@
 use cargo_metadata::Package;
 use rayon::prelude::*;
+use regex::Regex;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -195,45 +196,55 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
         .collect()
 }
 
+// Structure to hold license details for Go
+#[derive(Debug)]
+pub struct GoPackages {
+    name: String,
+    version: String,
+}
+
 /// Analyze the licenses of Go dependencies
+/// TODO: The return should be Result<Vec<LicenseInfo>>
 pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
-    let file = File::open(go_mod_path).expect("Failed to open go.mod file");
-    let reader = io::BufReader::new(file);
-
-    let mut licenses = Vec::new();
-    let mut in_require_block = false;
-
     let known_licenses = fetch_licenses_from_github();
-
-    for line in reader.lines() {
-        let line = line.expect("Failed to read line");
-        if line.starts_with("require (") {
-            in_require_block = true;
-            continue;
-        } else if line.starts_with(")") {
-            in_require_block = false;
-            continue;
-        }
-        if in_require_block || line.starts_with("require") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let name = parts[0].to_string();
-                let version = parts[1].to_string();
-                let license = Some(fetch_license_for_go_dependency(&name, &version));
-                // println!("{}: {}", name, license.as_ref().unwrap());
-                let is_restrictive = is_license_restrictive(&license, &known_licenses);
-
-                licenses.push(LicenseInfo {
-                    name,
-                    version,
-                    license,
-                    is_restrictive,
-                });
+    let content = fs::read_to_string(go_mod_path).expect("Failed to load file");
+    let dependencies = get_go_dependencies(content);
+    dependencies
+        .par_iter()
+        .map(|dependency| -> LicenseInfo {
+            let name = dependency.name.clone();
+            let version = dependency.version.clone();
+            let license = Some(fetch_license_for_go_dependency(
+                name.as_str(),
+                version.as_str(),
+            ));
+            // println!("{}: {}", name, license.as_ref().unwrap());
+            let is_restrictive = is_license_restrictive(&license, &known_licenses);
+            LicenseInfo {
+                name,
+                version,
+                license,
+                is_restrictive,
             }
+        })
+        .collect()
+}
+
+pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
+    let re =
+        Regex::new(r"require\s*\(\s*((?:[\w./-]+\s+v[\d]+(?:\.\d+)*(?:-\S+)?\s*)+)\)").unwrap();
+    let mut dependency = vec![];
+    for cap in re.captures_iter(content_string.as_str()) {
+        let dependency_block = &cap[1];
+        let re_dependency = Regex::new(r"([\w./-]+)\s+(v[\d]+(?:\.\d+)*(?:-\S+)?)").unwrap();
+        for dep_cap in re_dependency.captures_iter(dependency_block) {
+            dependency.push(GoPackages {
+                name: dep_cap[1].to_string(),
+                version: dep_cap[2].to_string(),
+            });
         }
     }
-
-    licenses
+    dependency
 }
 
 /// Fetch the license for a Python dependency from the Python Package Index (PyPI)
