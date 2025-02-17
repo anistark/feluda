@@ -52,23 +52,21 @@ struct ProjectRoot {
 fn find_project_roots(root_path: impl AsRef<Path>) -> Vec<ProjectRoot> {
     let mut project_roots = Vec::new();
 
-    for result in Walk::new(root_path) {
-        if let Ok(entry) = result {
-            if !entry.file_type().map_or(false, |ft| ft.is_file()) {
-                continue;
-            }
+    for entry in Walk::new(root_path).flatten() {
+        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+            continue;
+        }
 
-            let path = entry.path();
-            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let parent_path = path.parent();
+        let path = entry.path();
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let parent_path = path.parent();
 
-            if let Some(parent) = parent_path {
-                if let Some(project_type) = Language::from_file_name(file_name) {
-                    project_roots.push(ProjectRoot {
-                        path: parent.to_path_buf(),
-                        project_type,
-                    });
-                }
+        if let Some(parent) = parent_path {
+            if let Some(project_type) = Language::from_file_name(file_name) {
+                project_roots.push(ProjectRoot {
+                    path: parent.to_path_buf(),
+                    project_type,
+                });
             }
         }
     }
@@ -159,6 +157,8 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
 // Tests
 #[cfg(test)]
 mod tests {
+    use crate::licenses::get_go_dependencies;
+
     use super::*;
     use std::fs;
 
@@ -208,13 +208,31 @@ mod tests {
     fn test_parse_dependencies_go() {
         let temp_dir = tempfile::tempdir().unwrap();
         let go_mod_path = temp_dir.path().join("go.mod");
-        fs::write(&go_mod_path, "").unwrap();
+        let dependencies = r#"require (
+    github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.2.0
+    github.com/Microsoft/go-winio v0.6.2
+    github.com/VictoriaMetrics/fastcache v1.12.2
+    github.com/aws/aws-sdk-go-v2 v1.21.2
+    github.com/aws/aws-sdk-go-v2/config v1.18.45
+    github.com/aws/aws-sdk-go-v2/credentials v1.13.43
+    github.com/aws/aws-sdk-go-v2/service/route53 v1.30.2
+    github.com/cespare/cp v0.1.0
+    github.com/cloudflare/cloudflare-go v0.79.0
+    github.com/cockroachdb/pebble v1.1.2
+    github.com/consensys/gnark-crypto v0.14.0
+    github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a
+    github.com/crate-crypto/go-kzg-4844 v1.1.0
+    github.com/davecgh/go-spew v1.1.1
+)"#;
+        fs::write(&go_mod_path, dependencies).unwrap();
 
         let result = parse_dependencies(&ProjectRoot {
             path: temp_dir.path().to_path_buf(),
             project_type: Language::Go("go.mod"),
         });
-        assert!(result.is_empty());
+        let parsed = get_go_dependencies(dependencies.to_string());
+        assert!(parsed.len() == 14);
+        assert!(result.len() == parsed.len());
     }
 
     #[test]
