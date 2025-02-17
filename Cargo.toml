@@ -33,6 +33,7 @@ rayon = "1.10.0"
 figment = { version = "0.10", features = ["toml", "env"] }
 ignore = "0.4.23"
 toml = "0.8"
+regex = "1.11.1"
 
 [dev-dependencies]
 tempfile = "3.2"
