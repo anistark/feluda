@@ -86,8 +86,12 @@ struct PackageJson {
 impl PackageJson {
     fn get_all_dependencies(self) -> HashMap<String, String> {
         let mut all_dependencies: HashMap<String, String> = HashMap::new();
-        if let Some(deps) = self.dev_dependencies { all_dependencies.extend(deps) };
-        if let Some(deps) = self.dependencies { all_dependencies.extend(deps) };
+        if let Some(deps) = self.dev_dependencies {
+            all_dependencies.extend(deps)
+        };
+        if let Some(deps) = self.dependencies {
+            all_dependencies.extend(deps)
+        };
         all_dependencies
     }
 }
@@ -231,12 +235,17 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
 }
 
 pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
-    let re =
-        Regex::new(r"require\s*\(\s*((?:[\w./-]+\s+v[\d]+(?:\.\d+)*(?:-\S+)?\s*)+)\)").unwrap();
+    let re_comment = Regex::new(r"(?m)^(.*?)\s*(//|#).*?$").unwrap(); // Matches comments after dependencies
+    let cleaned = re_comment.replace_all(content_string.as_str(), "$1"); // Removes everything after // or #
+    let re = Regex::new(
+        r"require\s*(?:\(\s*)?((?:[\w./-]+\s+v[\d][\w\d.-]+(?:-\w+)?(?:\+\w+)?\s*)+)\)?",
+    )
+    .unwrap();
+    let re_dependency = Regex::new(r"([\w./-]+)\s+(v[\d]+(?:\.\d+)*(?:-\S+)?)").unwrap();
+
     let mut dependency = vec![];
-    for cap in re.captures_iter(content_string.as_str()) {
+    for cap in re.captures_iter(&cleaned) {
         let dependency_block = &cap[1];
-        let re_dependency = Regex::new(r"([\w./-]+)\s+(v[\d]+(?:\.\d+)*(?:-\S+)?)").unwrap();
         for dep_cap in re_dependency.captures_iter(dependency_block) {
             dependency.push(GoPackages {
                 name: dep_cap[1].to_string(),

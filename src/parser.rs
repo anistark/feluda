@@ -53,7 +53,7 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> Vec<ProjectRoot> {
     let mut project_roots = Vec::new();
 
     for entry in Walk::new(root_path).flatten() {
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
 
@@ -217,13 +217,20 @@ mod tests {
     github.com/aws/aws-sdk-go-v2/credentials v1.13.43
     github.com/aws/aws-sdk-go-v2/service/route53 v1.30.2
     github.com/cespare/cp v0.1.0
-    github.com/cloudflare/cloudflare-go v0.79.0
-    github.com/cockroachdb/pebble v1.1.2
-    github.com/consensys/gnark-crypto v0.14.0
-    github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a
+    github.com/cloudflare/cloudflare-go v0.79.0 //indirect
+    github.com/cockroachdb/pebble v1.1.2 //indirect
     github.com/crate-crypto/go-kzg-4844 v1.1.0
-    github.com/davecgh/go-spew v1.1.1
-)"#;
+    github.com/davecgh/go-spew v1.1.1 # Another comment
+    github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a
+    github.com/consensys/gnark-crypto v0.14.0
+    github.com/go-sourcemap/sourcemap v2.1.3+incompatible // Check the version
+)
+
+require example.com/theirmodule v1.3.4
+
+require (github.com/some/module v1.0.0)
+require (github.com/another/module v2.3.4)
+require (github.com/mixed-case/Module v3.5.7-beta)"#;
         fs::write(&go_mod_path, dependencies).unwrap();
 
         let result = parse_dependencies(&ProjectRoot {
@@ -231,7 +238,7 @@ mod tests {
             project_type: Language::Go("go.mod"),
         });
         let parsed = get_go_dependencies(dependencies.to_string());
-        assert!(parsed.len() == 14);
+        assert!(parsed.len() == 19);
         assert!(result.len() == parsed.len());
     }
 
