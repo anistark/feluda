@@ -159,6 +159,11 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
 
 /// Analyze the licenses of JavaScript dependencies
 pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
+    #[cfg(windows)]
+    const NPM: &str = "npm.cmd";
+    #[cfg(not(windows))]
+    const NPM: &str = "npm";
+
     let content = fs::read_to_string(package_json_path).expect("Failed to read package.json file");
     let package_json: PackageJson =
         serde_json::from_str(&content).expect("Failed to parse package.json");
@@ -168,7 +173,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     all_dependencies
         .par_iter()
         .map(|(name, version)| {
-            let output = Command::new("npm")
+            let output = Command::new(NPM)
                 .arg("view")
                 .arg(name)
                 .arg("version")
