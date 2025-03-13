@@ -10,6 +10,9 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::process::Command;
 use toml::Value as TomlValue;
+use reqwest::blocking::Client;
+use std::time::Duration;
+use std::thread::sleep;
 
 use crate::config;
 
@@ -297,48 +300,73 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
 
 /// Fetch the license for a Go dependency from the Go Package Index (pkg.go.dev)
 pub fn fetch_license_for_go_dependency(name: &str, _version: &str) -> String {
-    // Format the URL for the Go package metadata
-    let api_url = format!("https://pkg.go.dev/{}/", name);
 
-    // Make a GET request to fetch the metadata
-    match reqwest::blocking::get(&api_url) {
-        Ok(response) => {
-            if response.status().is_success() {
-                // Parse the HTML to extract license information
-                if let Ok(html_content) = response.text() {
-                    if let Some(license) = extract_license_from_html(&html_content) {
-                        return license;
-                    }
+    let api_url = format!("https://pkg.go.dev/{}?tab=licenses", name);
+    let client = Client::builder()
+        .user_agent("feluda.anirudha.dev/1")
+        .connect_timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("Failed to build client");
+
+    let mut attempts = 0;
+    let max_attempts = 7; // Retry max 7 times. Thala for a reason 🙌
+    let wait_time = 12;
+
+    while attempts < max_attempts {
+        let response = client
+            .get(&api_url)
+            .header("User-Agent", "Mozilla/5.0 (compatible; Feluda-Bot/1.0; +https://github.com/anistark/feluda)")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Referer", "https://pkg.go.dev/")
+            .send();
+
+        match response {
+            Ok(response) => {
+                // println!("HTTP Status: {}", response.status());
+                if response.status().as_u16() == 429 {
+                    // println!("Received 429 Too Many Requests, retrying...");
+                    sleep(Duration::from_secs(wait_time));
+                    attempts += 1;
+                    continue;
                 }
+
+                if response.status().is_success() {
+                    if let Ok(html_content) = response.text() {
+                        if let Some(license) = extract_license_from_html(&html_content) {
+                            return license;
+                        }
+                    }
+                } else {
+                    eprintln!("Unexpected HTTP status: {}", response.status());
+                }
+
+                break;
+            }
+            Err(err) => {
+                eprintln!("Failed to fetch metadata for {}: {}", name, err);
+                break;
             }
         }
-        Err(err) => eprintln!("Failed to fetch metadata for {}: {}", name, err),
     }
 
-    // Default to "Unknown" if license could not be fetched
-    "Unknown".to_string()
+    "Unknown".into()
 }
 
 /// Extract license information from the HTML content
 fn extract_license_from_html(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
-    let span_selector =
-        Selector::parse(r#"span.go-Main-headerDetailItem[data-test-id="UnitHeader-licenses"]"#)
-            .unwrap();
-    let a_selector = Selector::parse(r#"a[data-test-id="UnitHeader-license"]"#).unwrap();
 
-    if let Some(span_element) = document.select(&span_selector).next() {
-        if let Some(a_element) = span_element.select(&a_selector).next() {
-            return Some(
-                a_element
-                    .text()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-                    .trim()
-                    .to_string(),
-            );
+    // Select the <section> with class "License"
+    let section_selector = Selector::parse("section.License").unwrap();
+    let div_selector = Selector::parse("h2.go-textTitle div").unwrap();
+
+    if let Some(section) = document.select(&section_selector).next() {
+        if let Some(div) = section.select(&div_selector).next() {
+            return Some(div.text().collect::<Vec<_>>().join(" ").trim().to_string());
         }
     }
+
     None
 }
 
@@ -545,12 +573,15 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
         let html_content = r#"
             <html>
                 <body>
-                    <span class="go-Main-headerDetailItem" data-test-id="UnitHeader-licenses">
-                        <a data-test-id="UnitHeader-license">MIT</a>
-                    </span>
+                    <section class="License">
+                        <h2 class="go-textTitle">
+                            <div>MIT</div>
+                        </h2>
+                    </section>
                 </body>
             </html>
         "#;
+        
         let license = extract_license_from_html(html_content);
         assert_eq!(license, Some("MIT".to_string()));
     }
