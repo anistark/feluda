@@ -1,6 +1,7 @@
 use cargo_metadata::Package;
 use rayon::prelude::*;
 use regex::Regex;
+use reqwest::blocking::Client;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,10 +10,9 @@ use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::process::Command;
-use toml::Value as TomlValue;
-use reqwest::blocking::Client;
-use std::time::Duration;
 use std::thread::sleep;
+use std::time::Duration;
+use toml::Value as TomlValue;
 
 use crate::config;
 
@@ -299,7 +299,12 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
 }
 
 /// Fetch the license for a Go dependency from the Go Package Index (pkg.go.dev)
-pub fn fetch_license_for_go_dependency(name: &str, _version: &str) -> String {
+pub fn fetch_license_for_go_dependency(
+    name: impl Into<String>,
+    _version: impl Into<String>,
+) -> String {
+    let name = name.into();
+    let _version = _version.into();
 
     let api_url = format!("https://pkg.go.dev/{}?tab=licenses", name);
     let client = Client::builder()
@@ -316,8 +321,14 @@ pub fn fetch_license_for_go_dependency(name: &str, _version: &str) -> String {
     while attempts < max_attempts {
         let response = client
             .get(&api_url)
-            .header("User-Agent", "Mozilla/5.0 (compatible; Feluda-Bot/1.0; +https://github.com/anistark/feluda)")
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (compatible; Feluda-Bot/1.0; +https://github.com/anistark/feluda)",
+            )
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
             .header("Referer", "https://pkg.go.dev/")
             .send();
 
@@ -581,7 +592,7 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
                 </body>
             </html>
         "#;
-        
+
         let license = extract_license_from_html(html_content);
         assert_eq!(license, Some("MIT".to_string()));
     }
@@ -625,7 +636,7 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
             .expect_get()
             .with(eq("https://pkg.go.dev/github.com/stretchr/testify"))
             .returning(|_| {
-                let response = reqwest::blocking::Client::new()
+                let response = Client::new()
                     .get("https://pkg.go.dev/github.com/stretchr/testify")
                     .send()
                     .unwrap();
@@ -644,7 +655,7 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
             .expect_get()
             .with(eq("https://pypi.org/pypi/requests/2.25.1/json"))
             .returning(|_| {
-                let response = reqwest::blocking::Client::new()
+                let response = Client::new()
                     .get("https://pypi.org/pypi/requests/2.25.1/json")
                     .send()
                     .unwrap();
