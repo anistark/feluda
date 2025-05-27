@@ -77,7 +77,6 @@ impl LicenseInfo {
         &self.is_restrictive
     }
 
-    #[allow(dead_code)]
     pub fn compatibility(&self) -> &LicenseCompatibility {
         &self.compatibility
     }

@@ -47,7 +47,7 @@ impl TableFormatter {
         )
     }
 
-    fn render_row(&self, row: &[String], is_restrictive: bool) -> String {
+    fn render_row(&self, row: &[String], is_problematic: bool) -> String {
         let formatted_row = row
             .iter()
             .enumerate()
@@ -61,7 +61,7 @@ impl TableFormatter {
             .collect::<Vec<_>>()
             .join(" │ ");
 
-        if is_restrictive {
+        if is_problematic {
             format!("│ {} │", formatted_row.red().bold())
         } else {
             format!("│ {} │", formatted_row.green())
@@ -228,20 +228,13 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_licen
 
     for (i, row) in rows.iter().enumerate() {
         let is_restrictive = *license_info[i].is_restrictive();
-        // let is_incompatible = license_info[i].compatibility == LicenseCompatibility::Incompatible;
+        let is_incompatible =
+            *license_info[i].compatibility() == LicenseCompatibility::Incompatible;
 
-        // let style_fn = || {
-        //     let row_text = row.join(" │ ");
-        //     if is_incompatible {
-        //         row_text.red()
-        //     } else if is_restrictive {
-        //         row_text.yellow()
-        //     } else {
-        //         row_text.green()
-        //     }
-        // };
-
-        println!("{}", formatter.render_row(row, is_restrictive));
+        println!(
+            "{}",
+            formatter.render_row(row, is_restrictive || is_incompatible)
+        );
     }
 
     println!("{}\n", formatter.render_footer());
