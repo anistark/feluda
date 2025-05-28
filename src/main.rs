@@ -43,13 +43,13 @@ fn run() -> FeludaResult<()> {
 
     log(
         LogLevel::Info,
-        &format!("Starting Feluda with args: {:?}", args),
+        format!("Starting Feluda with args: {:?}", args),
     );
 
     // Parse project dependencies
     log(
         LogLevel::Info,
-        &format!("Parsing dependencies in path: {}", args.path),
+        format!("Parsing dependencies in path: {}", args.path),
     );
 
     // Get project license from CLI args if provided
@@ -65,7 +65,7 @@ fn run() -> FeludaResult<()> {
             Ok(Some(detected)) => {
                 log(
                     LogLevel::Info,
-                    &format!("Detected project license: {}", detected),
+                    format!("Detected project license: {}", detected),
                 );
                 project_license = Some(detected);
             }
@@ -75,14 +75,14 @@ fn run() -> FeludaResult<()> {
             Err(e) => {
                 log(
                     LogLevel::Error,
-                    &format!("Error detecting project license: {}", e),
+                    format!("Error detecting project license: {}", e),
                 );
             }
         }
     } else {
         log(
             LogLevel::Info,
-            &format!(
+            format!(
                 "Using provided project license: {}",
                 project_license.as_ref().unwrap()
             ),
@@ -91,7 +91,7 @@ fn run() -> FeludaResult<()> {
 
     // Parse and analyze dependencies
     let mut analyzed_data = parse_root(&args.path, args.language.as_deref())
-        .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {}", e)))?;
+        .map_err(|e| FeludaError::parser(format!("Failed to parse dependencies: {}", e)))?;
 
     log_debug("Analyzed dependencies", &analyzed_data);
 
@@ -99,7 +99,7 @@ fn run() -> FeludaResult<()> {
     if let Some(ref proj_license) = project_license {
         log(
             LogLevel::Info,
-            &format!(
+            format!(
                 "Checking license compatibility against project license: {}",
                 proj_license
             ),
@@ -111,7 +111,7 @@ fn run() -> FeludaResult<()> {
 
                 log(
                     LogLevel::Info,
-                    &format!(
+                    format!(
                         "License compatibility for {} ({}): {:?}",
                         info.name, dep_license, info.compatibility
                     ),
@@ -121,7 +121,7 @@ fn run() -> FeludaResult<()> {
 
                 log(
                     LogLevel::Info,
-                    &format!(
+                    format!(
                         "License compatibility for {} unknown (no license info)",
                         info.name
                     ),
@@ -152,7 +152,7 @@ fn run() -> FeludaResult<()> {
 
         log(
             LogLevel::Info,
-            &format!(
+            format!(
                 "Filtered for restrictive licenses: {} of {} dependencies",
                 analyzed_data.len(),
                 original_count
@@ -171,7 +171,7 @@ fn run() -> FeludaResult<()> {
 
             log(
                 LogLevel::Info,
-                &format!(
+                format!(
                     "Filtered for incompatible licenses: {} of {} dependencies",
                     analyzed_data.len(),
                     original_count
@@ -191,7 +191,7 @@ fn run() -> FeludaResult<()> {
 
         // Initialize the terminal
         color_eyre::install()
-            .map_err(|e| FeludaError::Unknown(format!("Failed to initialize color_eyre: {}", e)))?;
+            .map_err(|e| FeludaError::unknown(format!("Failed to initialize color_eyre: {}", e)))?;
 
         let terminal = ratatui::init();
         log(LogLevel::Info, "Terminal initialized for TUI");
@@ -201,7 +201,7 @@ fn run() -> FeludaResult<()> {
         ratatui::restore();
 
         // Handle any errors from the TUI
-        app_result.map_err(|e| FeludaError::Unknown(format!("TUI error: {}", e)))?;
+        app_result.map_err(|e| FeludaError::unknown(format!("TUI error: {}", e)))?;
 
         log(LogLevel::Info, "TUI session completed successfully");
     } else {
@@ -220,7 +220,7 @@ fn run() -> FeludaResult<()> {
 
         log(
             LogLevel::Info,
-            &format!(
+            format!(
                 "Report generated, has_restrictive: {}, has_incompatible: {}",
                 has_restrictive, has_incompatible
             ),

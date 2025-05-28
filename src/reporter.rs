@@ -168,7 +168,7 @@ pub fn generate_report(
     } else if verbose {
         // Changed "else { if verbose {" to "else if verbose {"
         log(LogLevel::Info, "Generating verbose table");
-        print_verbose_table(&filtered_data, strict, project_license.as_deref());
+        print_verbose_table(&filtered_data, strict, project_license);
     } else {
         log(LogLevel::Info, "Generating summary table");
         print_summary_table(
@@ -182,7 +182,8 @@ pub fn generate_report(
     (has_restrictive, has_incompatible)
 }
 
-fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_license: Option<&str>) {
+fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_license: impl Into<Option<String>>) {
+    let project_license = project_license.into();
     log(LogLevel::Info, "Printing verbose table");
 
     let mut headers = vec![
@@ -470,7 +471,8 @@ fn print_incompatible_licenses_table(
     println!("{}\n", formatter.render_footer());
 }
 
-fn print_summary_footer(license_info: &[LicenseInfo], project_license: Option<&str>) {
+fn print_summary_footer(license_info: &[LicenseInfo], project_license: impl Into<Option<String>>) {
+    let project_license = project_license.into();
     log(LogLevel::Info, "Printing summary footer");
 
     let total = license_info.len();
@@ -1110,7 +1112,7 @@ mod tests {
     fn test_print_summary_footer_with_compatibility() {
         // This is primarily a visual test
         let license_info = get_test_data();
-        print_summary_footer(&license_info, Some("MIT"));
+        print_summary_footer(&license_info, Some("MIT".to_string()));
         // If no panic, test passes
     }
 
