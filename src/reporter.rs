@@ -112,13 +112,13 @@ impl TableFormatter {
 pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, bool) {
     log(
         LogLevel::Info,
-        &format!("Generating report with config: {:?}", config),
+        format!("Generating report with config: {:?}", config),
     );
 
     let total_packages = data.len();
     log(
         LogLevel::Info,
-        &format!("Total packages to analyze: {}", total_packages),
+        format!("Total packages to analyze: {}", total_packages),
     );
 
     // Filter data if in strict mode to show only restrictive licenses
@@ -136,7 +136,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
 
     log(
         LogLevel::Info,
-        &format!("Filtered packages count: {}", filtered_data.len()),
+        format!("Filtered packages count: {}", filtered_data.len()),
     );
     log_debug("Filtered license data", &filtered_data);
 
@@ -147,12 +147,12 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
 
     log(
         LogLevel::Info,
-        &format!("Has restrictive licenses: {}", has_restrictive),
+        format!("Has restrictive licenses: {}", has_restrictive),
     );
 
     log(
         LogLevel::Info,
-        &format!("Has incompatible licenses: {}", has_incompatible),
+        format!("Has incompatible licenses: {}", has_incompatible),
     );
 
     if filtered_data.is_empty() {
@@ -200,11 +200,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         }
     } else if config.verbose {
         log(LogLevel::Info, "Generating verbose table");
-        print_verbose_table(
-            &filtered_data,
-            config.strict,
-            config.project_license.as_deref(),
-        );
+        print_verbose_table(&filtered_data, config.strict, config.project_license);
     } else {
         log(LogLevel::Info, "Generating summary table");
         print_summary_table(
@@ -218,7 +214,8 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
     (has_restrictive, has_incompatible)
 }
 
-fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_license: Option<&str>) {
+fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_license: impl Into<Option<String>>) {
+    let project_license = project_license.into();
     log(LogLevel::Info, "Printing verbose table");
 
     let mut headers = vec![
@@ -329,18 +326,18 @@ fn print_summary_table(
 
     log(
         LogLevel::Info,
-        &format!("Found {} permissive license types", license_count.len()),
+        format!("Found {} permissive license types", license_count.len()),
     );
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Found {} packages with restrictive licenses",
             restrictive_licenses.len()
         ),
     );
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Found {} packages with incompatible licenses",
             incompatible_licenses.len()
         ),
@@ -407,7 +404,7 @@ fn print_summary_table(
 fn print_restrictive_licenses_table(restrictive_licenses: &[&LicenseInfo]) {
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Printing table for {} restrictive licenses",
             restrictive_licenses.len()
         ),
@@ -457,7 +454,7 @@ fn print_incompatible_licenses_table(
 ) {
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Printing table for {} incompatible licenses",
             incompatible_licenses.len()
         ),
@@ -506,7 +503,8 @@ fn print_incompatible_licenses_table(
     println!("{}\n", formatter.render_footer());
 }
 
-fn print_summary_footer(license_info: &[LicenseInfo], project_license: Option<&str>) {
+fn print_summary_footer(license_info: &[LicenseInfo], project_license: impl Into<Option<String>>) {
+    let project_license = project_license.into();
     log(LogLevel::Info, "Printing summary footer");
 
     let total = license_info.len();
@@ -625,7 +623,7 @@ fn output_github_format(
 
             log(
                 LogLevel::Info,
-                &format!("Added warning for restrictive license: {}", info.name()),
+                format!("Added warning for restrictive license: {}", info.name()),
             );
         }
 
@@ -642,7 +640,7 @@ fn output_github_format(
 
             log(
                 LogLevel::Info,
-                &format!("Added error for incompatible license: {}", info.name()),
+                format!("Added error for incompatible license: {}", info.name()),
             );
         }
     }
@@ -676,7 +674,7 @@ fn output_github_format(
 
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Added summary: {} restrictive and {} incompatible out of {}",
             restrictive_count,
             incompatible_count,
@@ -688,14 +686,14 @@ fn output_github_format(
     if let Some(path) = output_path {
         log(
             LogLevel::Info,
-            &format!("Writing GitHub Actions output to file: {}", path),
+            format!("Writing GitHub Actions output to file: {}", path),
         );
 
         match fs::write(path, &output) {
             Ok(_) => println!("GitHub Actions output written to: {}", path),
             Err(err) => {
                 log_error(
-                    &format!("Failed to write GitHub Actions output file: {}", path),
+                    format!("Failed to write GitHub Actions output file: {}", path),
                     &err,
                 );
                 println!("Error: Failed to write GitHub Actions output file");
@@ -735,7 +733,7 @@ fn output_jenkins_format(
         let test_case_name = format!("{}-{}", info.name(), info.version());
         log(
             LogLevel::Info,
-            &format!("Processing test case: {}", test_case_name),
+            format!("Processing test case: {}", test_case_name),
         );
 
         let mut failures = Vec::new();
@@ -753,7 +751,7 @@ fn output_jenkins_format(
 
             log(
                 LogLevel::Info,
-                &format!(
+                format!(
                     "Added failing test case for restrictive license: {}",
                     info.name()
                 ),
@@ -774,7 +772,7 @@ fn output_jenkins_format(
 
             log(
                 LogLevel::Info,
-                &format!(
+                format!(
                     "Added failing test case for incompatible license: {}",
                     info.name()
                 ),
@@ -811,7 +809,7 @@ fn output_jenkins_format(
 
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Total test cases: {}, failures: {}",
             license_info.len(),
             failure_count
@@ -834,14 +832,14 @@ fn output_jenkins_format(
     if let Some(path) = output_path {
         log(
             LogLevel::Info,
-            &format!("Writing Jenkins JUnit XML to file: {}", path),
+            format!("Writing Jenkins JUnit XML to file: {}", path),
         );
 
         match fs::write(path, &junit_xml) {
             Ok(_) => println!("Jenkins JUnit XML output written to: {}", path),
             Err(err) => {
                 log_error(
-                    &format!("Failed to write Jenkins output file: {}", path),
+                    format!("Failed to write Jenkins output file: {}", path),
                     &err,
                 );
                 println!("Error: Failed to write Jenkins JUnit XML output file");
@@ -1171,7 +1169,7 @@ mod tests {
     fn test_print_summary_footer_with_compatibility() {
         // This is primarily a visual test
         let license_info = get_test_data();
-        print_summary_footer(&license_info, Some("MIT"));
+        print_summary_footer(&license_info, Some("MIT".to_string()));
         // If no panic, test passes
     }
 

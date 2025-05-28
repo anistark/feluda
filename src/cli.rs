@@ -208,9 +208,9 @@ pub struct LoadingIndicator {
 }
 
 impl LoadingIndicator {
-    pub fn new(message: &str) -> Self {
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.to_string(),
+            message: message.into(),
             running: Arc::new(AtomicBool::new(true)),
             spinner_frames: vec!["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
             handle: None,
@@ -221,7 +221,7 @@ impl LoadingIndicator {
     pub fn start(&mut self) {
         if is_debug_mode() {
             // In debug mode, just log the message without spinner
-            log(LogLevel::Info, &format!("Operation: {}", self.message));
+            log(LogLevel::Info, format!("Operation: {}", self.message));
             return;
         }
 
@@ -268,9 +268,9 @@ impl LoadingIndicator {
         self.handle = Some(handle);
     }
 
-    pub fn update_progress(&self, progress_text: &str) {
+    pub fn update_progress(&self, progress_text: impl Into<String>) {
         if let Ok(mut guard) = self.progress.lock() {
-            *guard = Some(progress_text.to_string());
+            *guard = Some(progress_text.into());
         }
     }
 
@@ -295,28 +295,27 @@ impl LoadingIndicator {
 /// let result = with_spinner("Processing data", |indicator| {
 ///     // Initial work
 ///     let data = prepare_data();
-///     
 ///     // Update progress
 ///     indicator.update_progress(&format!("processed {} items", data.len()));
-///     
 ///     // Continue processing
 ///     process_data(data)
 /// });
 /// ```
-pub fn with_spinner<F, T>(message: &str, f: F) -> T
+pub fn with_spinner<F, T>(message: impl Into<String>, f: F) -> T
 where
     F: FnOnce(&LoadingIndicator) -> T,
 {
+    let message = message.into();
     if is_debug_mode() {
-        log(LogLevel::Info, &format!("Operation: {}", message));
+        log(LogLevel::Info, format!("Operation: {}", message));
         let start = std::time::Instant::now();
-        let indicator = LoadingIndicator::new(message);
+        let indicator = LoadingIndicator::new(&message);
         let result = f(&indicator);
         let duration = start.elapsed();
-        log(LogLevel::Info, &format!("Completed in {:?}", duration));
+        log(LogLevel::Info, format!("Completed in {:?}", duration));
         result
     } else {
-        let mut indicator = LoadingIndicator::new(message);
+        let mut indicator = LoadingIndicator::new(&message);
         indicator.start();
         let result = f(&indicator);
         indicator.stop();
@@ -566,7 +565,7 @@ mod tests {
         let indicator = LoadingIndicator::new("Multi-step test");
 
         for i in 1..=5 {
-            indicator.update_progress(&format!("step {}", i));
+            indicator.update_progress(format!("step {}", i));
             let progress = indicator.progress.lock().unwrap();
             assert_eq!(*progress, Some(format!("step {}", i)));
             drop(progress);

@@ -93,14 +93,14 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
 
     log(
         LogLevel::Info,
-        &format!("Analyzing licenses for {} Rust packages", packages.len()),
+        format!("Analyzing licenses for {} Rust packages", packages.len()),
     );
 
     let known_licenses = match fetch_licenses_from_github() {
         Ok(licenses) => {
             log(
                 LogLevel::Info,
-                &format!("Fetched {} known licenses from GitHub", licenses.len()),
+                format!("Fetched {} known licenses from GitHub", licenses.len()),
             );
             licenses
         }
@@ -115,7 +115,7 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
         .map(|package| {
             log(
                 LogLevel::Info,
-                &format!("Analyzing package: {} ({})", package.name, package.version),
+                format!("Analyzing package: {} ({})", package.name, package.version),
             );
 
             let is_restrictive = is_license_restrictive(&package.license, &known_licenses);
@@ -123,7 +123,7 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
             if is_restrictive {
                 log(
                     LogLevel::Warn,
-                    &format!(
+                    format!(
                         "Restrictive license found: {:?} for {}",
                         package.license, package.name
                     ),
@@ -161,18 +161,19 @@ impl PackageJson {
 }
 
 /// Analyze the licenses of Python dependencies
-pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
+pub fn analyze_python_licenses(package_file_path: impl Into<String>) -> Vec<LicenseInfo> {
+    let package_file_path = package_file_path.into();
     let mut licenses = Vec::new();
     log(
         LogLevel::Info,
-        &format!("Analyzing Python dependencies from: {}", package_file_path),
+        format!("Analyzing Python dependencies from: {}", package_file_path),
     );
 
     let known_licenses = match fetch_licenses_from_github() {
         Ok(licenses) => {
             log(
                 LogLevel::Info,
-                &format!("Fetched {} known licenses from GitHub", licenses.len()),
+                format!("Fetched {} known licenses from GitHub", licenses.len()),
             );
             licenses
         }
@@ -196,7 +197,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                             {
                                 log(
                                     LogLevel::Info,
-                                    &format!("Found {} Python dependencies", deps.len()),
+                                    format!("Found {} Python dependencies", deps.len()),
                                 );
                                 log_debug("Dependencies", deps);
 
@@ -204,7 +205,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                                     if let Some(dep_str) = dep.as_str() {
                                         log(
                                             LogLevel::Info,
-                                            &format!("Processing dependency: {}", dep_str),
+                                            format!("Processing dependency: {}", dep_str),
                                         );
 
                                         // Split on typical comparison operators (>=, ==, etc.)
@@ -228,7 +229,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
 
                                         log(
                                             LogLevel::Info,
-                                            &format!(
+                                            format!(
                                                 "Fetching license for Python dependency: {} ({})",
                                                 name, version_clean
                                             ),
@@ -245,7 +246,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                                         if is_restrictive {
                                             log(
                                                 LogLevel::Warn,
-                                                &format!(
+                                                format!(
                                                     "Restrictive license found: {:?} for {}",
                                                     license, name
                                                 ),
@@ -302,7 +303,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
 
                                 log(
                                     LogLevel::Info,
-                                    &format!("Processing requirement: {} {}", name, version),
+                                    format!("Processing requirement: {} {}", name, version),
                                 );
 
                                 let license_result =
@@ -314,7 +315,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                                 if is_restrictive {
                                     log(
                                         LogLevel::Warn,
-                                        &format!(
+                                        format!(
                                             "Restrictive license found: {:?} for {}",
                                             license, name
                                         ),
@@ -333,7 +334,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                             } else {
                                 log(
                                     LogLevel::Warn,
-                                    &format!("Invalid requirement line: {}", line),
+                                    format!("Invalid requirement line: {}", line),
                                 );
                             }
                         }
@@ -345,7 +346,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
 
                 log(
                     LogLevel::Info,
-                    &format!("Processed {} requirements from requirements.txt", dep_count),
+                    format!("Processed {} requirements from requirements.txt", dep_count),
                 );
             }
             Err(err) => {
@@ -356,21 +357,22 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
 
     log(
         LogLevel::Info,
-        &format!("Found {} Python dependencies with licenses", licenses.len()),
+        format!("Found {} Python dependencies with licenses", licenses.len()),
     );
     licenses
 }
 
 /// Analyze the licenses of JavaScript dependencies
-pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
+pub fn analyze_js_licenses(package_json_path: impl Into<String>) -> Vec<LicenseInfo> {
     #[cfg(windows)]
     const NPM: &str = "npm.cmd";
     #[cfg(not(windows))]
     const NPM: &str = "npm";
 
+    let package_json_path = package_json_path.into();
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Analyzing JavaScript dependencies from: {}",
             package_json_path
         ),
@@ -395,14 +397,14 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     let all_dependencies = package_json.get_all_dependencies();
     log(
         LogLevel::Info,
-        &format!("Found {} JavaScript dependencies", all_dependencies.len()),
+        format!("Found {} JavaScript dependencies", all_dependencies.len()),
     );
 
     let known_licenses = match fetch_licenses_from_github() {
         Ok(licenses) => {
             log(
                 LogLevel::Info,
-                &format!("Fetched {} known licenses from GitHub", licenses.len()),
+                format!("Fetched {} known licenses from GitHub", licenses.len()),
             );
             licenses
         }
@@ -417,7 +419,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
         .map(|(name, version)| {
             log(
                 LogLevel::Info,
-                &format!("Checking license for JS dependency: {} ({})", name, version),
+                format!("Checking license for JS dependency: {} ({})", name, version),
             );
 
             let output = match Command::new(NPM)
@@ -430,7 +432,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
             {
                 Ok(output) => output,
                 Err(err) => {
-                    log_error(&format!("Failed to execute npm command for {}", name), &err);
+                    log_error(format!("Failed to execute npm command for {}", name), &err);
                     return LicenseInfo {
                         name: name.clone(),
                         version: version.clone(),
@@ -445,7 +447,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 log(
                     LogLevel::Error,
-                    &format!("npm command failed for {}: {}", name, stderr),
+                    format!("npm command failed for {}: {}", name, stderr),
                 );
                 return LicenseInfo {
                     name: name.clone(),
@@ -470,7 +472,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
 
             log(
                 LogLevel::Info,
-                &format!("License for {} ({}): {}", name, version, license),
+                format!("License for {} ({}): {}", name, version, license),
             );
 
             let is_restrictive = is_license_restrictive(&Some(license.clone()), &known_licenses);
@@ -478,7 +480,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
             if is_restrictive {
                 log(
                     LogLevel::Warn,
-                    &format!("Restrictive license found: {} for {}", license, name),
+                    format!("Restrictive license found: {} for {}", license, name),
                 );
             }
 
@@ -501,17 +503,18 @@ pub struct GoPackages {
 }
 
 /// Analyze the licenses of Go dependencies
-pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
+pub fn analyze_go_licenses(go_mod_path: impl Into<String>) -> Vec<LicenseInfo> {
+    let go_mod_path = go_mod_path.into();
     log(
         LogLevel::Info,
-        &format!("Analyzing Go dependencies from: {}", go_mod_path),
+        format!("Analyzing Go dependencies from: {}", go_mod_path),
     );
 
     let known_licenses = match fetch_licenses_from_github() {
         Ok(licenses) => {
             log(
                 LogLevel::Info,
-                &format!("Fetched {} known licenses from GitHub", licenses.len()),
+                format!("Fetched {} known licenses from GitHub", licenses.len()),
             );
             licenses
         }
@@ -521,11 +524,11 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
         }
     };
 
-    let content = match fs::read_to_string(go_mod_path) {
+    let content = match fs::read_to_string(&go_mod_path) {
         Ok(content) => content,
         Err(err) => {
             log_error(
-                &format!("Failed to read go.mod file: {}", go_mod_path),
+                format!("Failed to read go.mod file: {}", go_mod_path),
                 &err,
             );
             return Vec::new();
@@ -535,7 +538,7 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
     let dependencies = get_go_dependencies(content);
     log(
         LogLevel::Info,
-        &format!("Found {} Go dependencies", dependencies.len()),
+        format!("Found {} Go dependencies", dependencies.len()),
     );
     log_debug("Go dependencies", &dependencies);
 
@@ -547,7 +550,7 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
 
             log(
                 LogLevel::Info,
-                &format!("Fetching license for Go dependency: {} ({})", name, version),
+                format!("Fetching license for Go dependency: {} ({})", name, version),
             );
 
             let license_result = fetch_license_for_go_dependency(name.as_str(), version.as_str());
@@ -558,7 +561,7 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
             if is_restrictive {
                 log(
                     LogLevel::Warn,
-                    &format!("Restrictive license found: {:?} for {}", license, name),
+                    format!("Restrictive license found: {:?} for {}", license, name),
                 );
             }
 
@@ -573,9 +576,10 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
         .collect()
 }
 
-pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
+pub fn get_go_dependencies(content_string: impl Into<String>) -> Vec<GoPackages> {
     log(LogLevel::Info, "Parsing Go dependencies");
 
+    let content_string = content_string.into();
     let re_comment = match Regex::new(r"(?m)^(.*?)\s*(//|#).*?$") {
         Ok(re) => re,
         Err(err) => {
@@ -616,7 +620,7 @@ pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
 
             log(
                 LogLevel::Info,
-                &format!("Found Go dependency: {} ({})", name, version),
+                format!("Found Go dependency: {} ({})", name, version),
             );
 
             dependency.push(GoPackages { name, version });
@@ -625,17 +629,19 @@ pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
 
     log(
         LogLevel::Info,
-        &format!("Parsed {} Go dependencies", dependency.len()),
+        format!("Parsed {} Go dependencies", dependency.len()),
     );
     dependency
 }
 
 /// Fetch the license for a Python dependency from the Python Package Index (PyPI)
-pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String {
+pub fn fetch_license_for_python_dependency(name: impl Into<String>, version: impl Into<String>) -> String {
+    let name = name.into();
+    let version = version.into();
     let api_url = format!("https://pypi.org/pypi/{}/{}/json", name, version);
     log(
         LogLevel::Info,
-        &format!("Fetching license from PyPI: {}", api_url),
+        format!("Fetching license from PyPI: {}", api_url),
     );
 
     match reqwest::blocking::get(&api_url) {
@@ -643,7 +649,7 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
             let status = response.status();
             log(
                 LogLevel::Info,
-                &format!("PyPI API response status: {}", status),
+                format!("PyPI API response status: {}", status),
             );
 
             if status.is_success() {
@@ -652,21 +658,21 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
                         Some(license_str) if !license_str.is_empty() => {
                             log(
                                 LogLevel::Info,
-                                &format!("License found for {}: {}", name, license_str),
+                                format!("License found for {}: {}", name, license_str),
                             );
                             license_str.to_string()
                         }
                         _ => {
                             log(
                                 LogLevel::Warn,
-                                &format!("No license found for {} ({})", name, version),
+                                format!("No license found for {} ({})", name, version),
                             );
                             format!("Unknown license for {}: {}", name, version)
                         }
                     },
                     Err(err) => {
                         log_error(
-                            &format!("Failed to parse JSON for {}: {}", name, version),
+                            format!("Failed to parse JSON for {}: {}", name, version),
                             &err,
                         );
                         String::from("Unknown")
@@ -675,13 +681,13 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
             } else {
                 log(
                     LogLevel::Error,
-                    &format!("Failed to fetch metadata for {}: HTTP {}", name, status),
+                    format!("Failed to fetch metadata for {}: HTTP {}", name, status),
                 );
                 String::from("Unknown")
             }
         }
         Err(err) => {
-            log_error(&format!("Failed to fetch metadata for {}", name), &err);
+            log_error(format!("Failed to fetch metadata for {}", name), &err);
             String::from("Unknown")
         }
     }
@@ -698,7 +704,7 @@ pub fn fetch_license_for_go_dependency(
     let api_url = format!("https://pkg.go.dev/{}?tab=licenses", name);
     log(
         LogLevel::Info,
-        &format!("Fetching license from Go Package Index: {}", api_url),
+        format!("Fetching license from Go Package Index: {}", api_url),
     );
 
     let client = match Client::builder()
@@ -737,13 +743,13 @@ pub fn fetch_license_for_go_dependency(
                 let status = response.status();
                 log(
                     LogLevel::Info,
-                    &format!("Go Package Index API response status: {}", status),
+                    format!("Go Package Index API response status: {}", status),
                 );
 
                 if status.as_u16() == 429 {
                     log(
                         LogLevel::Warn,
-                        &format!(
+                        format!(
                             "Received 429 Too Many Requests, retrying... (attempt {}/{})",
                             attempts + 1,
                             max_attempts
@@ -760,19 +766,19 @@ pub fn fetch_license_for_go_dependency(
                             if let Some(license) = extract_license_from_html(&html_content) {
                                 log(
                                     LogLevel::Info,
-                                    &format!("License found for {}: {}", name, license),
+                                    format!("License found for {}: {}", name, license),
                                 );
                                 return license;
                             } else {
                                 log(
                                     LogLevel::Warn,
-                                    &format!("No license found in HTML for {}", name),
+                                    format!("No license found in HTML for {}", name),
                                 );
                             }
                         }
                         Err(err) => {
                             log_error(
-                                &format!("Failed to extract HTML content for {}", name),
+                                format!("Failed to extract HTML content for {}", name),
                                 &err,
                             );
                         }
@@ -780,14 +786,14 @@ pub fn fetch_license_for_go_dependency(
                 } else {
                     log(
                         LogLevel::Error,
-                        &format!("Unexpected HTTP status: {} for {}", status, name),
+                        format!("Unexpected HTTP status: {} for {}", status, name),
                     );
                 }
 
                 break;
             }
             Err(err) => {
-                log_error(&format!("Failed to fetch metadata for {}", name), &err);
+                log_error(format!("Failed to fetch metadata for {}", name), &err);
                 break;
             }
         }
@@ -795,7 +801,7 @@ pub fn fetch_license_for_go_dependency(
 
     log(
         LogLevel::Warn,
-        &format!(
+        format!(
             "Unable to determine license for {} after {} attempts",
             name, attempts
         ),
@@ -831,7 +837,7 @@ fn extract_license_from_html(html: &str) -> Option<String> {
             let license_text = div.text().collect::<Vec<_>>().join(" ").trim().to_string();
             log(
                 LogLevel::Info,
-                &format!("License found in HTML: {}", license_text),
+                format!("License found in HTML: {}", license_text),
             );
             return Some(license_text);
         } else {
@@ -851,7 +857,7 @@ pub fn is_license_compatible(
 ) -> LicenseCompatibility {
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Checking if license {} is compatible with project license {}",
             dependency_license, project_license
         ),
@@ -906,7 +912,7 @@ pub fn is_license_compatible(
 
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Normalized licenses: dependency={}, project={}",
             norm_dependency_license, norm_project_license
         ),
@@ -918,7 +924,7 @@ pub fn is_license_compatible(
             if compatible_licenses.contains(&norm_dependency_license.as_str()) {
                 log(
                     LogLevel::Info,
-                    &format!(
+                    format!(
                         "License {} is compatible with project license {}",
                         norm_dependency_license, norm_project_license
                     ),
@@ -927,7 +933,7 @@ pub fn is_license_compatible(
             } else {
                 log(
                     LogLevel::Warn,
-                    &format!(
+                    format!(
                         "License {} may be incompatible with project license {}",
                         norm_dependency_license, norm_project_license
                     ),
@@ -938,7 +944,7 @@ pub fn is_license_compatible(
         None => {
             log(
                 LogLevel::Warn,
-                &format!(
+                format!(
                     "Unknown compatibility for project license {}",
                     norm_project_license
                 ),
@@ -966,26 +972,27 @@ fn normalize_license_id(license_id: &str) -> String {
 }
 
 /// Detect the project's license from the repository
-pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>> {
+pub fn detect_project_license(project_path: impl Into<String>) -> FeludaResult<Option<String>> {
+    let project_path = project_path.into();
     log(
         LogLevel::Info,
-        &format!("Detecting license for project at path: {}", project_path),
+        format!("Detecting license for project at path: {}", project_path),
     );
 
     // Check LICENSE file
     let license_paths = [
-        Path::new(project_path).join("LICENSE"),
-        Path::new(project_path).join("LICENSE.txt"),
-        Path::new(project_path).join("LICENSE.md"),
-        Path::new(project_path).join("license"),
-        Path::new(project_path).join("COPYING"),
+        Path::new(&project_path).join("LICENSE"),
+        Path::new(&project_path).join("LICENSE.txt"),
+        Path::new(&project_path).join("LICENSE.md"),
+        Path::new(&project_path).join("license"),
+        Path::new(&project_path).join("COPYING"),
     ];
 
     for license_path in &license_paths {
         if license_path.exists() {
             log(
                 LogLevel::Info,
-                &format!("Found license file: {}", license_path.display()),
+                format!("Found license file: {}", license_path.display()),
             );
 
             match fs::read_to_string(license_path) {
@@ -1043,7 +1050,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                 }
                 Err(err) => {
                     log_error(
-                        &format!("Failed to read license file: {}", license_path.display()),
+                        format!("Failed to read license file: {}", license_path.display()),
                         &err,
                     );
                 }
@@ -1052,11 +1059,11 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
     }
 
     // Check package.json for Node.js projects
-    let package_json_path = Path::new(project_path).join("package.json");
+    let package_json_path = Path::new(&project_path).join("package.json");
     if package_json_path.exists() {
         log(
             LogLevel::Info,
-            &format!("Found package.json at {}", package_json_path.display()),
+            format!("Found package.json at {}", package_json_path.display()),
         );
 
         match fs::read_to_string(&package_json_path) {
@@ -1065,7 +1072,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                     if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
                         log(
                             LogLevel::Info,
-                            &format!("Detected license from package.json: {}", license),
+                            format!("Detected license from package.json: {}", license),
                         );
                         return Ok(Some(license.to_string()));
                     }
@@ -1076,7 +1083,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
             },
             Err(err) => {
                 log_error(
-                    &format!(
+                    format!(
                         "Failed to read package.json: {}",
                         package_json_path.display()
                     ),
@@ -1087,11 +1094,11 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
     }
 
     // Check Cargo.toml for Rust projects
-    let cargo_toml_path = Path::new(project_path).join("Cargo.toml");
+    let cargo_toml_path = Path::new(&project_path).join("Cargo.toml");
     if cargo_toml_path.exists() {
         log(
             LogLevel::Info,
-            &format!("Found Cargo.toml at {}", cargo_toml_path.display()),
+            format!("Found Cargo.toml at {}", cargo_toml_path.display()),
         );
 
         match fs::read_to_string(&cargo_toml_path) {
@@ -1101,7 +1108,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                         if let Some(license) = package.get("license").and_then(|l| l.as_str()) {
                             log(
                                 LogLevel::Info,
-                                &format!("Detected license from Cargo.toml: {}", license),
+                                format!("Detected license from Cargo.toml: {}", license),
                             );
                             return Ok(Some(license.to_string()));
                         }
@@ -1113,7 +1120,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
             },
             Err(err) => {
                 log_error(
-                    &format!("Failed to read Cargo.toml: {}", cargo_toml_path.display()),
+                    format!("Failed to read Cargo.toml: {}", cargo_toml_path.display()),
                     &err,
                 );
             }
@@ -1121,11 +1128,11 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
     }
 
     // Check pyproject.toml for Python projects
-    let pyproject_toml_path = Path::new(project_path).join("pyproject.toml");
+    let pyproject_toml_path = Path::new(&project_path).join("pyproject.toml");
     if pyproject_toml_path.exists() {
         log(
             LogLevel::Info,
-            &format!("Found pyproject.toml at {}", pyproject_toml_path.display()),
+            format!("Found pyproject.toml at {}", pyproject_toml_path.display()),
         );
 
         match fs::read_to_string(&pyproject_toml_path) {
@@ -1136,7 +1143,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                             if let Some(license) = license_info.as_str() {
                                 log(
                                     LogLevel::Info,
-                                    &format!("Detected license from pyproject.toml: {}", license),
+                                    format!("Detected license from pyproject.toml: {}", license),
                                 );
                                 return Ok(Some(license.to_string()));
                             } else if let Some(license_table) = license_info.as_table() {
@@ -1145,7 +1152,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                                 {
                                     log(
                                         LogLevel::Info,
-                                        &format!(
+                                        format!(
                                             "Detected license from pyproject.toml: {}",
                                             license_text
                                         ),
@@ -1162,7 +1169,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
             },
             Err(err) => {
                 log_error(
-                    &format!(
+                    format!(
                         "Failed to read pyproject.toml: {}",
                         pyproject_toml_path.display()
                     ),
@@ -1182,7 +1189,7 @@ fn is_license_restrictive(
 ) -> bool {
     log(
         LogLevel::Info,
-        &format!("Checking if license is restrictive: {:?}", license),
+        format!("Checking if license is restrictive: {:?}", license),
     );
 
     let config = match config::load_config() {
@@ -1222,12 +1229,12 @@ fn is_license_restrictive(
             if is_restrictive {
                 log(
                     LogLevel::Warn,
-                    &format!("License {} is restrictive due to conditions", license_str),
+                    format!("License {} is restrictive due to conditions", license_str),
                 );
             } else {
                 log(
                     LogLevel::Info,
-                    &format!("License {} is not restrictive", license_str),
+                    format!("License {} is not restrictive", license_str),
                 );
             }
 
@@ -1248,7 +1255,7 @@ fn is_license_restrictive(
             if is_restrictive {
                 log(
                     LogLevel::Warn,
-                    &format!(
+                    format!(
                         "License {} matches restrictive pattern in config",
                         license_str
                     ),
@@ -1256,7 +1263,7 @@ fn is_license_restrictive(
             } else {
                 log(
                     LogLevel::Info,
-                    &format!(
+                    format!(
                         "License {} does not match any restrictive pattern",
                         license_str
                     ),
@@ -1291,7 +1298,7 @@ fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
                     let status = response.status();
                     log(
                         LogLevel::Error,
-                        &format!("GitHub API returned error status: {}", status),
+                        format!("GitHub API returned error status: {}", status),
                     );
                     return licenses_map; // Return empty map on error
                 }
@@ -1308,7 +1315,7 @@ fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
                         }
 
                         let total_licenses = license_files.len();
-                        indicator.update_progress(&format!("found {} licenses", total_licenses));
+                        indicator.update_progress(format!("found {} licenses", total_licenses));
 
                         for (idx, line) in license_files.iter().enumerate() {
                             let license_name = line.replace(".txt", "");
@@ -1316,10 +1323,10 @@ fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
 
                             log(
                                 LogLevel::Info,
-                                &format!("Fetching license: {}", license_name),
+                                format!("Fetching license: {}", license_name),
                             );
 
-                            indicator.update_progress(&format!(
+                            indicator.update_progress(format!(
                                 "processing {}/{}: {}",
                                 idx + 1,
                                 total_licenses,
@@ -1330,7 +1337,7 @@ fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
                                 Ok(res) => res,
                                 Err(err) => {
                                     log_error(
-                                        &format!(
+                                        format!(
                                             "Failed to fetch license content for {}",
                                             license_name
                                         ),
@@ -1343,7 +1350,7 @@ fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
                             if !license_response.status().is_success() {
                                 log(
                                     LogLevel::Error,
-                                    &format!(
+                                    format!(
                                         "Failed to fetch license {}: HTTP {}",
                                         license_name,
                                         license_response.status()
@@ -1356,7 +1363,7 @@ fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
                                 Ok(text) => text,
                                 Err(err) => {
                                     log_error(
-                                        &format!(
+                                        format!(
                                             "Failed to read license content for {}",
                                             license_name
                                         ),
@@ -1373,7 +1380,7 @@ fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
                                 }
                                 Err(err) => {
                                     log_error(
-                                        &format!(
+                                        format!(
                                             "Failed to parse license content for {}",
                                             license_name
                                         ),
@@ -1383,7 +1390,7 @@ fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
                             }
                         }
 
-                        indicator.update_progress(&format!("processed {} licenses", license_count));
+                        indicator.update_progress(format!("processed {} licenses", license_count));
                     }
                     Err(err) => {
                         log_error("Failed to read response text", &err);
@@ -1397,7 +1404,7 @@ fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
 
         log(
             LogLevel::Info,
-            &format!("Successfully fetched {} licenses", license_count),
+            format!("Successfully fetched {} licenses", license_count),
         );
         licenses_map
     });

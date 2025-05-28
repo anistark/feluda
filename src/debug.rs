@@ -49,42 +49,44 @@ pub fn is_debug_mode() -> bool {
 }
 
 /// Log a message with the specified level if debug mode is enabled
-pub fn log(level: LogLevel, message: &str) {
+pub fn log(level: LogLevel, message: impl Into<String>) {
     if is_debug_mode() {
-        println!("[{}] {}", level.as_colored_str(), message);
+        println!("[{}] {}", level.as_colored_str(), message.into());
     }
 }
 
 /// Log an error with context information if debug mode is enabled
-pub fn log_error<E: std::fmt::Display>(context: &str, error: &E) {
+pub fn log_error<E: std::fmt::Display>(context: impl Into<String>, error: &E) {
     if is_debug_mode() {
         println!(
             "[{}] {}: {}",
             LogLevel::Error.as_colored_str(),
-            context,
+            context.into(),
             error
         );
     }
 }
 
 /// Log detailed information about a value if debug mode is enabled
-pub fn log_debug<T: std::fmt::Debug + ?Sized>(context: &str, value: &T) {
+pub fn log_debug<T: std::fmt::Debug>(context: impl Into<String>, value: &T) {
     if is_debug_mode() {
         println!(
             "[{}] {}: {:?}",
             LogLevel::Trace.as_colored_str(),
-            context,
+            context.into(),
             value
         );
     }
 }
 
 /// Conditionally execute a function and log the result if debug mode is enabled
-pub fn with_debug<F, T>(context: &str, f: F) -> T
+#[allow(dead_code)]
+pub fn with_debug<F, T>(context: impl Into<String>, f: F) -> T
 where
     F: FnOnce() -> T,
     T: std::fmt::Debug,
 {
+    let context = context.into();
     if is_debug_mode() {
         let start = std::time::Instant::now();
         let result = f();
@@ -95,7 +97,7 @@ where
             context,
             duration
         );
-        log_debug(context, &result);
+        log_debug(&context, &result);
         result
     } else {
         f()
@@ -128,6 +130,18 @@ pub enum FeludaError {
 impl FeludaError {
     pub fn log(&self) {
         log_error("Error occurred", self);
+    }
+
+    pub fn config(message: impl Into<String>) -> Self {
+        Self::Config(message.into())
+    }
+
+    pub fn parser(message: impl Into<String>) -> Self {
+        Self::Parser(message.into())
+    }
+
+    pub fn unknown(message: impl Into<String>) -> Self {
+        Self::Unknown(message.into())
     }
 }
 

@@ -65,16 +65,16 @@ fn run() -> FeludaResult<()> {
         set_debug_mode(true);
         log(
             LogLevel::Info,
-            &format!("Starting Feluda with args: {:?}", args),
+            format!("Starting Feluda with args: {:?}", args),
         );
     }
 
     // Handle repository cloning if --repo is provided
-    let (analysis_path, _temp_dir) = match &args.repo.clone() {
+    let (analysis_path, _temp_dir) = match args.repo.clone() {
         Some(repo_url) => {
             log(
                 LogLevel::Info,
-                &format!("Attempting to clone repository: {}", repo_url),
+                format!("Attempting to clone repository: {}", repo_url),
             );
             let temp_dir = TempDir::new().map_err(|e| {
                 FeludaError::Unknown(format!("Failed to create temporary directory: {}", e))
@@ -85,13 +85,13 @@ fn run() -> FeludaResult<()> {
             if let Err(e) = clone_repository(&args, repo_path) {
                 log(
                     LogLevel::Error,
-                    &format!("Repository cloning failed: {}", e),
+                    format!("Repository cloning failed: {}", e),
                 );
                 return Err(e);
             }
             log(
                 LogLevel::Info,
-                &format!("Repository cloned to: {}", repo_path.display()),
+                format!("Repository cloned to: {}", repo_path.display()),
             );
             (repo_path.to_path_buf(), Some(temp_dir))
         }
@@ -99,7 +99,7 @@ fn run() -> FeludaResult<()> {
             let path = Path::new(&args.path).to_path_buf();
             log(
                 LogLevel::Info,
-                &format!("Using local path for analysis: {}", path.display()),
+                format!("Using local path for analysis: {}", path.display()),
             );
             (path, None)
         }
@@ -107,7 +107,7 @@ fn run() -> FeludaResult<()> {
 
     log(
         LogLevel::Info,
-        &format!("Analysing project at: {}", analysis_path.display()),
+        format!("Analysing project at: {}", analysis_path.display()),
     );
 
     // Handle the command based on whether a subcommand was provided
@@ -148,13 +148,13 @@ fn run() -> FeludaResult<()> {
 fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     log(
         LogLevel::Info,
-        &format!("Executing check command with path: {}", config.path),
+        format!("Executing check command with path: {}", config.path),
     );
 
     // Parse project dependencies
     log(
         LogLevel::Info,
-        &format!("Parsing dependencies in path: {}", config.path),
+        format!("Parsing dependencies in path: {}", config.path),
     );
 
     let mut project_license = config.project_license;
@@ -169,7 +169,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             Ok(Some(detected)) => {
                 log(
                     LogLevel::Info,
-                    &format!("Detected project license: {}", detected),
+                    format!("Detected project license: {}", detected),
                 );
                 project_license = Some(detected);
             }
@@ -179,14 +179,14 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             Err(e) => {
                 log(
                     LogLevel::Error,
-                    &format!("Error detecting project license: {}", e),
+                    format!("Error detecting project license: {}", e),
                 );
             }
         }
     } else {
         log(
             LogLevel::Info,
-            &format!(
+            format!(
                 "Using provided project license: {}",
                 project_license.as_ref().unwrap()
             ),
@@ -195,7 +195,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
     // Parse and analyze dependencies
     let mut analyzed_data = parse_root(&config.path, config.language.as_deref())
-        .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {}", e)))?;
+        .map_err(|e| FeludaError::parser(format!("Failed to parse dependencies: {}", e)))?;
 
     log_debug("Analyzed dependencies", &analyzed_data);
 
@@ -203,7 +203,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     if let Some(ref proj_license) = project_license {
         log(
             LogLevel::Info,
-            &format!(
+            format!(
                 "Checking license compatibility against project license: {}",
                 proj_license
             ),
@@ -215,7 +215,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
                 log(
                     LogLevel::Info,
-                    &format!(
+                    format!(
                         "License compatibility for {} ({}): {:?}",
                         info.name, dep_license, info.compatibility
                     ),
@@ -225,7 +225,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
                 log(
                     LogLevel::Info,
-                    &format!(
+                    format!(
                         "License compatibility for {} unknown (no license info)",
                         info.name
                     ),
@@ -256,7 +256,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
         log(
             LogLevel::Info,
-            &format!(
+            format!(
                 "Filtered for restrictive licenses: {} of {} dependencies",
                 analyzed_data.len(),
                 original_count
@@ -275,7 +275,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
             log(
                 LogLevel::Info,
-                &format!(
+                format!(
                     "Filtered for incompatible licenses: {} of {} dependencies",
                     analyzed_data.len(),
                     original_count
@@ -295,7 +295,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
         // Initialize the terminal
         color_eyre::install()
-            .map_err(|e| FeludaError::Unknown(format!("Failed to initialize color_eyre: {}", e)))?;
+            .map_err(|e| FeludaError::unknown(format!("Failed to initialize color_eyre: {}", e)))?;
 
         let terminal = ratatui::init();
         log(LogLevel::Info, "Terminal initialized for TUI");
@@ -305,7 +305,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
         ratatui::restore();
 
         // Handle any errors from the TUI
-        app_result.map_err(|e| FeludaError::Unknown(format!("TUI error: {}", e)))?;
+        app_result.map_err(|e| FeludaError::unknown(format!("TUI error: {}", e)))?;
 
         log(LogLevel::Info, "TUI session completed successfully");
     } else {
@@ -327,7 +327,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
         log(
             LogLevel::Info,
-            &format!(
+            format!(
                 "Report generated, has_restrictive: {}, has_incompatible: {}",
                 has_restrictive, has_incompatible
             ),

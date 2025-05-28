@@ -72,7 +72,7 @@ fn validate_ssh_key(key_path: &Path) -> Result<(), git2::Error> {
     if !key_path.exists() {
         log(
             LogLevel::Error,
-            &format!("SSH key file not found: {}", key_path.display()),
+            format!("SSH key file not found: {}", key_path.display()),
         );
         return Err(git2::Error::from_str("SSH key file not found"));
     }
@@ -83,7 +83,7 @@ fn validate_ssh_key(key_path: &Path) -> Result<(), git2::Error> {
     {
         log(
             LogLevel::Error,
-            &format!(
+            format!(
                 "Invalid SSH key: {} is a public key (.pub)",
                 key_path.display()
             ),
@@ -103,7 +103,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
 
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Initializing clone of {} to {}",
             repo_url,
             dest_path.display()
@@ -123,7 +123,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
 
         log(
             LogLevel::Info,
-            &format!(
+            format!(
                 "Credentials callback for URL: {}, username: {:?}",
                 url, username_from_url
             ),
@@ -136,7 +136,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                 validate_ssh_key(key_path)?;
                 log(
                     LogLevel::Info,
-                    &format!("Using custom SSH key at: {}", key_path.display()),
+                    format!("Using custom SSH key at: {}", key_path.display()),
                 );
                 Cred::ssh_key(
                     username_from_url.unwrap_or("git"),
@@ -154,7 +154,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                     Err(e) => {
                         log(
                             LogLevel::Warn,
-                            &format!("SSH agent failed: {}, trying default key", e),
+                            format!("SSH agent failed: {}, trying default key", e),
                         );
                         Err(e)
                     }
@@ -176,7 +176,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
 
     log(
         LogLevel::Info,
-        &format!("Cloning {} into {}", repo_url, dest_path.display()),
+        format!("Cloning {} into {}", repo_url, dest_path.display()),
     );
     match builder.clone(repo_url, dest_path) {
         Ok(_) => {
@@ -188,7 +188,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                 if let Some(https_url) = ssh_to_https_url(repo_url) {
                     log(
                         LogLevel::Warn,
-                        &format!("SSH clone failed: {}, trying HTTPS: {}", e, https_url),
+                        format!("SSH clone failed: {}, trying HTTPS: {}", e, https_url),
                     );
                     let mut https_callbacks = git2::RemoteCallbacks::new();
                     https_callbacks.credentials(|_url, _username, allowed_types| {
@@ -207,7 +207,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
 
                     log(
                         LogLevel::Info,
-                        &format!("Cloning {} into {}", https_url, dest_path.display()),
+                        format!("Cloning {} into {}", https_url, dest_path.display()),
                     );
                     return match https_builder.clone(&https_url, dest_path) {
                         Ok(_) => {
@@ -215,7 +215,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                             Ok(())
                         }
                         Err(e) => {
-                            log(LogLevel::Error, &format!("HTTPS clone failed: {}", e));
+                            log(LogLevel::Error, format!("HTTPS clone failed: {}", e));
                             Err(FeludaError::Unknown(format!(
                                 "Failed to clone repository: {}",
                                 e
@@ -226,7 +226,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
             }
             log(
                 LogLevel::Error,
-                &format!("Failed to clone repository: {}", e),
+                format!("Failed to clone repository: {}", e),
             );
             Err(FeludaError::Unknown(format!(
                 "Failed to clone repository: {}",

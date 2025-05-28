@@ -115,7 +115,7 @@ pub fn load_config() -> FeludaResult<FeludaConfig> {
     if config_path.exists() {
         log(
             LogLevel::Info,
-            &format!("Found configuration file: {}", config_path.display()),
+            format!("Found configuration file: {}", config_path.display()),
         );
         figment = figment.merge(Toml::file(config_path));
     } else {
@@ -135,7 +135,7 @@ pub fn load_config() -> FeludaResult<FeludaConfig> {
         }
         Err(e) => {
             log_error("Failed to extract configuration", &e);
-            Err(FeludaError::Config(format!(
+            Err(FeludaError::config(format!(
                 "Failed to extract configuration: {}",
                 e
             )))
