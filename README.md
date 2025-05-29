@@ -186,6 +186,27 @@ Sample Output for a sample cargo.toml file containing `serde` and `tokio` depend
 ]
 ```
 
+- YAML: Use the `--yaml` flag for YAML output.
+
+```sh
+feluda --yaml
+```
+
+Sample Output for a sample cargo.toml file containing `serde` and `tokio` dependencies:
+
+```yaml
+- name: serde
+  version: 1.0.151
+  license: MIT
+  is_restrictive: false
+  compatibility: Compatible
+- name: tokio
+  version: 1.0.2
+  license: MIT
+  is_restrictive: false
+  compatibility: Compatible
+```
+
 ### Verbose Mode
 
 For detailed information about each dependency:

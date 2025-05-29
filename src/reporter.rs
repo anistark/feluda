@@ -75,9 +75,12 @@ impl TableFormatter {
     }
 }
 
+// Need to refactor this later.
+#[allow(clippy::too_many_arguments)]
 pub fn generate_report(
     data: Vec<LicenseInfo>,
     json: bool,
+    yaml: bool,
     verbose: bool,
     strict: bool,
     ci_format: Option<CiFormat>,
@@ -163,6 +166,16 @@ pub fn generate_report(
             Err(err) => {
                 log_error("Failed to serialize data to JSON", &err);
                 println!("Error: Failed to generate JSON output");
+            }
+        }
+    } else if yaml {
+        // YAML output
+        log(LogLevel::Info, "Generating YAML output");
+        match serde_yaml::to_string(&filtered_data) {
+            Ok(yaml_output) => println!("{}", yaml_output),
+            Err(err) => {
+                log_error("Failed to serialize data to YAML", &err);
+                println!("Error: Failed to generate YAML output");
             }
         }
     } else if verbose {
@@ -883,7 +896,7 @@ mod tests {
     #[test]
     fn test_generate_report_empty_data() {
         let data = vec![];
-        let result = generate_report(data, false, false, false, None, None, None);
+        let result = generate_report(data, false, false, false, false, None, None, None);
         assert_eq!(result, (false, false)); // No restrictive or incompatible licenses
     }
 
@@ -892,6 +905,7 @@ mod tests {
         let data = get_test_data();
         let result = generate_report(
             data,
+            false,
             false,
             false,
             false,
@@ -907,6 +921,7 @@ mod tests {
         let data = get_test_data();
         let result = generate_report(
             data,
+            false,
             false,
             false,
             true,
@@ -925,6 +940,23 @@ mod tests {
             true,
             false,
             false,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
+        assert_eq!(result, (true, true));
+    }
+
+    #[test]
+    fn test_generate_report_yaml() {
+        let data = get_test_data();
+        let result = generate_report(
+            data,
+            false,
+            true,
+            false,
+            false,
             None,
             None,
             Some("MIT".to_string()),
@@ -938,6 +970,7 @@ mod tests {
         let result = generate_report(
             data,
             false,
+            false,
             true,
             false,
             None,
@@ -950,7 +983,7 @@ mod tests {
     #[test]
     fn test_generate_report_no_project_license() {
         let data = get_test_data_with_unknown_compatibility();
-        let result = generate_report(data, false, false, false, None, None, None);
+        let result = generate_report(data, false, false, false, false, None, None, None);
         assert_eq!(result, (true, false)); // Has restrictive but no incompatible since no project license
     }
 
@@ -962,6 +995,7 @@ mod tests {
 
         let result = generate_report(
             data,
+            false,
             false,
             false,
             false,
@@ -995,6 +1029,7 @@ mod tests {
             false,
             false,
             false,
+            false,
             Some(CiFormat::Jenkins),
             Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
@@ -1023,6 +1058,7 @@ mod tests {
 
         let result = generate_report(
             data,
+            false,
             false,
             false,
             false,

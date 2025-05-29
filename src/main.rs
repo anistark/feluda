@@ -211,6 +211,7 @@ fn run() -> FeludaResult<()> {
         let (has_restrictive, has_incompatible) = generate_report(
             analyzed_data,
             args.json,
+            args.yaml,
             args.verbose,
             args.strict,
             args.ci_format,
