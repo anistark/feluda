@@ -200,7 +200,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         }
     } else if config.verbose {
         log(LogLevel::Info, "Generating verbose table");
-        print_verbose_table(&filtered_data, config.strict, config.project_license);
+        print_verbose_table(&filtered_data, config.strict, config.project_license.as_deref());
     } else {
         log(LogLevel::Info, "Generating summary table");
         print_summary_table(
