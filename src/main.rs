@@ -11,7 +11,7 @@ use cli::{print_version_info, Cli};
 use debug::{log, log_debug, set_debug_mode, FeludaError, FeludaResult, LogLevel};
 use licenses::{detect_project_license, is_license_compatible, LicenseCompatibility};
 use parser::parse_root;
-use reporter::generate_report;
+use reporter::{generate_report, ReportConfig};
 use std::env;
 use std::process;
 use table::App;
@@ -207,17 +207,19 @@ fn run() -> FeludaResult<()> {
     } else {
         log(LogLevel::Info, "Generating dependency report");
 
-        // Generate a report based on the analyzed data
-        let (has_restrictive, has_incompatible) = generate_report(
-            analyzed_data,
+        // Create ReportConfig from CLI arguments
+        let config = ReportConfig::new(
             args.json,
             args.yaml,
             args.verbose,
             args.strict,
             args.ci_format,
-            args.output_file.clone(),
+            args.output_file,
             project_license,
         );
+
+        // Generate a report based on the analyzed data
+        let (has_restrictive, has_incompatible) = generate_report(analyzed_data, config);
 
         log(
             LogLevel::Info,

@@ -254,6 +254,82 @@ feluda --gui
 ![ss-gui](https://github.com/user-attachments/assets/44d46755-b186-4326-a3fb-548da31f3acd)
 
 
+### Programmatic Usage
+
+Feluda can be used as a library in Rust projects. The main entry point for generating reports is the generate_report function in the reporter module, which takes a Vec<LicenseInfo> and a ReportConfig struct.
+
+Example 
+```example
+use feluda::licenses::{LicenseCompatibility, LicenseInfo};
+use feluda::reporter::{generate_report, ReportConfig};
+use feluda::cli::CiFormat;
+
+fn main() {
+    let data = vec![
+        LicenseInfo {
+            name: "serde".to_string(),
+            version: "1.0.151".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        },
+        LicenseInfo {
+            name: "tokio".to_string(),
+            version: "1.0.2".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        },
+    ];
+
+    let config = ReportConfig::new(
+        false,                    // json
+        false,                    // yaml
+        true,                     // verbose
+        false,                    // strict
+        None,                     // ci_format
+        Some("report.txt".to_string()), // output_file
+        Some("MIT".to_string()), // project_license
+    );
+
+    let (has_restrictive, has_incompatible) = generate_report(data, config);
+    println!("Has restrictive licenses: {}", has_restrictive);
+    println!("Has incompatible licenses: {}", has_incompatible);
+}
+```
+
+### ReportConfig Struct
+
+
+The ReportConfig struct configures the generate_report function:
+
+```struct
+pub struct ReportConfig {
+    pub json: bool,                    
+    pub yaml: bool,                   
+    pub verbose: bool,                 
+    pub strict: bool,                 
+    pub ci_format: Option<CiFormat>,  
+    pub output_file: Option<String>,   
+    pub project_license: Option<String>,
+}
+```
+
+## Create a ReportConfig using the new method:
+
+```new_struct
+let config = ReportConfig::new(
+    false,
+    false,
+    true,
+    false,
+    None,
+    None,
+    Some("MIT".to_string())
+);
+```
+
+
 ## CI/CD Integration
 
 Feluda provides several options for CI integration:
