@@ -86,7 +86,7 @@ pub fn generate_report(
 ) -> (bool, bool) {
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Generating report with options: json={}, verbose={}, strict={}, ci_format={:?}, project_license={:?}",
             json, verbose, strict, ci_format, project_license
         ),
@@ -95,7 +95,7 @@ pub fn generate_report(
     let total_packages = data.len();
     log(
         LogLevel::Info,
-        &format!("Total packages to analyze: {}", total_packages),
+        format!("Total packages to analyze: {}", total_packages),
     );
 
     // Filter data if in strict mode to show only restrictive licenses
@@ -113,7 +113,7 @@ pub fn generate_report(
 
     log(
         LogLevel::Info,
-        &format!("Filtered packages count: {}", filtered_data.len()),
+        format!("Filtered packages count: {}", filtered_data.len()),
     );
     log_debug("Filtered license data", &filtered_data);
 
@@ -124,12 +124,12 @@ pub fn generate_report(
 
     log(
         LogLevel::Info,
-        &format!("Has restrictive licenses: {}", has_restrictive),
+        format!("Has restrictive licenses: {}", has_restrictive),
     );
 
     log(
         LogLevel::Info,
-        &format!("Has incompatible licenses: {}", has_incompatible),
+        format!("Has incompatible licenses: {}", has_incompatible),
     );
 
     if filtered_data.is_empty() {
@@ -294,18 +294,18 @@ fn print_summary_table(
 
     log(
         LogLevel::Info,
-        &format!("Found {} permissive license types", license_count.len()),
+        format!("Found {} permissive license types", license_count.len()),
     );
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Found {} packages with restrictive licenses",
             restrictive_licenses.len()
         ),
     );
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Found {} packages with incompatible licenses",
             incompatible_licenses.len()
         ),
@@ -372,7 +372,7 @@ fn print_summary_table(
 fn print_restrictive_licenses_table(restrictive_licenses: &[&LicenseInfo]) {
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Printing table for {} restrictive licenses",
             restrictive_licenses.len()
         ),
@@ -422,7 +422,7 @@ fn print_incompatible_licenses_table(
 ) {
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Printing table for {} incompatible licenses",
             incompatible_licenses.len()
         ),
@@ -591,7 +591,7 @@ fn output_github_format(
 
             log(
                 LogLevel::Info,
-                &format!("Added warning for restrictive license: {}", info.name()),
+                format!("Added warning for restrictive license: {}", info.name()),
             );
         }
 
@@ -608,7 +608,7 @@ fn output_github_format(
 
             log(
                 LogLevel::Info,
-                &format!("Added error for incompatible license: {}", info.name()),
+                format!("Added error for incompatible license: {}", info.name()),
             );
         }
     }
@@ -642,7 +642,7 @@ fn output_github_format(
 
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Added summary: {} restrictive and {} incompatible out of {}",
             restrictive_count,
             incompatible_count,
@@ -654,14 +654,14 @@ fn output_github_format(
     if let Some(path) = output_path {
         log(
             LogLevel::Info,
-            &format!("Writing GitHub Actions output to file: {}", path),
+            format!("Writing GitHub Actions output to file: {}", path),
         );
 
         match fs::write(path, &output) {
             Ok(_) => println!("GitHub Actions output written to: {}", path),
             Err(err) => {
                 log_error(
-                    &format!("Failed to write GitHub Actions output file: {}", path),
+                    format!("Failed to write GitHub Actions output file: {}", path),
                     &err,
                 );
                 println!("Error: Failed to write GitHub Actions output file");
@@ -701,7 +701,7 @@ fn output_jenkins_format(
         let test_case_name = format!("{}-{}", info.name(), info.version());
         log(
             LogLevel::Info,
-            &format!("Processing test case: {}", test_case_name),
+            format!("Processing test case: {}", test_case_name),
         );
 
         let mut failures = Vec::new();
@@ -719,7 +719,7 @@ fn output_jenkins_format(
 
             log(
                 LogLevel::Info,
-                &format!(
+                format!(
                     "Added failing test case for restrictive license: {}",
                     info.name()
                 ),
@@ -740,7 +740,7 @@ fn output_jenkins_format(
 
             log(
                 LogLevel::Info,
-                &format!(
+                format!(
                     "Added failing test case for incompatible license: {}",
                     info.name()
                 ),
@@ -777,7 +777,7 @@ fn output_jenkins_format(
 
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Total test cases: {}, failures: {}",
             license_info.len(),
             failure_count
@@ -800,14 +800,14 @@ fn output_jenkins_format(
     if let Some(path) = output_path {
         log(
             LogLevel::Info,
-            &format!("Writing Jenkins JUnit XML to file: {}", path),
+            format!("Writing Jenkins JUnit XML to file: {}", path),
         );
 
         match fs::write(path, &junit_xml) {
             Ok(_) => println!("Jenkins JUnit XML output written to: {}", path),
             Err(err) => {
                 log_error(
-                    &format!("Failed to write Jenkins output file: {}", path),
+                    format!("Failed to write Jenkins output file: {}", path),
                     &err,
                 );
                 println!("Error: Failed to write Jenkins JUnit XML output file");
