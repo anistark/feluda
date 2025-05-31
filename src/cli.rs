@@ -38,6 +38,13 @@ pub struct Cli {
     /// This is useful for CI/CD pipelines.
     pub json: bool,
 
+    /// Output in YAML format
+    #[arg(long, short, group = "output")]
+    /// This will override the default output format
+    /// and will not show the TUI table.
+    /// This is useful for CI/CD pipelines.
+    pub yaml: bool,
+
     /// Enable verbose output
     #[arg(long)]
     pub verbose: bool,

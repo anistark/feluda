@@ -5,6 +5,40 @@ use colored::*;
 use std::collections::HashMap;
 use std::fs;
 
+// ReportConfig struct
+#[derive(Debug)]
+pub struct ReportConfig {
+    json: bool,
+    yaml: bool,
+    verbose: bool,
+    strict: bool,
+    ci_format: Option<CiFormat>,
+    output_file: Option<String>,
+    project_license: Option<String>,
+}
+
+impl ReportConfig {
+    pub fn new(
+        json: bool,
+        yaml: bool,
+        verbose: bool,
+        strict: bool,
+        ci_format: Option<CiFormat>,
+        output_file: Option<String>,
+        project_license: Option<String>,
+    ) -> Self {
+        Self {
+            json,
+            yaml,
+            verbose,
+            strict,
+            ci_format,
+            output_file,
+            project_license,
+        }
+    }
+}
+
 struct TableFormatter {
     column_widths: Vec<usize>,
     headers: Vec<String>,
@@ -75,20 +109,11 @@ impl TableFormatter {
     }
 }
 
-pub fn generate_report(
-    data: Vec<LicenseInfo>,
-    json: bool,
-    verbose: bool,
-    strict: bool,
-    ci_format: Option<CiFormat>,
-    output_file: Option<String>,
-    project_license: Option<String>,
-) -> (bool, bool) {
+pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, bool) {
     log(
         LogLevel::Info,
         format!(
-            "Generating report with options: json={}, verbose={}, strict={}, ci_format={:?}, project_license={:?}",
-            json, verbose, strict, ci_format, project_license
+            "Generating report with config: {:?}", config
         ),
     );
 
@@ -99,7 +124,7 @@ pub fn generate_report(
     );
 
     // Filter data if in strict mode to show only restrictive licenses
-    let filtered_data: Vec<LicenseInfo> = if strict {
+    let filtered_data: Vec<LicenseInfo> = if config.strict {
         log(
             LogLevel::Info,
             "Strict mode enabled, filtering restrictive licenses only",
@@ -142,20 +167,20 @@ pub fn generate_report(
         return (false, false);
     }
 
-    if let Some(format) = ci_format {
+    if let Some(format) = config.ci_format {
         match format {
             CiFormat::Github => output_github_format(
                 &filtered_data,
-                output_file.as_deref(),
-                project_license.as_deref(),
+                config.output_file.as_deref(),
+                config.project_license.as_deref(),
             ),
             CiFormat::Jenkins => output_jenkins_format(
                 &filtered_data,
-                output_file.as_deref(),
-                project_license.as_deref(),
+                config.output_file.as_deref(),
+                config.project_license.as_deref(),
             ),
         }
-    } else if json {
+    } else if config.json {
         // JSON output
         log(LogLevel::Info, "Generating JSON output");
         match serde_json::to_string_pretty(&filtered_data) {
@@ -165,17 +190,26 @@ pub fn generate_report(
                 println!("Error: Failed to generate JSON output");
             }
         }
-    } else if verbose {
-        // Changed "else { if verbose {" to "else if verbose {"
+    } else if config.yaml {
+        // YAML output
+        log(LogLevel::Info, "Generating YAML output");
+        match serde_yaml::to_string(&filtered_data) {
+            Ok(yaml_output) => println!("{}", yaml_output),
+            Err(err) => {
+                log_error("Failed to serialize data to YAML", &err);
+                println!("Error: Failed to generate YAML output");
+            }
+        }
+    } else if config.verbose {
         log(LogLevel::Info, "Generating verbose table");
-        print_verbose_table(&filtered_data, strict, project_license);
+        print_verbose_table(&filtered_data, config.strict, config.project_license.as_deref().map(|s| s.to_string()));
     } else {
         log(LogLevel::Info, "Generating summary table");
         print_summary_table(
             &filtered_data,
             total_packages,
-            strict,
-            project_license.as_deref(),
+            config.strict,
+            config.project_license.as_deref(),
         );
     }
 
@@ -885,74 +919,56 @@ mod tests {
     #[test]
     fn test_generate_report_empty_data() {
         let data = vec![];
-        let result = generate_report(data, false, false, false, None, None, None);
+        let config = ReportConfig::new(false, false, false, false, None, None, None);
+        let result = generate_report(data, config);
         assert_eq!(result, (false, false)); // No restrictive or incompatible licenses
     }
 
     #[test]
     fn test_generate_report_non_strict() {
         let data = get_test_data();
-        let result = generate_report(
-            data,
-            false,
-            false,
-            false,
-            None,
-            None,
-            Some("MIT".to_string()),
-        );
+        let config = ReportConfig::new(false, false, false, false, None, None, Some("MIT".to_string()));
+        let result = generate_report(data, config);
         assert_eq!(result, (true, true)); // Has both restrictive and incompatible licenses
     }
 
     #[test]
     fn test_generate_report_strict() {
         let data = get_test_data();
-        let result = generate_report(
-            data,
-            false,
-            false,
-            true,
-            None,
-            None,
-            Some("MIT".to_string()),
-        );
+        let config = ReportConfig::new(false, false, false, true, None, None, Some("MIT".to_string()));
+        let result = generate_report(data, config);
         assert_eq!(result, (true, true)); // In strict mode, still has both restrictive and incompatible
     }
 
     #[test]
     fn test_generate_report_json() {
         let data = get_test_data();
-        let result = generate_report(
-            data,
-            true,
-            false,
-            false,
-            None,
-            None,
-            Some("MIT".to_string()),
-        );
+        let config = ReportConfig::new(true, false, false, false, None, None, Some("MIT".to_string()));
+        let result = generate_report(data, config);
+        assert_eq!(result, (true, true));
+    }
+
+    #[test]
+    fn test_generate_report_yaml() {
+        let data = get_test_data();
+        let config = ReportConfig::new(false, true, false, false, None, None, Some("MIT".to_string()));
+        let result = generate_report(data, config);
         assert_eq!(result, (true, true));
     }
 
     #[test]
     fn test_generate_report_verbose() {
         let data = get_test_data();
-        let result = generate_report(
-            data,
-            false,
-            true,
-            false,
-            None,
-            None,
-            Some("MIT".to_string()),
-        );
+        let config = ReportConfig::new(false, false, true, false, None, None, Some("MIT".to_string()));
+        let result = generate_report(data, config);
         assert_eq!(result, (true, true));
     }
 
     #[test]
     fn test_generate_report_no_project_license() {
         let data = get_test_data_with_unknown_compatibility();
-        let result = generate_report(data, false, false, false, None, None, None);
+        let config = ReportConfig::new(false, false, false, false, None, None, None);
+        let result = generate_report(data, config);
         assert_eq!(result, (true, false)); // Has restrictive but no incompatible since no project license
     }
 
@@ -961,9 +977,8 @@ mod tests {
         let data = get_test_data();
         let temp_dir = setup();
         let output_path = temp_dir.path().join("github_output.txt");
-
-        let result = generate_report(
-            data,
+        let config = ReportConfig::new(
+            false,
             false,
             false,
             false,
@@ -971,6 +986,8 @@ mod tests {
             Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
         );
+
+        let result = generate_report(data, config);
         assert_eq!(result, (true, true));
 
         let content = match fs::read_to_string(&output_path) {
@@ -991,9 +1008,8 @@ mod tests {
         let data = get_test_data();
         let temp_dir = setup();
         let output_path = temp_dir.path().join("jenkins_output.xml");
-
-        let result = generate_report(
-            data,
+        let config = ReportConfig::new(
+            false,
             false,
             false,
             false,
@@ -1001,6 +1017,8 @@ mod tests {
             Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
         );
+
+        let result = generate_report(data, config);
         assert_eq!(result, (true, true));
 
         let content = match fs::read_to_string(&output_path) {
@@ -1022,9 +1040,8 @@ mod tests {
         let data = get_test_data_with_unknown_compatibility();
         let temp_dir = setup();
         let output_path = temp_dir.path().join("jenkins_output.xml");
-
-        let result = generate_report(
-            data,
+        let config = ReportConfig::new(
+            false,
             false,
             false,
             false,
@@ -1032,6 +1049,8 @@ mod tests {
             Some(output_path.to_str().unwrap().to_string()),
             None,
         );
+
+        let result = generate_report(data, config);
         assert_eq!(result, (true, false)); // Has restrictive but no incompatible
 
         let content = match fs::read_to_string(&output_path) {
