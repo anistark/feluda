@@ -15,6 +15,9 @@ use reporter::{generate_report, ReportConfig};
 use std::env;
 use std::process;
 use table::App;
+use git2::{Cred};
+use tempfile::TempDir;
+use std::path::Path;
 
 fn main() {
     // Check if --version or -V is passed alone
@@ -45,6 +48,40 @@ fn run() -> FeludaResult<()> {
         LogLevel::Info,
         &format!("Starting Feluda with args: {:?}", args),
     );
+
+    if args.repo.is_some() {
+        log(LogLevel::Info, &format!("Using repository URL: {:?}", args.repo));
+    } else {
+        log(LogLevel::Info, &format!("Using local path: {}", args.path));
+    }
+
+    // Handle repository cloning if --repo is provided
+    let (analysis_path, _temp_dir) = match args.repo {
+        Some(repo_url) => {
+            log(LogLevel::Info, &format!("Attempting to clone repository: {}", repo_url));
+            let temp_dir = TempDir::new().map_err(|e| {
+                FeludaError::Unknown(format!("Failed to create temporary directory: {}", e))
+
+            })?;
+            let repo_path = temp_dir.path();
+
+            // Clone the repository
+            if let Err(e) = clone_repository(&repo_url, repo_path, args.token.as_deref(), args.ssh_key.as_deref(), args.ssh_passphrase.as_deref()) {
+                log(LogLevel::Error, &format!("Repository cloning failed: {}", e));
+                return Err(e);
+            }
+            log(LogLevel::Info, &format!("Repository cloned to: {}", repo_path.display()));
+            (repo_path.to_path_buf(), Some(temp_dir))
+        }
+        None => {
+            let path = Path::new(&args.path).to_path_buf();
+            log(LogLevel::Info, &format!("Using local path for analysis: {}", path.display()));
+            (path, None)
+        }
+    };
+
+    // Log the final analysis path
+    log(LogLevel::Info, &format!("Final analysis path: {}", analysis_path.display()));
 
     // Parse project dependencies
     log(
@@ -90,7 +127,7 @@ fn run() -> FeludaResult<()> {
     }
 
     // Parse and analyze dependencies
-    let mut analyzed_data = parse_root(&args.path, args.language.as_deref())
+    let mut analyzed_data = parse_root(&analysis_path, args.language.as_deref())
         .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {}", e)))?;
 
     log_debug("Analyzed dependencies", &analyzed_data);
@@ -242,5 +279,93 @@ fn run() -> FeludaResult<()> {
     }
 
     log(LogLevel::Info, "Feluda completed successfully");
+
     Ok(())
+}
+
+fn validate_ssh_key(key_path: &Path) -> Result<(), git2::Error> {
+    if !key_path.exists() {
+        log(LogLevel::Error, &format!("SSH key file not found: {}", key_path.display()));
+        return Err(git2::Error::from_str("SSH key file not found"));
+    }
+    if key_path.extension().map(|ext| ext == "pub").unwrap_or(false) {
+        log(LogLevel::Error, &format!("Invalid SSH key: {} is a public key (.pub)", key_path.display()));
+        return Err(git2::Error::from_str("Public key provided instead of private key"));
+    }
+    Ok(())
+}
+
+fn clone_repository(repo_url: &str, dest_path: &Path, token: Option<&str>, ssh_key: Option<&str>, ssh_passphrase: Option<&str>) -> FeludaResult<()> {
+    log(LogLevel::Info, &format!("Initializing clone of {} to {}", repo_url, dest_path.display()));
+
+    let mut callbacks = git2::RemoteCallbacks::new();
+    callbacks.credentials(|url, username_from_url, allowed_types| {
+        log(LogLevel::Info, &format!("Credentials callback for URL: {}, username: {:?}", url, username_from_url));
+        if allowed_types.is_ssh_key() {
+            log(LogLevel::Info, "Attempting SSH authentication");
+
+            match (ssh_key, ssh_passphrase) {
+                (Some(key_path), Some(passphrase)) => {
+                    let key_path = Path::new(key_path);
+                    validate_ssh_key(key_path)?;
+                    Cred::ssh_key(
+                    username_from_url.unwrap_or("git"),
+                    None,
+                    key_path,
+                    Some(passphrase),
+                    )
+                }
+                (Some(key_path), None) => {
+                    let key_path = Path::new(key_path);
+                    validate_ssh_key(key_path)?;
+                    Cred::ssh_key(
+                    username_from_url.unwrap_or("git"),
+                    None,
+                    key_path,
+                    None, // If Private key is not passworded
+                    )
+                }
+                (None, Some(passphrase)) => {
+                    let path  = format!("{}/.ssh/id_rsa", env::var("HOME").unwrap());
+                    let key_path = Path::new(&path);
+
+                    validate_ssh_key(key_path)?;
+                    Cred::ssh_key(
+                    username_from_url.unwrap_or("git"),
+                    None,
+                    key_path,
+                    Some(passphrase), // Pass passphrase if provided
+                    )
+                }
+                (None, None) => {
+                    Err(git2::Error::from_str("Private key and PassPhrase not provided"))
+                }
+            }
+
+        } else if allowed_types.is_user_pass_plaintext() && token.is_some() {
+            log(LogLevel::Info, "Using HTTPS token authentication");
+            Cred::userpass_plaintext("x-access-token", token.unwrap())
+        } else {
+            log(LogLevel::Info, "Using default credentials for HTTPS");
+            Cred::default()
+        }
+    });
+
+    let mut fetch_options = git2::FetchOptions::new();
+    fetch_options.remote_callbacks(callbacks);
+
+    let mut builder = git2::build::RepoBuilder::new();
+    builder.fetch_options(fetch_options);
+
+    log(LogLevel::Info, &format!("Cloning {} into {}", repo_url, dest_path.display()));
+    match builder.clone(repo_url, dest_path) {
+        Ok(_) => {
+            log(LogLevel::Info, "Clone successful");
+            Ok(())
+        }
+        Err(e) => {
+            log(LogLevel::Error, &format!("Failed to clone repository: {}", e));
+            Err(FeludaError::Unknown(format!("Failed to clone repository: {}", e)))
+        }
+    }
 }
