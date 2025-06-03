@@ -112,9 +112,7 @@ impl TableFormatter {
 pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, bool) {
     log(
         LogLevel::Info,
-        &format!(
-            "Generating report with config: {:?}", config
-        ),
+        &format!("Generating report with config: {:?}", config),
     );
 
     let total_packages = data.len();
@@ -202,7 +200,11 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         }
     } else if config.verbose {
         log(LogLevel::Info, "Generating verbose table");
-        print_verbose_table(&filtered_data, config.strict, config.project_license.as_deref());
+        print_verbose_table(
+            &filtered_data,
+            config.strict,
+            config.project_license.as_deref(),
+        );
     } else {
         log(LogLevel::Info, "Generating summary table");
         print_summary_table(
@@ -925,7 +927,15 @@ mod tests {
     #[test]
     fn test_generate_report_non_strict() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, false, false, false, None, None, Some("MIT".to_string()));
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true)); // Has both restrictive and incompatible licenses
     }
@@ -933,7 +943,15 @@ mod tests {
     #[test]
     fn test_generate_report_strict() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, false, false, true, None, None, Some("MIT".to_string()));
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            true,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true)); // In strict mode, still has both restrictive and incompatible
     }
@@ -941,7 +959,15 @@ mod tests {
     #[test]
     fn test_generate_report_json() {
         let data = get_test_data();
-        let config = ReportConfig::new(true, false, false, false, None, None, Some("MIT".to_string()));
+        let config = ReportConfig::new(
+            true,
+            false,
+            false,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true));
     }
@@ -949,7 +975,15 @@ mod tests {
     #[test]
     fn test_generate_report_yaml() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, true, false, false, None, None, Some("MIT".to_string()));
+        let config = ReportConfig::new(
+            false,
+            true,
+            false,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true));
     }
@@ -957,7 +991,15 @@ mod tests {
     #[test]
     fn test_generate_report_verbose() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, false, true, false, None, None, Some("MIT".to_string()));
+        let config = ReportConfig::new(
+            false,
+            false,
+            true,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true));
     }

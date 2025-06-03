@@ -1,5 +1,6 @@
 use clap::{ArgGroup, Parser, ValueEnum};
 use colored::*;
+use std::env;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,18 +19,35 @@ pub enum CiFormat {
     Jenkins,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version)]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
 #[command(
     long_about = "Feluda is a CLI tool that analyzes the dependencies of a project, identifies their licenses, and flags any that may restrict personal or commercial usage."
 )]
 #[command(group(ArgGroup::new("output").args(["json"])))]
+#[command(group(ArgGroup::new("source").args(["path", "repo"]).multiple(false)))] // Mutually exclusive path and repo
 #[command(before_help = format_before_help())]
 pub struct Cli {
     /// Path to the local project directory
     #[arg(short, long, default_value = "./")]
     pub path: String,
+
+    /// URL of the Git repository to analyze (HTTPS or SSH)
+    #[arg(long)]
+    pub repo: Option<String>,
+
+    // For HTTPS authentication
+    #[arg(long, requires = "repo")]
+    pub token: Option<String>,
+
+    // For custom SSH key path
+    #[arg(long, requires = "repo")]
+    pub ssh_key: Option<String>,
+
+    // For custom SSH key passphrase
+    #[arg(long)]
+    pub ssh_passphrase: Option<String>,
 
     /// Output in JSON format
     #[arg(long, short, group = "output")]

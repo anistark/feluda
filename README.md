@@ -151,6 +151,20 @@ feluda
 feluda --path /path/to/project/
 ```
 
+### Run feluda on a github repo directly
+
+```sh
+feluda --repo <repository_url> [--ssh-key <key_path>] [--ssh-passphrase <passphrase>] [--token <https_token>]
+```
+
+` <repository_url>: The URL of the Git repository to clone (e.g., git@github.com:user/repo.git or https://github.com/user/repo.git). `
+
+` --ssh-key <key_path>: (Optional) Path to a private SSH key for authentication. `
+
+` --ssh-passphrase <passphrase>: (Optional) Passphrase for the SSH key. `
+
+` --token <https_token>: (Optional) HTTPS token for authenticating with private repositories. `
+
 _If you're using Feluda, feel free to grab a Scanned with Feluda badge for your project:_ [![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-red)](https://github.com/anistark/feluda)
 ```
 [![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-red)](https://github.com/anistark/feluda)

@@ -5,6 +5,7 @@ mod licenses;
 mod parser;
 mod reporter;
 mod table;
+mod utils;
 
 use clap::Parser;
 use cli::{print_version_info, Cli};
@@ -13,8 +14,11 @@ use licenses::{detect_project_license, is_license_compatible, LicenseCompatibili
 use parser::parse_root;
 use reporter::{generate_report, ReportConfig};
 use std::env;
+use std::path::Path;
 use std::process;
 use table::App;
+use tempfile::TempDir;
+use utils::clone_repository;
 
 fn main() {
     // Check if --version or -V is passed alone
@@ -39,11 +43,51 @@ fn run() -> FeludaResult<()> {
     // Debug mode
     if args.debug {
         set_debug_mode(true);
+        log(
+            LogLevel::Info,
+            &format!("Starting Feluda with args: {:?}", args),
+        );
     }
+
+    // Handle repository cloning if --repo is provided
+    let (analysis_path, _temp_dir) = match &args.repo.clone() {
+        Some(repo_url) => {
+            log(
+                LogLevel::Info,
+                &format!("Attempting to clone repository: {}", repo_url),
+            );
+            let temp_dir = TempDir::new().map_err(|e| {
+                FeludaError::Unknown(format!("Failed to create temporary directory: {}", e))
+            })?;
+            let repo_path = temp_dir.path();
+
+            // Clone the repository
+            if let Err(e) = clone_repository(&args, repo_path) {
+                log(
+                    LogLevel::Error,
+                    &format!("Repository cloning failed: {}", e),
+                );
+                return Err(e);
+            }
+            log(
+                LogLevel::Info,
+                &format!("Repository cloned to: {}", repo_path.display()),
+            );
+            (repo_path.to_path_buf(), Some(temp_dir))
+        }
+        None => {
+            let path = Path::new(&args.path).to_path_buf();
+            log(
+                LogLevel::Info,
+                &format!("Using local path for analysis: {}", path.display()),
+            );
+            (path, None)
+        }
+    };
 
     log(
         LogLevel::Info,
-        &format!("Starting Feluda with args: {:?}", args),
+        &format!("Analysing project at: {}", analysis_path.display()),
     );
 
     // Parse project dependencies
@@ -90,7 +134,7 @@ fn run() -> FeludaResult<()> {
     }
 
     // Parse and analyze dependencies
-    let mut analyzed_data = parse_root(&args.path, args.language.as_deref())
+    let mut analyzed_data = parse_root(&analysis_path, args.language.as_deref())
         .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {}", e)))?;
 
     log_debug("Analyzed dependencies", &analyzed_data);
@@ -242,5 +286,6 @@ fn run() -> FeludaResult<()> {
     }
 
     log(LogLevel::Info, "Feluda completed successfully");
+
     Ok(())
 }
