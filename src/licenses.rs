@@ -48,7 +48,7 @@ impl std::fmt::Display for LicenseCompatibility {
 }
 
 // This struct is used to store information about the licenses of dependencies
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct LicenseInfo {
     pub name: String,                        // The name of the software or library
     pub version: String,                     // The version of the software or library
