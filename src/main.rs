@@ -210,11 +210,9 @@ fn run() -> FeludaResult<()> {
         // Create ReportConfig from CLI arguments
         let config = ReportConfig::new(
             args.json,
-            args.yaml,
             args.verbose,
             args.strict,
             args.ci_format,
-            args.output_file,
             project_license,
         );
 
