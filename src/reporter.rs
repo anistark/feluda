@@ -3,37 +3,32 @@ use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{LicenseCompatibility, LicenseInfo};
 use colored::*;
 use std::collections::HashMap;
+#[cfg(test)]
 use std::fs;
 
 // ReportConfig struct
 #[derive(Debug)]
 pub struct ReportConfig {
     pub json: bool,
-    pub yaml: bool,
     pub verbose: bool,
     pub strict: bool,
     pub ci_format: Option<CiFormat>,
-    pub output_file: Option<String>,
     pub project_license: Option<String>,
 }
 
 impl ReportConfig {
     pub fn new(
         json: bool,
-        yaml: bool,
         verbose: bool,
         strict: bool,
         ci_format: Option<CiFormat>,
-        output_file: Option<String>,
         project_license: Option<String>,
     ) -> Self {
         Self {
             json,
-            yaml,
             verbose,
             strict,
             ci_format,
-            output_file,
             project_license,
         }
     }
@@ -136,7 +131,7 @@ pub fn generate_report(
         );
         license_info.iter().filter(|info| *info.is_restrictive()).cloned().collect()
     } else {
-        license_info.iter().cloned().collect()
+        license_info.to_vec()
     };
 
     log(
@@ -674,28 +669,8 @@ fn output_github_format(
         ),
     );
 
-    // Output to file or stdout
-    if let Some(path) = project_license {
-        log(
-            LogLevel::Info,
-            format!("Writing GitHub Actions output to file: {}", path),
-        );
-
-        match fs::write(path, &output) {
-            Ok(_) => println!("GitHub Actions output written to: {}", path),
-            Err(err) => {
-                log_error(
-                    format!("Failed to write GitHub Actions output file: {}", path),
-                    &err,
-                );
-                println!("Error: Failed to write GitHub Actions output file");
-                println!("{}", output);
-            }
-        }
-    } else {
-        log(LogLevel::Info, "Writing GitHub Actions output to stdout");
-        print!("{}", output);
-    }
+    log(LogLevel::Info, "Writing GitHub Actions output to stdout");
+    print!("{}", output);
 }
 
 fn output_jenkins_format(
@@ -819,28 +794,8 @@ fn output_jenkins_format(
         test_cases.join("\n")
     );
 
-    // Output to file or stdout
-    if let Some(path) = project_license {
-        log(
-            LogLevel::Info,
-            format!("Writing Jenkins JUnit XML to file: {}", path),
-        );
-
-        match fs::write(path, &junit_xml) {
-            Ok(_) => println!("Jenkins JUnit XML output written to: {}", path),
-            Err(err) => {
-                log_error(
-                    format!("Failed to write Jenkins output file: {}", path),
-                    &err,
-                );
-                println!("Error: Failed to write Jenkins JUnit XML output file");
-                println!("{}", junit_xml); // Fallback to stdout
-            }
-        }
-    } else {
-        log(LogLevel::Info, "Writing Jenkins JUnit XML to stdout");
-        println!("{}", junit_xml);
-    }
+    log(LogLevel::Info, "Writing Jenkins JUnit XML to stdout");
+    println!("{}", junit_xml);
 }
 
 #[cfg(test)]
@@ -908,7 +863,7 @@ mod tests {
     #[test]
     fn test_generate_report_empty_data() {
         let data = vec![];
-        let config = ReportConfig::new(false, false, false, false, None, None, None);
+        let config = ReportConfig::new(false, false, false, None, None);
         let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (false, false)); // No restrictive or incompatible licenses
     }
@@ -916,7 +871,7 @@ mod tests {
     #[test]
     fn test_generate_report_non_strict() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, false, false, false, None, None, Some("MIT".to_string()));
+        let config = ReportConfig::new(false, false, false, None, Some("MIT".to_string()));
         let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true)); // Has both restrictive and incompatible licenses
     }
@@ -924,7 +879,7 @@ mod tests {
     #[test]
     fn test_generate_report_strict() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, false, false, true, None, None, Some("MIT".to_string()));
+        let config = ReportConfig::new(false, false, true, None, Some("MIT".to_string()));
         let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true)); // In strict mode, still has both restrictive and incompatible
     }
@@ -932,7 +887,7 @@ mod tests {
     #[test]
     fn test_generate_report_json() {
         let data = get_test_data();
-        let config = ReportConfig::new(true, false, false, false, None, None, Some("MIT".to_string()));
+        let config = ReportConfig::new(true, false, false, None, Some("MIT".to_string()));
         let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true));
     }
@@ -940,7 +895,7 @@ mod tests {
     #[test]
     fn test_generate_report_verbose() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, false, true, false, None, None, Some("MIT".to_string()));
+        let config = ReportConfig::new(false, true, false, None, Some("MIT".to_string()));
         let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true));
     }
@@ -948,7 +903,7 @@ mod tests {
     #[test]
     fn test_generate_report_no_project_license() {
         let data = get_test_data_with_unknown_compatibility();
-        let config = ReportConfig::new(false, false, false, false, None, None, None);
+        let config = ReportConfig::new(false, false, false, None, None);
         let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, false)); // Has restrictive but no incompatible since no project license
     }
@@ -962,9 +917,7 @@ mod tests {
             false,
             false,
             false,
-            false,
             Some(CiFormat::Github),
-            Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
         );
 
@@ -993,9 +946,7 @@ mod tests {
             false,
             false,
             false,
-            false,
             Some(CiFormat::Jenkins),
-            Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
         );
 
@@ -1025,9 +976,7 @@ mod tests {
             false,
             false,
             false,
-            false,
             Some(CiFormat::Jenkins),
-            Some(output_path.to_str().unwrap().to_string()),
             None,
         );
 

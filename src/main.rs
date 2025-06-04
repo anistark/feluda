@@ -312,13 +312,11 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
         log(LogLevel::Info, "Generating dependency report");
 
         // Create ReportConfig from CLI arguments
-        let report_config = ReportConfig::new(
-            config.json,
-            config.yaml,
-            config.verbose,
-            config.strict,
-            config.ci_format,
-            config.output_file,
+        let config = ReportConfig::new(
+            args.json,
+            args.verbose,
+            args.strict,
+            args.ci_format,
             project_license,
         );
 
