@@ -323,7 +323,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
         );
 
         // Generate a report based on the analyzed data
-        let (has_restrictive, has_incompatible) = generate_report(analyzed_data, report_config);
+        let (has_restrictive, has_incompatible) = generate_report(&analyzed_data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
 
         log(
             LogLevel::Info,
