@@ -80,7 +80,6 @@ pub fn log_debug<T: std::fmt::Debug>(context: impl Into<String>, value: &T) {
 }
 
 /// Conditionally execute a function and log the result if debug mode is enabled
-#[allow(dead_code)]
 pub fn with_debug<F, T>(context: impl Into<String>, f: F) -> T
 where
     F: FnOnce() -> T,

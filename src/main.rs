@@ -319,10 +319,12 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             args.strict,
             args.ci_format,
             project_license,
+            args.output_file,
         );
 
         // Generate a report based on the analyzed data
-        let (has_restrictive, has_incompatible) = generate_report(&analyzed_data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
+        let (has_restrictive, has_incompatible) = generate_report(&analyzed_data, &config)
+            .map_err(|e| FeludaError::unknown(format!("Failed to generate report: {}", e)))?;
 
         log(
             LogLevel::Info,
