@@ -8,6 +8,7 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct ReportConfig {
     pub json: bool,
+    pub yaml: bool,
     pub verbose: bool,
     pub strict: bool,
     pub ci_format: Option<CiFormat>,
@@ -17,6 +18,7 @@ pub struct ReportConfig {
 impl ReportConfig {
     pub fn new(
         json: bool,
+        yaml: bool,
         verbose: bool,
         strict: bool,
         ci_format: Option<CiFormat>,
@@ -24,6 +26,7 @@ impl ReportConfig {
     ) -> Self {
         Self {
             json,
+            yaml,
             verbose,
             strict,
             ci_format,
@@ -105,6 +108,7 @@ impl TableFormatter {
 pub fn generate_report(
     license_info: &[LicenseInfo],
     json: bool,
+    yaml: bool,
     verbose: bool,
     strict: bool,
     ci_format: Option<CiFormat>,
@@ -113,6 +117,7 @@ pub fn generate_report(
     // Create a config struct for logging purposes
     let config = ReportConfig {
         json,
+        yaml,
         verbose,
         strict,
         ci_format: ci_format.clone(),
@@ -865,48 +870,48 @@ mod tests {
     #[test]
     fn test_generate_report_empty_data() {
         let data = vec![];
-        let config = ReportConfig::new(false, false, false, None, None);
-        let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
+        let config = ReportConfig::new(false, false, false, false, None, None);
+        let result = generate_report(&data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (false, false)); // No restrictive or incompatible licenses
     }
 
     #[test]
     fn test_generate_report_non_strict() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, false, false, None, Some("MIT".to_string()));
-        let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
+        let config = ReportConfig::new(false, false, false, false, None, Some("MIT".to_string()));
+        let result = generate_report(&data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true)); // Has both restrictive and incompatible licenses
     }
 
     #[test]
     fn test_generate_report_strict() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, false, true, None, Some("MIT".to_string()));
-        let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
+        let config = ReportConfig::new(false, false, false, true, None, Some("MIT".to_string()));
+        let result = generate_report(&data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true)); // In strict mode, still has both restrictive and incompatible
     }
 
     #[test]
     fn test_generate_report_json() {
         let data = get_test_data();
-        let config = ReportConfig::new(true, false, false, None, Some("MIT".to_string()));
-        let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
+        let config = ReportConfig::new(true, false, false, false, None, Some("MIT".to_string()));
+        let result = generate_report(&data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true));
     }
 
     #[test]
     fn test_generate_report_verbose() {
         let data = get_test_data();
-        let config = ReportConfig::new(false, true, false, None, Some("MIT".to_string()));
-        let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
+        let config = ReportConfig::new(false, false, true, false, None, Some("MIT".to_string()));
+        let result = generate_report(&data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true));
     }
 
     #[test]
     fn test_generate_report_no_project_license() {
         let data = get_test_data_with_unknown_compatibility();
-        let config = ReportConfig::new(false, false, false, None, None);
-        let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
+        let config = ReportConfig::new(false, false, false, false, None, None);
+        let result = generate_report(&data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, false)); // Has restrictive but no incompatible since no project license
     }
 
@@ -917,11 +922,12 @@ mod tests {
             false,
             false,
             false,
+            false,
             Some(CiFormat::Github),
             Some("MIT".to_string()),
         );
 
-        let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
+        let result = generate_report(&data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true));
 
         // Since the function outputs to stdout, we can't easily test the exact content
@@ -936,11 +942,12 @@ mod tests {
             false,
             false,
             false,
+            false,
             Some(CiFormat::Jenkins),
             Some("MIT".to_string()),
         );
 
-        let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
+        let result = generate_report(&data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, true));
 
         // Since the function outputs to stdout, we can't easily test the exact content
@@ -954,11 +961,12 @@ mod tests {
             false,
             false,
             false,
+            false,
             Some(CiFormat::Jenkins),
             None,
         );
 
-        let result = generate_report(&data, config.json, config.verbose, config.strict, config.ci_format, config.project_license);
+        let result = generate_report(&data, config.json, config.yaml, config.verbose, config.strict, config.ci_format, config.project_license);
         assert_eq!(result, (true, false)); // Has restrictive but no incompatible
 
         // Since the function outputs to stdout, we can't easily test the exact content
