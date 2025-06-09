@@ -1201,7 +1201,7 @@ fn generate_package_url(name: &str, version: &str) -> Option<String> {
     }
 
     // Rust crates: Version starts with digit
-    if version.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+    if version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         return Some(format!("https://crates.io/crates/{}", name));
     }
 
