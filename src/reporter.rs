@@ -159,17 +159,11 @@ pub fn generate_report(
     );
 
     if filtered_data.is_empty() {
-        let message = "\n🎉 All dependencies passed the license check! No restrictive or incompatible licenses found.\n";
-        
-        if let Some(output_file) = &config.output_file {
-            let mut file = File::create(output_file)?;
-            file.write_all(message.as_bytes())?;
-            println!("Report written to: {}", output_file);
-        }
-        
         println!(
             "\n{}\n",
-            message.green().bold()
+            "🎉 All dependencies passed the license check! No restrictive or incompatible licenses found."
+                .green()
+                .bold()
         );
         return Ok((false, false));
     }

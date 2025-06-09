@@ -318,8 +318,8 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             args.verbose,
             args.strict,
             args.ci_format,
-            project_license,
             args.output_file,
+            project_license,
         );
 
         // Generate a report based on the analyzed data
