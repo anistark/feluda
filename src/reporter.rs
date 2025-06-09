@@ -14,8 +14,8 @@ pub struct ReportConfig {
     pub verbose: bool,
     pub strict: bool,
     pub ci_format: Option<CiFormat>,
-    pub project_license: Option<String>,
     pub output_file: Option<String>,
+    pub project_license: Option<String>,
 }
 
 impl ReportConfig {
@@ -25,8 +25,8 @@ impl ReportConfig {
         verbose: bool,
         strict: bool,
         ci_format: Option<CiFormat>,
-        project_license: Option<String>,
         output_file: Option<String>,
+        project_license: Option<String>,
     ) -> Self {
         Self {
             json,
@@ -34,8 +34,8 @@ impl ReportConfig {
             verbose,
             strict,
             ci_format,
-            project_license,
             output_file,
+            project_license,
         }
     }
 }
@@ -111,7 +111,7 @@ impl TableFormatter {
 }
 
 pub fn generate_report(
-    license_info: &[LicenseInfo],
+    data: &[LicenseInfo],
     config: &ReportConfig,
 ) -> io::Result<(bool, bool)> {
 
@@ -120,7 +120,7 @@ pub fn generate_report(
         format!("Generating report with config: {:?}", config),
     );
 
-    let total_packages = license_info.len();
+    let total_packages = data.len();
     log(
         LogLevel::Info,
         format!("Total packages to analyze: {}", total_packages),
@@ -132,9 +132,9 @@ pub fn generate_report(
             LogLevel::Info,
             "Strict mode enabled, filtering restrictive licenses only",
         );
-        license_info.iter().filter(|info| *info.is_restrictive()).cloned().collect()
+        data.iter().filter(|info| *info.is_restrictive()).cloned().collect()
     } else {
-        license_info.to_vec()
+        data.to_vec()
     };
 
     log(
@@ -242,7 +242,7 @@ pub fn generate_report(
     Ok((has_restrictive, has_incompatible))
 }
 
-fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_license: impl Into<Option<String>>) {
+fn print_verbose_table(data: &[LicenseInfo], strict: bool, project_license: impl Into<Option<String>>) {
     let project_license = project_license.into();
     log(LogLevel::Info, "Printing verbose table");
 
@@ -260,7 +260,7 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_licen
 
     let mut formatter = TableFormatter::new(headers);
 
-    let rows: Vec<_> = license_info
+    let rows: Vec<_> = data
         .iter()
         .map(|info| {
             let mut row = vec![
@@ -288,9 +288,9 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_licen
     println!("\n{}", formatter.render_header());
 
     for (i, row) in rows.iter().enumerate() {
-        let is_restrictive = *license_info[i].is_restrictive();
+        let is_restrictive = *data[i].is_restrictive();
         let is_incompatible =
-            *license_info[i].compatibility() == LicenseCompatibility::Incompatible;
+            *data[i].compatibility() == LicenseCompatibility::Incompatible;
 
         println!(
             "{}",
@@ -301,12 +301,12 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_licen
     println!("{}\n", formatter.render_footer());
 
     if !strict {
-        print_summary_footer(license_info, project_license);
+        print_summary_footer(data, project_license);
     }
 }
 
 fn print_summary_table(
-    license_info: &[LicenseInfo],
+    data: &[LicenseInfo],
     total_packages: usize,
     strict: bool,
     project_license: Option<&str>,
@@ -318,7 +318,7 @@ fn print_summary_table(
             LogLevel::Info,
             "Strict mode enabled, showing only restrictive licenses",
         );
-        print_restrictive_licenses_table(&license_info.iter().collect::<Vec<_>>());
+        print_restrictive_licenses_table(&data.iter().collect::<Vec<_>>());
         return;
     }
 
@@ -335,7 +335,7 @@ fn print_summary_table(
     let mut restrictive_licenses: Vec<&LicenseInfo> = Vec::new();
     let mut incompatible_licenses: Vec<&LicenseInfo> = Vec::new();
 
-    for info in license_info {
+    for info in data {
         let license = info.get_license();
 
         if *info.is_restrictive() {
@@ -531,26 +531,26 @@ fn print_incompatible_licenses_table(
     println!("{}\n", formatter.render_footer());
 }
 
-fn print_summary_footer(license_info: &[LicenseInfo], project_license: impl Into<Option<String>>) {
+fn print_summary_footer(data: &[LicenseInfo], project_license: impl Into<Option<String>>) {
     let project_license = project_license.into();
     log(LogLevel::Info, "Printing summary footer");
 
-    let total = license_info.len();
-    let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
+    let total = data.len();
+    let restrictive_count = data.iter().filter(|i| *i.is_restrictive()).count();
     let permissive_count = total - restrictive_count;
 
     // Calculate compatibility counts if project license is available
     let (compatible_count, incompatible_count, unknown_count) = if project_license.is_some() {
         (
-            license_info
+            data
                 .iter()
                 .filter(|i| i.compatibility == LicenseCompatibility::Compatible)
                 .count(),
-            license_info
+            data
                 .iter()
                 .filter(|i| i.compatibility == LicenseCompatibility::Incompatible)
                 .count(),
-            license_info
+            data
                 .iter()
                 .filter(|i| i.compatibility == LicenseCompatibility::Unknown)
                 .count(),
@@ -619,7 +619,7 @@ fn print_summary_footer(license_info: &[LicenseInfo], project_license: impl Into
 
 fn output_github_format<P>(
     writer: &mut impl Write,
-    license_info: &[LicenseInfo],
+    data: &[LicenseInfo],
     project_license: Option<P>,
 ) where
     P: Into<String> + Clone,
@@ -641,7 +641,7 @@ fn output_github_format<P>(
     }
 
     // GitHub Actions workflow commands format for restrictive licenses
-    for info in license_info {
+    for info in data {
         if *info.is_restrictive() {
             let _ = writeln!(
                 writer,
@@ -677,9 +677,9 @@ fn output_github_format<P>(
         }
     }
 
-    let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
+    let restrictive_count = data.iter().filter(|i| *i.is_restrictive()).count();
     let incompatible_count = if project_license_str.is_some() {
-        license_info
+        data
             .iter()
             .filter(|i| i.compatibility == LicenseCompatibility::Incompatible)
             .count()
@@ -693,14 +693,14 @@ fn output_github_format<P>(
             "::notice title=License Check Summary::Found {} dependencies with restrictive licenses and {} dependencies with incompatible licenses out of {} total",
             restrictive_count,
             incompatible_count,
-            license_info.len()
+            data.len()
         );
     } else {
         let _ = writeln!(
             writer,
             "::notice title=License Check Summary::Found {} dependencies with restrictive licenses out of {} total",
             restrictive_count,
-            license_info.len()
+            data.len()
         );
     }
 
@@ -710,14 +710,14 @@ fn output_github_format<P>(
             "Added summary: {} restrictive and {} incompatible out of {}",
             restrictive_count,
             incompatible_count,
-            license_info.len()
+            data.len()
         ),
     );
 }
 
 fn output_jenkins_format(
     writer: &mut impl Write,
-    license_info: &[LicenseInfo],
+    data: &[LicenseInfo],
     project_license: Option<&str>,
 ) {
     log(
@@ -738,7 +738,7 @@ fn output_jenkins_format(
         ));
     }
 
-    for info in license_info {
+    for info in data {
         let test_case_name = format!("{}-{}", info.name(), info.version());
         log(
             LogLevel::Info,
@@ -804,9 +804,9 @@ fn output_jenkins_format(
         }
     }
 
-    let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
+    let restrictive_count = data.iter().filter(|i| *i.is_restrictive()).count();
     let incompatible_count = if project_license.is_some() {
-        license_info
+        data
             .iter()
             .filter(|i| i.compatibility == LicenseCompatibility::Incompatible)
             .count()
@@ -820,7 +820,7 @@ fn output_jenkins_format(
         LogLevel::Info,
         format!(
             "Total test cases: {}, failures: {}",
-            license_info.len(),
+            data.len(),
             failure_count
         ),
     );
@@ -831,7 +831,7 @@ fn output_jenkins_format(
 {}
   </testsuite>
 </testsuites>"#,
-        license_info.len() + (if project_license.is_some() { 1 } else { 0 }),
+        data.len() + (if project_license.is_some() { 1 } else { 0 }),
         failure_count,
         test_cases.join("\n")
     );
@@ -1067,16 +1067,16 @@ mod tests {
     #[test]
     fn test_print_summary_footer_with_compatibility() {
         // This is primarily a visual test
-        let license_info = get_test_data();
-        print_summary_footer(&license_info, Some("MIT".to_string()));
+        let data = get_test_data();
+        print_summary_footer(&data, Some("MIT".to_string()));
         // If no panic, test passes
     }
 
     #[test]
     fn test_print_summary_footer_without_compatibility() {
         // This is primarily a visual test
-        let license_info = get_test_data_with_unknown_compatibility();
-        print_summary_footer(&license_info, None);
+        let data = get_test_data_with_unknown_compatibility();
+        print_summary_footer(&data, None);
         // If no panic, test passes
     }
 
