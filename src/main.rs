@@ -312,18 +312,18 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
         log(LogLevel::Info, "Generating dependency report");
 
         // Create ReportConfig from CLI arguments
-        let config = ReportConfig::new(
-            args.json,
-            args.yaml,
-            args.verbose,
-            args.strict,
-            args.ci_format,
-            args.output_file,
+        let report_config = ReportConfig::new(
+            config.json,
+            config.yaml,
+            config.verbose,
+            config.strict,
+            config.ci_format.clone(),
+            config.output_file.clone(),
             project_license,
         );
 
         // Generate a report based on the analyzed data
-        let (has_restrictive, has_incompatible) = generate_report(&analyzed_data, &config)
+        let (has_restrictive, has_incompatible) = generate_report(&analyzed_data, &report_config)
             .map_err(|e| FeludaError::unknown(format!("Failed to generate report: {}", e)))?;
 
         log(
@@ -334,9 +334,9 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             ),
         );
 
-        if (config.fail_on_restrictive && has_restrictive)
-            || (config.fail_on_incompatible && has_incompatible)
-        {
+        // Check if we should fail based on license issues
+        if (has_restrictive && (config.strict || config.fail_on_restrictive)) || 
+           (has_incompatible && (config.fail_on_incompatible || config.incompatible)) {
             log(
                 LogLevel::Warn,
                 "Exiting with non-zero status due to license issues",
