@@ -17,12 +17,12 @@ pub enum Language {
 }
 
 impl Language {
-    fn from_file_name(file_name: &str) -> Option<Self> {
-        match file_name {
+    fn from_file_name(file_name: impl Into<String>) -> Option<Self> {
+        match file_name.into().as_str() {
             "Cargo.toml" => Some(Language::Rust("Cargo.toml")),
             "package.json" => Some(Language::Node("package.json")),
             "go.mod" => Some(Language::Go("go.mod")),
-            _ => {
+            file_name => {
                 if PYTHON_PATHS.contains(&file_name) {
                     Some(Language::Python(&PYTHON_PATHS[..]))
                 } else {
@@ -53,7 +53,7 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRo
     let mut project_roots = Vec::new();
     log(
         LogLevel::Info,
-        &format!(
+        format!(
             "Scanning for project files in: {}",
             root_path.as_ref().display()
         ),
@@ -64,7 +64,7 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRo
         Err(err) => {
             log(
                 LogLevel::Error,
-                &format!("Error while walking directory: {}", err),
+                format!("Error while walking directory: {}", err),
             );
             None
         }
@@ -85,7 +85,7 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRo
             if let Some(project_type) = Language::from_file_name(file_name) {
                 log(
                     LogLevel::Info,
-                    &format!(
+                    format!(
                         "Found project file: {} ({:?})",
                         path.display(),
                         project_type
@@ -101,7 +101,7 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRo
 
     log(
         LogLevel::Info,
-        &format!("Found {} project roots", project_roots.len()),
+        format!("Found {} project roots", project_roots.len()),
     );
     log_debug("Project roots", &project_roots);
 
@@ -114,7 +114,7 @@ fn check_which_python_file_exists(project_path: impl AsRef<Path>) -> Option<Stri
         if full_path.exists() {
             log(
                 LogLevel::Info,
-                &format!("Found Python project file: {}", full_path.display()),
+                format!("Found Python project file: {}", full_path.display()),
             );
             return Some(path.to_string());
         }
@@ -122,7 +122,7 @@ fn check_which_python_file_exists(project_path: impl AsRef<Path>) -> Option<Stri
 
     log(
         LogLevel::Warn,
-        &format!(
+        format!(
             "No Python project file found in: {}",
             project_path.as_ref().display()
         ),
@@ -136,10 +136,10 @@ pub fn parse_root(
 ) -> FeludaResult<Vec<LicenseInfo>> {
     log(
         LogLevel::Info,
-        &format!("Parsing root path: {}", root_path.as_ref().display()),
+        format!("Parsing root path: {}", root_path.as_ref().display()),
     );
     if let Some(lang) = language {
-        log(LogLevel::Info, &format!("Filtering by language: {}", lang));
+        log(LogLevel::Info, format!("Filtering by language: {}", lang));
     }
 
     let project_roots = find_project_roots(&root_path)?;
@@ -159,7 +159,7 @@ pub fn parse_root(
             if !matches_language(root.project_type, language) {
                 log(
                     LogLevel::Info,
-                    &format!(
+                    format!(
                         "Skipping {:?} project (language filter: {})",
                         root.project_type, language
                     ),
@@ -172,7 +172,7 @@ pub fn parse_root(
             Ok(mut deps) => {
                 log(
                     LogLevel::Info,
-                    &format!(
+                    format!(
                         "Found {} dependencies in {}",
                         deps.len(),
                         root.path.display()
@@ -183,7 +183,7 @@ pub fn parse_root(
             Err(err) => {
                 log(
                     LogLevel::Error,
-                    &format!(
+                    format!(
                         "Error parsing dependencies in {}: {}",
                         root.path.display(),
                         err
@@ -195,7 +195,7 @@ pub fn parse_root(
 
     log(
         LogLevel::Info,
-        &format!("Total dependencies found: {}", licenses.len()),
+        format!("Total dependencies found: {}", licenses.len()),
     );
 
     // Initialize all dependencies with Unknown compatibility
@@ -223,14 +223,14 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
     let project_type = root.project_type;
 
     // Use the loading indicator
-    let licenses = cli::with_spinner(&format!("🔎: {}", project_path.display()), |indicator| {
+    let licenses = cli::with_spinner(format!("🔎: {}", project_path.display()), |indicator| {
         // Create a match statement that returns Vec<LicenseInfo> directly, not Result<Vec<LicenseInfo>>
         match project_type {
             Language::Rust(_) => {
                 let project_path = Path::new(project_path).join("Cargo.toml");
                 log(
                     LogLevel::Info,
-                    &format!("Parsing Rust project: {}", project_path.display()),
+                    format!("Parsing Rust project: {}", project_path.display()),
                 );
 
                 indicator.update_progress("analyzing Cargo.toml");
@@ -242,9 +242,9 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                     Ok(metadata) => {
                         log(
                             LogLevel::Info,
-                            &format!("Found {} packages in Rust project", metadata.packages.len()),
+                            format!("Found {} packages in Rust project", metadata.packages.len()),
                         );
-                        indicator.update_progress(&format!(
+                        indicator.update_progress(format!(
                             "found {} packages",
                             metadata.packages.len()
                         ));
@@ -261,7 +261,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                     Err(err) => {
                         log(
                             LogLevel::Error,
-                            &format!("Failed to fetch cargo metadata: {}", err),
+                            format!("Failed to fetch cargo metadata: {}", err),
                         );
                         Vec::new() // Return empty vector on error
                     }
@@ -271,7 +271,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                 let project_path = Path::new(project_path).join("package.json");
                 log(
                     LogLevel::Info,
-                    &format!("Parsing Node.js project: {}", project_path.display()),
+                    format!("Parsing Node.js project: {}", project_path.display()),
                 );
 
                 indicator.update_progress("analyzing package.json");
@@ -285,7 +285,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                             info.compatibility = LicenseCompatibility::Unknown;
                         }
 
-                        indicator.update_progress(&format!("found {} dependencies", deps.len()));
+                        indicator.update_progress(format!("found {} dependencies", deps.len()));
                         deps
                     }),
                     None => {
@@ -298,7 +298,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                 let project_path = Path::new(project_path).join("go.mod");
                 log(
                     LogLevel::Info,
-                    &format!("Parsing Go project: {}", project_path.display()),
+                    format!("Parsing Go project: {}", project_path.display()),
                 );
 
                 indicator.update_progress("analyzing go.mod");
@@ -312,7 +312,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                             info.compatibility = LicenseCompatibility::Unknown;
                         }
 
-                        indicator.update_progress(&format!("found {} dependencies", deps.len()));
+                        indicator.update_progress(format!("found {} dependencies", deps.len()));
                         deps
                     }),
                     None => {
@@ -327,10 +327,10 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                         let project_path = Path::new(project_path).join(&python_package_file);
                         log(
                             LogLevel::Info,
-                            &format!("Parsing Python project: {}", project_path.display()),
+                            format!("Parsing Python project: {}", project_path.display()),
                         );
 
-                        indicator.update_progress(&format!("analyzing {}", python_package_file));
+                        indicator.update_progress(format!("analyzing {}", python_package_file));
 
                         match project_path.to_str() {
                             Some(path_str) => with_debug("Analyze Python licenses", || {
@@ -342,7 +342,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                                 }
 
                                 indicator
-                                    .update_progress(&format!("found {} dependencies", deps.len()));
+                                    .update_progress(format!("found {} dependencies", deps.len()));
                                 deps
                             }),
                             None => {
