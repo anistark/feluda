@@ -244,53 +244,79 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
         }
     }
 
-    // Filter for restrictive if in strict mode
-    let original_count = analyzed_data.len();
+    // Either run the GUI or generate a report
+    if config.gui {
+        let original_count = analyzed_data.len();
 
-    if config.strict {
-        log(
-            LogLevel::Info,
-            "Strict mode enabled, filtering for restrictive licenses",
-        );
-        analyzed_data.retain(|info| *info.is_restrictive());
+        // Filter for restrictive and incompatible
+        if config.strict || config.incompatible {
+            if project_license.is_some() {
+                log(
+                LogLevel::Info,
+                "Strict and incompatible mode enabled, filtering for restrictive and incompatible licenses",
+            );
+                analyzed_data.retain(|info| {
+                    (config.strict && *info.is_restrictive())
+                        || (config.incompatible
+                            && info.compatibility == LicenseCompatibility::Incompatible)
+                });
 
-        log(
-            LogLevel::Info,
-            &format!(
-                "Filtered for restrictive licenses: {} of {} dependencies",
-                analyzed_data.len(),
-                original_count
-            ),
-        );
-    }
-
-    // Filter for incompatible if requested
-    if config.incompatible {
-        if project_license.is_some() {
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Filtered for restrictive and incompatible licenses: {} of {} dependencies",
+                        analyzed_data.len(),
+                        original_count
+                    ),
+                );
+            } else {
+                log(
+                LogLevel::Warn,
+                "Incompatible mode enabled but no project license specified, cannot filter for incompatible licenses",
+            );
+            }
+        } else if config.strict {
+            // Filter for restrictive
             log(
                 LogLevel::Info,
-                "Incompatible mode enabled, filtering for incompatible licenses",
+                "Strict mode enabled, filtering for restrictive licenses",
             );
-            analyzed_data.retain(|info| info.compatibility == LicenseCompatibility::Incompatible);
+            analyzed_data.retain(|info| *info.is_restrictive());
 
             log(
                 LogLevel::Info,
                 &format!(
-                    "Filtered for incompatible licenses: {} of {} dependencies",
+                    "Filtered for restrictive licenses: {} of {} dependencies",
                     analyzed_data.len(),
                     original_count
                 ),
             );
-        } else {
-            log(
+        } else if config.incompatible {
+            // Filter for incompatible if requested
+            if project_license.is_some() {
+                log(
+                    LogLevel::Info,
+                    "Incompatible mode enabled, filtering for incompatible licenses",
+                );
+                analyzed_data
+                    .retain(|info| info.compatibility == LicenseCompatibility::Incompatible);
+
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Filtered for incompatible licenses: {} of {} dependencies",
+                        analyzed_data.len(),
+                        original_count
+                    ),
+                );
+            } else {
+                log(
                 LogLevel::Warn,
                 "Incompatible mode enabled but no project license specified, cannot filter for incompatible licenses",
             );
+            }
         }
-    }
 
-    // Either run the GUI or generate a report
-    if config.gui {
         log(LogLevel::Info, "Starting TUI mode");
 
         // Initialize the terminal
@@ -317,6 +343,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             config.yaml,
             config.verbose,
             config.strict,
+            config.incompatible,
             config.ci_format,
             config.output_file,
             project_license,

@@ -12,17 +12,20 @@ pub struct ReportConfig {
     yaml: bool,
     verbose: bool,
     strict: bool,
+    incompatible: bool,
     ci_format: Option<CiFormat>,
     output_file: Option<String>,
     project_license: Option<String>,
 }
 
 impl ReportConfig {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         json: bool,
         yaml: bool,
         verbose: bool,
         strict: bool,
+        incompatible: bool,
         ci_format: Option<CiFormat>,
         output_file: Option<String>,
         project_license: Option<String>,
@@ -32,6 +35,7 @@ impl ReportConfig {
             yaml,
             verbose,
             strict,
+            incompatible,
             ci_format,
             output_file,
             project_license,
@@ -121,27 +125,8 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         &format!("Total packages to analyze: {}", total_packages),
     );
 
-    // Filter data if in strict mode to show only restrictive licenses
-    let filtered_data: Vec<LicenseInfo> = if config.strict {
-        log(
-            LogLevel::Info,
-            "Strict mode enabled, filtering restrictive licenses only",
-        );
-        data.into_iter()
-            .filter(|info| *info.is_restrictive())
-            .collect()
-    } else {
-        data
-    };
-
-    log(
-        LogLevel::Info,
-        &format!("Filtered packages count: {}", filtered_data.len()),
-    );
-    log_debug("Filtered license data", &filtered_data);
-
-    let has_restrictive = filtered_data.iter().any(|info| *info.is_restrictive());
-    let has_incompatible = filtered_data
+    let has_restrictive = data.iter().any(|info| *info.is_restrictive());
+    let has_incompatible = data
         .iter()
         .any(|info| info.compatibility == LicenseCompatibility::Incompatible);
 
@@ -154,6 +139,29 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         LogLevel::Info,
         &format!("Has incompatible licenses: {}", has_incompatible),
     );
+
+    // Filter data if in strict or/and incompatible mode to show only restrictive or/and incompatible licenses
+    let filtered_data: Vec<LicenseInfo> = if config.strict || config.incompatible {
+        log(
+            LogLevel::Info,
+            "Strict or/and incompatible mode enabled, filtering restrictive or/and incompatible licenses only",
+        );
+        data.into_iter()
+            .filter(|info| {
+                (config.strict && *info.is_restrictive())
+                    || (config.incompatible
+                        && (info.compatibility == LicenseCompatibility::Incompatible))
+            })
+            .collect()
+    } else {
+        data
+    };
+
+    log(
+        LogLevel::Info,
+        &format!("Filtered packages count: {}", filtered_data.len()),
+    );
+    log_debug("Filtered license data", &filtered_data);
 
     if filtered_data.is_empty() {
         println!(
@@ -211,6 +219,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
             &filtered_data,
             total_packages,
             config.strict,
+            config.incompatible,
             config.project_license.as_deref(),
         );
     }
@@ -284,18 +293,10 @@ fn print_summary_table(
     license_info: &[LicenseInfo],
     total_packages: usize,
     strict: bool,
+    incompatible: bool,
     project_license: Option<&str>,
 ) {
     log(LogLevel::Info, "Printing summary table");
-
-    if strict {
-        log(
-            LogLevel::Info,
-            "Strict mode enabled, showing only restrictive licenses",
-        );
-        print_restrictive_licenses_table(&license_info.iter().collect::<Vec<_>>());
-        return;
-    }
 
     // Print project license if available
     if let Some(license) = project_license {
@@ -345,6 +346,22 @@ fn print_summary_table(
             incompatible_licenses.len()
         ),
     );
+
+    if strict || incompatible {
+        if strict && !restrictive_licenses.is_empty() {
+            log(
+                LogLevel::Info,
+                "Strict mode enabled, showing only restrictive licenses",
+            );
+            print_restrictive_licenses_table(&restrictive_licenses);
+        }
+        if incompatible && project_license.is_some() && !incompatible_licenses.is_empty() {
+            if let Some(license) = project_license {
+                print_incompatible_licenses_table(&incompatible_licenses, license);
+            }
+        }
+        return;
+    }
 
     // License summary
     let headers = vec!["License Type".to_string(), "Count".to_string()];
@@ -919,7 +936,7 @@ mod tests {
     #[test]
     fn test_generate_report_empty_data() {
         let data = vec![];
-        let config = ReportConfig::new(false, false, false, false, None, None, None);
+        let config = ReportConfig::new(false, false, false, false, false, None, None, None);
         let result = generate_report(data, config);
         assert_eq!(result, (false, false)); // No restrictive or incompatible licenses
     }
@@ -928,6 +945,7 @@ mod tests {
     fn test_generate_report_non_strict() {
         let data = get_test_data();
         let config = ReportConfig::new(
+            false,
             false,
             false,
             false,
@@ -948,6 +966,7 @@ mod tests {
             false,
             false,
             true,
+            false,
             None,
             None,
             Some("MIT".to_string()),
@@ -961,6 +980,7 @@ mod tests {
         let data = get_test_data();
         let config = ReportConfig::new(
             true,
+            false,
             false,
             false,
             false,
@@ -980,6 +1000,7 @@ mod tests {
             true,
             false,
             false,
+            false,
             None,
             None,
             Some("MIT".to_string()),
@@ -996,6 +1017,7 @@ mod tests {
             false,
             true,
             false,
+            false,
             None,
             None,
             Some("MIT".to_string()),
@@ -1007,7 +1029,7 @@ mod tests {
     #[test]
     fn test_generate_report_no_project_license() {
         let data = get_test_data_with_unknown_compatibility();
-        let config = ReportConfig::new(false, false, false, false, None, None, None);
+        let config = ReportConfig::new(false, false, false, false, false, None, None, None);
         let result = generate_report(data, config);
         assert_eq!(result, (true, false)); // Has restrictive but no incompatible since no project license
     }
@@ -1018,6 +1040,7 @@ mod tests {
         let temp_dir = setup();
         let output_path = temp_dir.path().join("github_output.txt");
         let config = ReportConfig::new(
+            false,
             false,
             false,
             false,
@@ -1053,6 +1076,7 @@ mod tests {
             false,
             false,
             false,
+            false,
             Some(CiFormat::Jenkins),
             Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
@@ -1081,6 +1105,7 @@ mod tests {
         let temp_dir = setup();
         let output_path = temp_dir.path().join("jenkins_output.xml");
         let config = ReportConfig::new(
+            false,
             false,
             false,
             false,
@@ -1190,6 +1215,7 @@ mod tests {
             false, // yaml
             false, // verbose
             false, // strict
+            false, // incompatible
             None,  // ci_format
             None,  // output_file
             None,  // project_license
@@ -1228,6 +1254,7 @@ mod tests {
             false,
             false,
             false,
+            false,
             None,
             None,
             Some("MIT".to_string()),
@@ -1258,6 +1285,7 @@ mod tests {
         ];
 
         let config = ReportConfig::new(
+            false,
             false,
             false,
             false,
@@ -1296,6 +1324,7 @@ mod tests {
             false,
             false,
             true,
+            false,
             None,
             None,
             Some("MIT".to_string()),
@@ -1316,7 +1345,7 @@ mod tests {
             compatibility: LicenseCompatibility::Compatible,
         }];
 
-        let config = ReportConfig::new(true, false, false, false, None, None, None);
+        let config = ReportConfig::new(true, false, false, false, false, None, None, None);
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
         assert!(!has_restrictive);
@@ -1333,7 +1362,7 @@ mod tests {
             compatibility: LicenseCompatibility::Compatible,
         }];
 
-        let config = ReportConfig::new(false, true, false, false, None, None, None);
+        let config = ReportConfig::new(false, true, false, false, false, None, None, None);
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
         assert!(!has_restrictive);
@@ -1354,6 +1383,7 @@ mod tests {
             false,
             false,
             true,
+            false,
             false,
             None,
             None,
@@ -1376,6 +1406,7 @@ mod tests {
         }];
 
         let config = ReportConfig::new(
+            false,
             false,
             false,
             false,
@@ -1470,6 +1501,7 @@ mod tests {
             true,
             false,
             true,
+            false,
             false,
             Some(CiFormat::Github),
             Some("test.txt".to_string()),
