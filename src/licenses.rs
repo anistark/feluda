@@ -133,7 +133,7 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
         };
 
         let total_licenses = licenses_list.len();
-        indicator.update_progress(&format!("found {} licenses", total_licenses));
+        indicator.update_progress(&format!("found {total_licenses} licenses"));
 
         for (idx, license_info) in licenses_list.iter().enumerate() {
             if let Some(license_key) = license_info.get("key").and_then(|k| k.as_str()) {
@@ -146,11 +146,11 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
 
                 log(
                     LogLevel::Info,
-                    &format!("Fetching detailed license info: {}", license_key),
+                    &format!("Fetching detailed license info: {license_key}"),
                 );
 
                 // Fetch detailed license information
-                let license_url = format!("https://api.github.com/licenses/{}", license_key);
+                let license_url = format!("https://api.github.com/licenses/{license_key}");
 
                 // Add a small delay to avoid rate limiting
                 std::thread::sleep(Duration::from_millis(100));
@@ -225,14 +225,13 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
 
                                     log(
                                         LogLevel::Info,
-                                        &format!("Successfully processed license: {}", key_to_use),
+                                        &format!("Successfully processed license: {key_to_use}"),
                                     );
                                 }
                                 Err(err) => {
                                     log_error(
                                         &format!(
-                                            "Failed to parse license JSON for {}",
-                                            license_key
+                                            "Failed to parse license JSON for {license_key}"
                                         ),
                                         &err,
                                     );
@@ -251,7 +250,7 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
                     }
                     Err(err) => {
                         log_error(
-                            &format!("Failed to fetch license details for {}", license_key),
+                            &format!("Failed to fetch license details for {license_key}"),
                             &err,
                         );
                     }
@@ -259,13 +258,12 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
             }
         }
 
-        indicator.update_progress(&format!("processed {} licenses", license_count));
+        indicator.update_progress(&format!("processed {license_count} licenses"));
 
         log(
             LogLevel::Info,
             &format!(
-                "Successfully fetched {} licenses from GitHub API",
-                license_count
+                "Successfully fetched {license_count} licenses from GitHub API"
             ),
         );
         licenses_map
@@ -281,7 +279,7 @@ pub fn is_license_restrictive(
 ) -> bool {
     log(
         LogLevel::Info,
-        &format!("Checking if license is restrictive: {:?}", license),
+        &format!("Checking if license is restrictive: {license:?}"),
     );
 
     let config = match config::load_config() {
@@ -321,12 +319,12 @@ pub fn is_license_restrictive(
             if is_restrictive {
                 log(
                     LogLevel::Warn,
-                    &format!("License {} is restrictive due to conditions", license_str),
+                    &format!("License {license_str} is restrictive due to conditions"),
                 );
             } else {
                 log(
                     LogLevel::Info,
-                    &format!("License {} is not restrictive", license_str),
+                    &format!("License {license_str} is not restrictive"),
                 );
             }
 
@@ -348,16 +346,14 @@ pub fn is_license_restrictive(
                 log(
                     LogLevel::Warn,
                     &format!(
-                        "License {} matches restrictive pattern in config",
-                        license_str
+                        "License {license_str} matches restrictive pattern in config"
                     ),
                 );
             } else {
                 log(
                     LogLevel::Info,
                     &format!(
-                        "License {} does not match any restrictive pattern",
-                        license_str
+                        "License {license_str} does not match any restrictive pattern"
                     ),
                 );
             }
@@ -378,8 +374,7 @@ pub fn is_license_compatible(
     log(
         LogLevel::Info,
         &format!(
-            "Checking if license {} is compatible with project license {}",
-            dependency_license, project_license
+            "Checking if license {dependency_license} is compatible with project license {project_license}"
         ),
     );
 
@@ -432,8 +427,7 @@ pub fn is_license_compatible(
     log(
         LogLevel::Info,
         &format!(
-            "Normalized licenses: dependency={}, project={}",
-            norm_dependency_license, norm_project_license
+            "Normalized licenses: dependency={norm_dependency_license}, project={norm_project_license}"
         ),
     );
 
@@ -444,8 +438,7 @@ pub fn is_license_compatible(
                 log(
                     LogLevel::Info,
                     &format!(
-                        "License {} is compatible with project license {}",
-                        norm_dependency_license, norm_project_license
+                        "License {norm_dependency_license} is compatible with project license {norm_project_license}"
                     ),
                 );
                 LicenseCompatibility::Compatible
@@ -453,8 +446,7 @@ pub fn is_license_compatible(
                 log(
                     LogLevel::Warn,
                     &format!(
-                        "License {} may be incompatible with project license {}",
-                        norm_dependency_license, norm_project_license
+                        "License {norm_dependency_license} may be incompatible with project license {norm_project_license}"
                     ),
                 );
                 LicenseCompatibility::Incompatible
@@ -464,8 +456,7 @@ pub fn is_license_compatible(
             log(
                 LogLevel::Warn,
                 &format!(
-                    "Unknown compatibility for project license {}",
-                    norm_project_license
+                    "Unknown compatibility for project license {norm_project_license}"
                 ),
             );
             LicenseCompatibility::Unknown
@@ -494,7 +485,7 @@ fn normalize_license_id(license_id: &str) -> String {
 pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>> {
     log(
         LogLevel::Info,
-        &format!("Detecting license for project at path: {}", project_path),
+        &format!("Detecting license for project at path: {project_path}"),
     );
 
     // Check LICENSE file
@@ -591,7 +582,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                     if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
                         log(
                             LogLevel::Info,
-                            &format!("Detected license from package.json: {}", license),
+                            &format!("Detected license from package.json: {license}"),
                         );
                         return Ok(Some(license.to_string()));
                     }
@@ -599,7 +590,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                 Err(err) => {
                     log(
                         LogLevel::Error,
-                        &format!("Failed to parse package.json: {}", err),
+                        &format!("Failed to parse package.json: {err}"),
                     );
                 }
             },
@@ -631,7 +622,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                         if let Some(license) = package.get("license").and_then(|l| l.as_str()) {
                             log(
                                 LogLevel::Info,
-                                &format!("Detected license from Cargo.toml: {}", license),
+                                &format!("Detected license from Cargo.toml: {license}"),
                             );
                             return Ok(Some(license.to_string()));
                         }
@@ -640,7 +631,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                 Err(err) => {
                     log(
                         LogLevel::Error,
-                        &format!("Failed to parse Cargo.toml: {}", err),
+                        &format!("Failed to parse Cargo.toml: {err}"),
                     );
                 }
             },
@@ -670,7 +661,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                             if let Some(license) = license_info.as_str() {
                                 log(
                                     LogLevel::Info,
-                                    &format!("Detected license from pyproject.toml: {}", license),
+                                    &format!("Detected license from pyproject.toml: {license}"),
                                 );
                                 return Ok(Some(license.to_string()));
                             } else if let Some(license_table) = license_info.as_table() {
@@ -680,8 +671,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                                     log(
                                         LogLevel::Info,
                                         &format!(
-                                            "Detected license from pyproject.toml: {}",
-                                            license_text
+                                            "Detected license from pyproject.toml: {license_text}"
                                         ),
                                     );
                                     return Ok(Some(license_text.to_string()));
@@ -693,7 +683,7 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
                 Err(err) => {
                     log(
                         LogLevel::Error,
-                        &format!("Failed to parse pyproject.toml: {}", err),
+                        &format!("Failed to parse pyproject.toml: {err}"),
                     );
                 }
             },

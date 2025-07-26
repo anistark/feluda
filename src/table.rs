@@ -73,7 +73,7 @@ impl App {
         log_debug("License data for TUI", &license_data);
         log(
             LogLevel::Info,
-            &format!("Project license: {:?}", project_license),
+            &format!("Project license: {project_license:?}"),
         );
 
         let data_vec = license_data;
@@ -100,7 +100,7 @@ impl App {
         };
         self.state.select(Some(i));
         self.scroll_state = self.scroll_state.position(i * ITEM_HEIGHT);
-        log(LogLevel::Info, &format!("Selected row: {}", i));
+        log(LogLevel::Info, &format!("Selected row: {i}"));
     }
 
     pub fn previous_row(&mut self) {
@@ -116,7 +116,7 @@ impl App {
         };
         self.state.select(Some(i));
         self.scroll_state = self.scroll_state.position(i * ITEM_HEIGHT);
-        log(LogLevel::Info, &format!("Selected row: {}", i));
+        log(LogLevel::Info, &format!("Selected row: {i}"));
     }
 
     pub fn next_column(&mut self) {
@@ -339,7 +339,7 @@ fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16, u16)
 
     log(
         LogLevel::Info,
-        &format!("Table column widths: {:?}", result),
+        &format!("Table column widths: {result:?}"),
     );
     result
 }

@@ -33,7 +33,7 @@ pub struct GoPackages {
 pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
-        &format!("Analyzing Go dependencies from: {}", go_mod_path),
+        &format!("Analyzing Go dependencies from: {go_mod_path}"),
     );
 
     let known_licenses = match fetch_licenses_from_github() {
@@ -54,7 +54,7 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
         Ok(content) => content,
         Err(err) => {
             log_error(
-                &format!("Failed to read go.mod file: {}", go_mod_path),
+                &format!("Failed to read go.mod file: {go_mod_path}"),
                 &err,
             );
             return Vec::new();
@@ -76,7 +76,7 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
 
             log(
                 LogLevel::Info,
-                &format!("Fetching license for Go dependency: {} ({})", name, version),
+                &format!("Fetching license for Go dependency: {name} ({version})"),
             );
 
             let license_result = fetch_license_for_go_dependency(name.as_str(), version.as_str());
@@ -87,7 +87,7 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
             if is_restrictive {
                 log(
                     LogLevel::Warn,
-                    &format!("Restrictive license found: {:?} for {}", license, name),
+                    &format!("Restrictive license found: {license:?} for {name}"),
                 );
             }
 
@@ -145,7 +145,7 @@ pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
 
             log(
                 LogLevel::Info,
-                &format!("Found Go dependency: {} ({})", name, version),
+                &format!("Found Go dependency: {name} ({version})"),
             );
 
             dependency.push(GoPackages { name, version });
@@ -167,10 +167,10 @@ pub fn fetch_license_for_go_dependency(
     let name = name.into();
     let _version = _version.into();
 
-    let api_url = format!("https://pkg.go.dev/{}?tab=licenses", name);
+    let api_url = format!("https://pkg.go.dev/{name}?tab=licenses");
     log(
         LogLevel::Info,
-        &format!("Fetching license from Go Package Index: {}", api_url),
+        &format!("Fetching license from Go Package Index: {api_url}"),
     );
 
     let client = match Client::builder()
@@ -209,7 +209,7 @@ pub fn fetch_license_for_go_dependency(
                 let status = response.status();
                 log(
                     LogLevel::Info,
-                    &format!("Go Package Index API response status: {}", status),
+                    &format!("Go Package Index API response status: {status}"),
                 );
 
                 if status.as_u16() == 429 {
@@ -232,19 +232,19 @@ pub fn fetch_license_for_go_dependency(
                             if let Some(license) = extract_license_from_html(&html_content) {
                                 log(
                                     LogLevel::Info,
-                                    &format!("License found for {}: {}", name, license),
+                                    &format!("License found for {name}: {license}"),
                                 );
                                 return license;
                             } else {
                                 log(
                                     LogLevel::Warn,
-                                    &format!("No license found in HTML for {}", name),
+                                    &format!("No license found in HTML for {name}"),
                                 );
                             }
                         }
                         Err(err) => {
                             log_error(
-                                &format!("Failed to extract HTML content for {}", name),
+                                &format!("Failed to extract HTML content for {name}"),
                                 &err,
                             );
                         }
@@ -252,14 +252,14 @@ pub fn fetch_license_for_go_dependency(
                 } else {
                     log(
                         LogLevel::Error,
-                        &format!("Unexpected HTTP status: {} for {}", status, name),
+                        &format!("Unexpected HTTP status: {status} for {name}"),
                     );
                 }
 
                 break;
             }
             Err(err) => {
-                log_error(&format!("Failed to fetch metadata for {}", name), &err);
+                log_error(&format!("Failed to fetch metadata for {name}"), &err);
                 break;
             }
         }
@@ -268,8 +268,7 @@ pub fn fetch_license_for_go_dependency(
     log(
         LogLevel::Warn,
         &format!(
-            "Unable to determine license for {} after {} attempts",
-            name, attempts
+            "Unable to determine license for {name} after {attempts} attempts"
         ),
     );
     "Unknown".into()
@@ -303,7 +302,7 @@ fn extract_license_from_html(html: &str) -> Option<String> {
             let license_text = div.text().collect::<Vec<_>>().join(" ").trim().to_string();
             log(
                 LogLevel::Info,
-                &format!("License found in HTML: {}", license_text),
+                &format!("License found in HTML: {license_text}"),
             );
             return Some(license_text);
         } else {
@@ -425,7 +424,7 @@ mod tests {
             version: "v1.0.0".to_string(),
         };
 
-        let debug_str = format!("{:?}", go_package);
+        let debug_str = format!("{go_package:?}");
         assert!(debug_str.contains("github.com/test/package"));
         assert!(debug_str.contains("v1.0.0"));
     }

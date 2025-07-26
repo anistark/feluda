@@ -31,7 +31,7 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRo
         Err(err) => {
             log(
                 LogLevel::Error,
-                &format!("Error while walking directory: {}", err),
+                &format!("Error while walking directory: {err}"),
             );
             None
         }
@@ -108,7 +108,7 @@ pub fn parse_root(
         &format!("Parsing root path: {}", root_path.as_ref().display()),
     );
     if let Some(lang) = language {
-        log(LogLevel::Info, &format!("Filtering by language: {}", lang));
+        log(LogLevel::Info, &format!("Filtering by language: {lang}"));
     }
 
     let project_roots = find_project_roots(&root_path)?;
@@ -231,7 +231,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                     Err(err) => {
                         log(
                             LogLevel::Error,
-                            &format!("Failed to fetch cargo metadata: {}", err),
+                            &format!("Failed to fetch cargo metadata: {err}"),
                         );
                         Vec::new()
                     }
@@ -297,7 +297,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                         &format!("Parsing Python project: {}", project_path.display()),
                     );
 
-                    indicator.update_progress(&format!("analyzing {}", python_package_file));
+                    indicator.update_progress(&format!("analyzing {python_package_file}"));
 
                     match project_path.to_str() {
                         Some(path_str) => {
@@ -477,7 +477,7 @@ mod tests {
             project_type: Language::Rust("Cargo.toml"),
         };
 
-        let debug_str = format!("{:?}", project_root);
+        let debug_str = format!("{project_root:?}");
         assert!(debug_str.contains("/test/path"));
         assert!(debug_str.contains("Rust"));
         assert!(debug_str.contains("Cargo.toml"));

@@ -136,8 +136,7 @@ pub fn load_config() -> FeludaResult<FeludaConfig> {
         Err(e) => {
             log_error("Failed to extract configuration", &e);
             Err(FeludaError::Config(format!(
-                "Failed to extract configuration: {}",
-                e
+                "Failed to extract configuration: {e}"
             )))
         }
     }
@@ -430,7 +429,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
     #[test]
     fn test_config_debug_output() {
         let config = FeludaConfig::default();
-        let debug_str = format!("{:?}", config);
+        let debug_str = format!("{config:?}");
 
         assert!(debug_str.contains("FeludaConfig"));
         assert!(debug_str.contains("licenses"));

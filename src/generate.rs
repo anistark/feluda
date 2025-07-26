@@ -244,7 +244,7 @@ pub fn show_interactive_menu(path: &str) -> Option<GenerateOption> {
             if index == selected_index {
                 println!("{} {}", indicator, line_content.bold().on_bright_black());
             } else {
-                println!("{} {}", indicator, line_content);
+                println!("{indicator} {line_content}");
             }
         }
 
@@ -256,7 +256,7 @@ pub fn show_interactive_menu(path: &str) -> Option<GenerateOption> {
                 cancel_content.bold().on_bright_black()
             );
         } else {
-            println!("  {}", cancel_content);
+            println!("  {cancel_content}");
         }
 
         println!();
@@ -350,7 +350,7 @@ pub fn show_interactive_menu(path: &str) -> Option<GenerateOption> {
             match io::stdin().read_line(&mut input) {
                 Ok(_) => {
                     let choice = input.trim().to_lowercase();
-                    log(LogLevel::Info, &format!("User input: '{}'", choice));
+                    log(LogLevel::Info, &format!("User input: '{choice}'"));
 
                     match choice.as_str() {
                         "0" => {
@@ -432,7 +432,7 @@ pub fn generate_notice_file(license_data: &[LicenseInfo], path: &str) {
             println!("{} Failed to write NOTICE file: {}", "❌".red().bold(), err);
             log(
                 LogLevel::Error,
-                &format!("Failed to write NOTICE file: {}", err),
+                &format!("Failed to write NOTICE file: {err}"),
             );
         }
     }
@@ -462,7 +462,7 @@ fn generate_notice_content(license_data: &[LicenseInfo]) -> String {
     sorted_licenses.sort_by_key(|(license, _)| license.as_str());
 
     for (license, dependencies) in sorted_licenses {
-        content.push_str(&format!("## {} Licensed Components\n\n", license));
+        content.push_str(&format!("## {license} Licensed Components\n\n"));
 
         // Sort dependencies within each license group
         let mut sorted_deps = dependencies.clone();
@@ -579,7 +579,7 @@ pub fn generate_third_party_licenses_file(license_data: &[LicenseInfo], path: &s
             );
             log(
                 LogLevel::Error,
-                &format!("Failed to write THIRD_PARTY_LICENSES file: {}", err),
+                &format!("Failed to write THIRD_PARTY_LICENSES file: {err}"),
             );
         }
     }
@@ -604,8 +604,7 @@ fn fetch_actual_license_content(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
         &format!(
-            "Attempting to fetch actual license content for {} v{}",
-            name, version
+            "Attempting to fetch actual license content for {name} v{version}"
         ),
     );
 
@@ -637,8 +636,7 @@ fn fetch_actual_license_content(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Warn,
         &format!(
-            "Could not fetch actual license content for {} v{}",
-            name, version
+            "Could not fetch actual license content for {name} v{version}"
         ),
     );
     None
@@ -649,15 +647,14 @@ fn fetch_license_from_crates_io(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
         &format!(
-            "Trying to fetch license from crates.io for {} v{}",
-            name, version
+            "Trying to fetch license from crates.io for {name} v{version}"
         ),
     );
 
     let client = create_http_client()?;
     rate_limit_delay();
 
-    let api_url = format!("https://crates.io/api/v1/crates/{}", name);
+    let api_url = format!("https://crates.io/api/v1/crates/{name}");
     let response = client.get(&api_url).send().ok()?;
 
     if !response.status().is_success() {
@@ -677,7 +674,7 @@ fn fetch_license_from_crates_io(name: &str, version: &str) -> Option<String> {
 
     log(
         LogLevel::Info,
-        &format!("Found repository for {}: {}", name, repository),
+        &format!("Found repository for {name}: {repository}"),
     );
 
     if repository.contains("github.com") {
@@ -691,13 +688,13 @@ fn fetch_license_from_crates_io(name: &str, version: &str) -> Option<String> {
 fn fetch_license_from_npm(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
-        &format!("Trying to fetch license from npm for {} v{}", name, version),
+        &format!("Trying to fetch license from npm for {name} v{version}"),
     );
 
     let client = create_http_client()?;
     rate_limit_delay();
 
-    let api_url = format!("https://registry.npmjs.org/{}/{}", name, version);
+    let api_url = format!("https://registry.npmjs.org/{name}/{version}");
     let response = client.get(&api_url).send().ok()?;
 
     if !response.status().is_success() {
@@ -717,7 +714,7 @@ fn fetch_license_from_npm(name: &str, version: &str) -> Option<String> {
         if let Some(url) = repository.get("url").and_then(|u| u.as_str()) {
             log(
                 LogLevel::Info,
-                &format!("Found repository for {}: {}", name, url),
+                &format!("Found repository for {name}: {url}"),
             );
 
             let clean_url = url
@@ -739,15 +736,14 @@ fn fetch_license_from_pypi(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
         &format!(
-            "Trying to fetch license from PyPI for {} v{}",
-            name, version
+            "Trying to fetch license from PyPI for {name} v{version}"
         ),
     );
 
     let client = create_http_client()?;
     rate_limit_delay();
 
-    let api_url = format!("https://pypi.org/pypi/{}/{}/json", name, version);
+    let api_url = format!("https://pypi.org/pypi/{name}/{version}/json");
     let response = client.get(&api_url).send().ok()?;
 
     if !response.status().is_success() {
@@ -767,7 +763,7 @@ fn fetch_license_from_pypi(name: &str, version: &str) -> Option<String> {
         if let Some(homepage) = project_urls.get("Homepage").and_then(|h| h.as_str()) {
             log(
                 LogLevel::Info,
-                &format!("Found homepage for {}: {}", name, homepage),
+                &format!("Found homepage for {name}: {homepage}"),
             );
 
             if homepage.contains("github.com") {
@@ -784,8 +780,7 @@ fn fetch_license_from_go_proxy(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
         &format!(
-            "Trying to fetch license from Go proxy for {} v{}",
-            name, version
+            "Trying to fetch license from Go proxy for {name} v{version}"
         ),
     );
 
@@ -796,7 +791,7 @@ fn fetch_license_from_go_proxy(name: &str, version: &str) -> Option<String> {
         );
         log(
             LogLevel::Info,
-            &format!("Inferred GitHub repository: {}", repo_url),
+            &format!("Inferred GitHub repository: {repo_url}"),
         );
         return fetch_license_from_github_repo(&repo_url);
     }
@@ -808,7 +803,7 @@ fn fetch_license_from_go_proxy(name: &str, version: &str) -> Option<String> {
 fn fetch_license_from_github(name: &str, _version: &str) -> Option<String> {
     log(
         LogLevel::Info,
-        &format!("Trying to infer GitHub repository for {}", name),
+        &format!("Trying to infer GitHub repository for {name}"),
     );
 
     let possible_repos = vec![
@@ -819,7 +814,7 @@ fn fetch_license_from_github(name: &str, _version: &str) -> Option<String> {
     ];
 
     for repo_url in possible_repos {
-        log(LogLevel::Info, &format!("Trying repository: {}", repo_url));
+        log(LogLevel::Info, &format!("Trying repository: {repo_url}"));
         if let Some(content) = fetch_license_from_github_repo(&repo_url) {
             return Some(content);
         }
@@ -832,7 +827,7 @@ fn fetch_license_from_github(name: &str, _version: &str) -> Option<String> {
 fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
     log(
         LogLevel::Info,
-        &format!("Fetching license from GitHub repo: {}", repo_url),
+        &format!("Fetching license from GitHub repo: {repo_url}"),
     );
 
     let parts: Vec<&str> = repo_url.trim_end_matches('/').split('/').collect();
@@ -840,7 +835,7 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
     if parts.len() < 2 {
         log(
             LogLevel::Warn,
-            &format!("Invalid GitHub URL format: {}", repo_url),
+            &format!("Invalid GitHub URL format: {repo_url}"),
         );
         return None;
     }
@@ -867,11 +862,10 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
 
     for license_file in &license_files {
         let api_url = format!(
-            "https://api.github.com/repos/{}/{}/contents/{}",
-            owner, repo, license_file
+            "https://api.github.com/repos/{owner}/{repo}/contents/{license_file}"
         );
 
-        log(LogLevel::Info, &format!("Trying to fetch: {}", api_url));
+        log(LogLevel::Info, &format!("Trying to fetch: {api_url}"));
 
         match client.get(&api_url).send() {
             Ok(response) => {
@@ -882,7 +876,7 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
                         {
                             log(
                                 LogLevel::Info,
-                                &format!("Found license file, downloading from: {}", download_url),
+                                &format!("Found license file, downloading from: {download_url}"),
                             );
 
                             rate_limit_delay();
@@ -891,7 +885,7 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
                                 Ok(license_response) => {
                                     if license_response.status().is_success() {
                                         if let Ok(license_content) = license_response.text() {
-                                            log(LogLevel::Info, &format!("Successfully fetched license content for {} from {}", repo, license_file));
+                                            log(LogLevel::Info, &format!("Successfully fetched license content for {repo} from {license_file}"));
                                             return Some(license_content);
                                         }
                                     }
@@ -899,7 +893,7 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
                                 Err(err) => {
                                     log(
                                         LogLevel::Warn,
-                                        &format!("Failed to download license file: {}", err),
+                                        &format!("Failed to download license file: {err}"),
                                     );
                                 }
                             }
@@ -917,7 +911,7 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
             Err(err) => {
                 log(
                     LogLevel::Warn,
-                    &format!("Failed to fetch from GitHub API: {}", err),
+                    &format!("Failed to fetch from GitHub API: {err}"),
                 );
             }
         }
@@ -925,7 +919,7 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
 
     log(
         LogLevel::Warn,
-        &format!("No license file found in repository: {}/{}", owner, repo),
+        &format!("No license file found in repository: {owner}/{repo}"),
     );
     None
 }
@@ -991,7 +985,7 @@ fn generate_third_party_licenses_content(
         // Common package repository URLs based on the dependency type
         let repo_url = generate_package_url(&dep.name, &dep.version);
         if let Some(ref url) = repo_url {
-            content.push_str(&format!("**Package URL:** {}\n", url));
+            content.push_str(&format!("**Package URL:** {url}\n"));
         }
 
         // Copyright notice placeholder
@@ -1062,7 +1056,7 @@ fn generate_third_party_licenses_content(
                             dep.get_license()
                         ));
                         if let Some(ref url) = repo_url {
-                            content.push_str(&format!("- The package repository: {}\n", url));
+                            content.push_str(&format!("- The package repository: {url}\n"));
                         }
                         content.push_str("- The dependency's source code or package files\n\n");
                     }
@@ -1093,15 +1087,13 @@ fn generate_third_party_licenses_content(
 
     if successfully_fetched > 0 {
         content.push_str(&format!(
-            "\n✅ Successfully fetched actual license texts for {} dependencies.\n",
-            successfully_fetched
+            "\n✅ Successfully fetched actual license texts for {successfully_fetched} dependencies.\n"
         ));
     }
 
     if failed_to_fetch > 0 {
         content.push_str(&format!(
-            "\n⚠️ Could not fetch actual license texts for {} dependencies. Using fallback templates or generic references.\n",
-            failed_to_fetch
+            "\n⚠️ Could not fetch actual license texts for {failed_to_fetch} dependencies. Using fallback templates or generic references.\n"
         ));
         content.push_str(
             "Consider manually verifying the license information for these dependencies.\n",
@@ -1154,12 +1146,12 @@ fn generate_package_url(name: &str, version: &str) -> Option<String> {
 
     // Go modules: domain/path structure
     if name.contains('/') && name.contains('.') {
-        return Some(format!("https://pkg.go.dev/{}", name));
+        return Some(format!("https://pkg.go.dev/{name}"));
     }
 
     // npm scoped packages: @scope/name
     if name.starts_with('@') && name.contains('/') {
-        return Some(format!("https://www.npmjs.com/package/{}", name));
+        return Some(format!("https://www.npmjs.com/package/{name}"));
     }
 
     // Python packages: Common Python indicators
@@ -1175,7 +1167,7 @@ fn generate_package_url(name: &str, version: &str) -> Option<String> {
         || name == "boto3"
         || (name.chars().all(|c| c.is_lowercase() || c == '_') && name.contains('_'))
     {
-        return Some(format!("https://pypi.org/project/{}/", name));
+        return Some(format!("https://pypi.org/project/{name}/"));
     }
 
     // npm packages: Common JavaScript indicators
@@ -1197,12 +1189,12 @@ fn generate_package_url(name: &str, version: &str) -> Option<String> {
        version == "latest" ||
        version == "next"
     {
-        return Some(format!("https://www.npmjs.com/package/{}", name));
+        return Some(format!("https://www.npmjs.com/package/{name}"));
     }
 
     // Rust crates: Version starts with digit
     if version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-        return Some(format!("https://crates.io/crates/{}", name));
+        return Some(format!("https://crates.io/crates/{name}"));
     }
 
     None
@@ -1300,8 +1292,7 @@ pub fn handle_generate_command(
     log(
         LogLevel::Info,
         &format!(
-            "Starting generate command with path: {} language: {:?} project_license: {:?}",
-            path, language, project_license
+            "Starting generate command with path: {path} language: {language:?} project_license: {project_license:?}"
         ),
     );
 
@@ -1309,8 +1300,7 @@ pub fn handle_generate_command(
     log(
         LogLevel::Info,
         &format!(
-            "Parsing dependencies for generate command in path: {}",
-            path
+            "Parsing dependencies for generate command in path: {path}"
         ),
     );
 
@@ -1327,7 +1317,7 @@ pub fn handle_generate_command(
             Ok(Some(detected)) => {
                 log(
                     LogLevel::Info,
-                    &format!("Detected project license: {}", detected),
+                    &format!("Detected project license: {detected}"),
                 );
                 resolved_project_license = Some(detected);
             }
@@ -1337,7 +1327,7 @@ pub fn handle_generate_command(
             Err(e) => {
                 log(
                     LogLevel::Error,
-                    &format!("Error detecting project license: {}", e),
+                    &format!("Error detecting project license: {e}"),
                 );
             }
         }
@@ -1358,7 +1348,7 @@ pub fn handle_generate_command(
             println!("{} Failed to parse dependencies: {}", "❌".red().bold(), e);
             log(
                 LogLevel::Error,
-                &format!("Failed to parse dependencies: {}", e),
+                &format!("Failed to parse dependencies: {e}"),
             );
             return;
         }
@@ -1371,8 +1361,7 @@ pub fn handle_generate_command(
         log(
             LogLevel::Info,
             &format!(
-                "Checking license compatibility against project license: {}",
-                proj_license
+                "Checking license compatibility against project license: {proj_license}"
             ),
         );
 
@@ -1534,7 +1523,7 @@ mod tests {
     #[test]
     fn test_generate_option_debug() {
         let option = GenerateOption::ThirdPartyLicenses;
-        let debug_str = format!("{:?}", option);
+        let debug_str = format!("{option:?}");
         assert!(debug_str.contains("ThirdPartyLicenses"));
     }
 

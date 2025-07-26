@@ -15,7 +15,7 @@ fn ssh_to_https_url(repo_url: &str) -> Option<String> {
     if !is_valid_github_repo_path(repo_path) {
         return None;
     }
-    Some(format!("https://github.com/{}", repo_path))
+    Some(format!("https://github.com/{repo_path}"))
 }
 
 fn is_valid_github_repo_path(repo_path: &str) -> bool {
@@ -124,8 +124,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
         log(
             LogLevel::Info,
             &format!(
-                "Credentials callback for URL: {}, username: {:?}",
-                url, username_from_url
+                "Credentials callback for URL: {url}, username: {username_from_url:?}"
             ),
         );
         if allowed_types.is_ssh_key() {
@@ -154,7 +153,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                     Err(e) => {
                         log(
                             LogLevel::Warn,
-                            &format!("SSH agent failed: {}, trying default key", e),
+                            &format!("SSH agent failed: {e}, trying default key"),
                         );
                         Err(e)
                     }
@@ -188,7 +187,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                 if let Some(https_url) = ssh_to_https_url(repo_url) {
                     log(
                         LogLevel::Warn,
-                        &format!("SSH clone failed: {}, trying HTTPS: {}", e, https_url),
+                        &format!("SSH clone failed: {e}, trying HTTPS: {https_url}"),
                     );
                     let mut https_callbacks = git2::RemoteCallbacks::new();
                     https_callbacks.credentials(|_url, _username, allowed_types| {
@@ -215,10 +214,9 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                             Ok(())
                         }
                         Err(e) => {
-                            log(LogLevel::Error, &format!("HTTPS clone failed: {}", e));
+                            log(LogLevel::Error, &format!("HTTPS clone failed: {e}"));
                             Err(FeludaError::Unknown(format!(
-                                "Failed to clone repository: {}",
-                                e
+                                "Failed to clone repository: {e}"
                             )))
                         }
                     };
@@ -226,11 +224,10 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
             }
             log(
                 LogLevel::Error,
-                &format!("Failed to clone repository: {}", e),
+                &format!("Failed to clone repository: {e}"),
             );
             Err(FeludaError::Unknown(format!(
-                "Failed to clone repository: {}",
-                e
+                "Failed to clone repository: {e}"
             )))
         }
     }
@@ -586,13 +583,13 @@ mod tests {
         // Test very long usernames/repos
         let long_username = "a".repeat(40);
         assert_eq!(
-            ssh_to_https_url(&format!("git@github.com:{}/repo.git", long_username)),
+            ssh_to_https_url(&format!("git@github.com:{long_username}/repo.git")),
             None
         );
 
         let long_repo = "a".repeat(101);
         assert_eq!(
-            ssh_to_https_url(&format!("git@github.com:user/{}.git", long_repo)),
+            ssh_to_https_url(&format!("git@github.com:user/{long_repo}.git")),
             None
         );
 

@@ -171,16 +171,16 @@ fn format_before_help() -> String {
 pub fn print_version_info() {
     // Get version from Cargo.toml using env!
     let version = env!("CARGO_PKG_VERSION");
-    let title = format!("Feluda v{}", version);
+    let title = format!("Feluda v{version}");
     let width = title.len() + 4;
     let border = "─".repeat(width);
 
-    println!("{}", format!("┌{}┐", border).bright_red());
+    println!("{}", format!("┌{border}┐").bright_red());
     println!(
         "{}",
         format!("│ {}   │", title.bright_white().bold()).bright_red()
     );
-    println!("{}", format!("└{}┘", border).bright_red());
+    println!("{}", format!("└{border}┘").bright_red());
     println!(
         "{}",
         "\nA dependency license checker written in Rust.".bright_yellow()
@@ -252,7 +252,7 @@ impl LoadingIndicator {
 
                 // Print progress info if available
                 if let Some(ref progress_text) = *progress.lock().unwrap() {
-                    print!("({})", progress_text);
+                    print!("({progress_text})");
                 }
 
                 io::stdout().flush().unwrap();
@@ -263,7 +263,7 @@ impl LoadingIndicator {
             print!("\r");
             print!("{} {} ", "✓".green().bold(), message);
             if let Some(ref progress_text) = *progress.lock().unwrap() {
-                print!("({})", progress_text);
+                print!("({progress_text})");
             }
             println!(" ✅");
             io::stdout().flush().unwrap();
@@ -312,12 +312,12 @@ where
     F: FnOnce(&LoadingIndicator) -> T,
 {
     if is_debug_mode() {
-        log(LogLevel::Info, &format!("Operation: {}", message));
+        log(LogLevel::Info, &format!("Operation: {message}"));
         let start = std::time::Instant::now();
         let indicator = LoadingIndicator::new(message);
         let result = f(&indicator);
         let duration = start.elapsed();
-        log(LogLevel::Info, &format!("Completed in {:?}", duration));
+        log(LogLevel::Info, &format!("Completed in {duration:?}"));
         result
     } else {
         let mut indicator = LoadingIndicator::new(message);
@@ -532,10 +532,10 @@ mod tests {
         let github = CiFormat::Github;
         let jenkins = CiFormat::Jenkins;
 
-        assert_ne!(format!("{:?}", github), format!("{:?}", jenkins));
+        assert_ne!(format!("{github:?}"), format!("{:?}", jenkins));
 
         let github_clone = github.clone();
-        assert_eq!(format!("{:?}", github), format!("{:?}", github_clone));
+        assert_eq!(format!("{github:?}"), format!("{:?}", github_clone));
     }
 
     #[test]
@@ -573,9 +573,9 @@ mod tests {
         let indicator = LoadingIndicator::new("Multi-step test");
 
         for i in 1..=5 {
-            indicator.update_progress(&format!("step {}", i));
+            indicator.update_progress(&format!("step {i}"));
             let progress = indicator.progress.lock().unwrap();
-            assert_eq!(*progress, Some(format!("step {}", i)));
+            assert_eq!(*progress, Some(format!("step {i}")));
             drop(progress);
         }
     }

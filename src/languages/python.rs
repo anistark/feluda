@@ -25,7 +25,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
     let mut licenses = Vec::new();
     log(
         LogLevel::Info,
-        &format!("Analyzing Python dependencies from: {}", package_file_path),
+        &format!("Analyzing Python dependencies from: {package_file_path}"),
     );
 
     let known_licenses = match fetch_licenses_from_github() {
@@ -63,7 +63,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                                 if let Some(dep_str) = dep.as_str() {
                                     log(
                                         LogLevel::Info,
-                                        &format!("Processing dependency: {}", dep_str),
+                                        &format!("Processing dependency: {dep_str}"),
                                     );
 
                                     let (name, version) = if let Some((n, v)) = dep_str
@@ -85,8 +85,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                                     log(
                                         LogLevel::Info,
                                         &format!(
-                                            "Fetching license for Python dependency: {} ({})",
-                                            name, version_clean
+                                            "Fetching license for Python dependency: {name} ({version_clean})"
                                         ),
                                     );
 
@@ -100,8 +99,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                                         log(
                                             LogLevel::Warn,
                                             &format!(
-                                                "Restrictive license found: {:?} for {}",
-                                                license, name
+                                                "Restrictive license found: {license:?} for {name}"
                                             ),
                                         );
                                     }
@@ -154,7 +152,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
 
                                 log(
                                     LogLevel::Info,
-                                    &format!("Processing requirement: {} {}", name, version),
+                                    &format!("Processing requirement: {name} {version}"),
                                 );
 
                                 let license_result =
@@ -167,8 +165,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                                     log(
                                         LogLevel::Warn,
                                         &format!(
-                                            "Restrictive license found: {:?} for {}",
-                                            license, name
+                                            "Restrictive license found: {license:?} for {name}"
                                         ),
                                     );
                                 }
@@ -185,7 +182,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                             } else {
                                 log(
                                     LogLevel::Warn,
-                                    &format!("Invalid requirement line: {}", line),
+                                    &format!("Invalid requirement line: {line}"),
                                 );
                             }
                         }
@@ -197,7 +194,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
 
                 log(
                     LogLevel::Info,
-                    &format!("Processed {} requirements from requirements.txt", dep_count),
+                    &format!("Processed {dep_count} requirements from requirements.txt"),
                 );
             }
             Err(err) => {
@@ -215,10 +212,10 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
 
 /// Fetch the license for a Python dependency from the Python Package Index (PyPI)
 pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String {
-    let api_url = format!("https://pypi.org/pypi/{}/{}/json", name, version);
+    let api_url = format!("https://pypi.org/pypi/{name}/{version}/json");
     log(
         LogLevel::Info,
-        &format!("Fetching license from PyPI: {}", api_url),
+        &format!("Fetching license from PyPI: {api_url}"),
     );
 
     match reqwest::blocking::get(&api_url) {
@@ -226,7 +223,7 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
             let status = response.status();
             log(
                 LogLevel::Info,
-                &format!("PyPI API response status: {}", status),
+                &format!("PyPI API response status: {status}"),
             );
 
             if status.is_success() {
@@ -235,21 +232,21 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
                         Some(license_str) if !license_str.is_empty() => {
                             log(
                                 LogLevel::Info,
-                                &format!("License found for {}: {}", name, license_str),
+                                &format!("License found for {name}: {license_str}"),
                             );
                             license_str.to_string()
                         }
                         _ => {
                             log(
                                 LogLevel::Warn,
-                                &format!("No license found for {} ({})", name, version),
+                                &format!("No license found for {name} ({version})"),
                             );
-                            format!("Unknown license for {}: {}", name, version)
+                            format!("Unknown license for {name}: {version}")
                         }
                     },
                     Err(err) => {
                         log_error(
-                            &format!("Failed to parse JSON for {}: {}", name, version),
+                            &format!("Failed to parse JSON for {name}: {version}"),
                             &err,
                         );
                         String::from("Unknown")
@@ -258,13 +255,13 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
             } else {
                 log(
                     LogLevel::Error,
-                    &format!("Failed to fetch metadata for {}: HTTP {}", name, status),
+                    &format!("Failed to fetch metadata for {name}: HTTP {status}"),
                 );
                 String::from("Unknown")
             }
         }
         Err(err) => {
-            log_error(&format!("Failed to fetch metadata for {}", name), &err);
+            log_error(&format!("Failed to fetch metadata for {name}"), &err);
             String::from("Unknown")
         }
     }

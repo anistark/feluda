@@ -119,13 +119,13 @@ impl TableFormatter {
 pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, bool) {
     log(
         LogLevel::Info,
-        &format!("Generating report with config: {:?}", config),
+        &format!("Generating report with config: {config:?}"),
     );
 
     let total_packages = data.len();
     log(
         LogLevel::Info,
-        &format!("Total packages to analyze: {}", total_packages),
+        &format!("Total packages to analyze: {total_packages}"),
     );
 
     let has_restrictive = data.iter().any(|info| *info.is_restrictive());
@@ -135,12 +135,12 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
 
     log(
         LogLevel::Info,
-        &format!("Has restrictive licenses: {}", has_restrictive),
+        &format!("Has restrictive licenses: {has_restrictive}"),
     );
 
     log(
         LogLevel::Info,
-        &format!("Has incompatible licenses: {}", has_incompatible),
+        &format!("Has incompatible licenses: {has_incompatible}"),
     );
 
     if config.gist {
@@ -199,7 +199,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         // JSON output
         log(LogLevel::Info, "Generating JSON output");
         match serde_json::to_string_pretty(&filtered_data) {
-            Ok(json_output) => println!("{}", json_output),
+            Ok(json_output) => println!("{json_output}"),
             Err(err) => {
                 log_error("Failed to serialize data to JSON", &err);
                 println!("Error: Failed to generate JSON output");
@@ -209,7 +209,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         // YAML output
         log(LogLevel::Info, "Generating YAML output");
         match serde_yaml::to_string(&filtered_data) {
-            Ok(yaml_output) => println!("{}", yaml_output),
+            Ok(yaml_output) => println!("{yaml_output}"),
             Err(err) => {
                 log_error("Failed to serialize data to YAML", &err);
                 println!("Error: Failed to generate YAML output");
@@ -312,7 +312,7 @@ fn print_summary_table(
         println!(
             "\n{} {}",
             "📄".bold(),
-            format!("Project License: {}", license).bold()
+            format!("Project License: {license}").bold()
         );
     }
 
@@ -405,7 +405,7 @@ fn print_summary_table(
     println!(
         "\n{} {}",
         "📦".bold(),
-        format!("Total dependencies scanned: {}", total_packages).bold()
+        format!("Total dependencies scanned: {total_packages}").bold()
     );
 
     if !restrictive_licenses.is_empty() {
@@ -493,8 +493,7 @@ fn print_incompatible_licenses_table(
         "\n{} {}\n",
         "❌".bold(),
         format!(
-            "Warning: Licenses incompatible with {} found!",
-            project_license
+            "Warning: Licenses incompatible with {project_license} found!"
         )
         .red()
         .bold()
@@ -590,7 +589,7 @@ fn print_summary_footer(license_info: &[LicenseInfo], project_license: Option<&s
         );
     }
 
-    println!("  • {} total dependencies", total);
+    println!("  • {total} total dependencies");
 
     if restrictive_count > 0 {
         println!("\n{} {}: Review these dependencies for compliance with your project's licensing requirements.",
@@ -633,8 +632,7 @@ fn output_github_format(
     // Add project license info if available
     if let Some(license) = project_license {
         output.push_str(&format!(
-            "::notice title=Project License::Project is using {} license\n",
-            license
+            "::notice title=Project License::Project is using {license} license\n"
         ));
     }
 
@@ -714,23 +712,23 @@ fn output_github_format(
     if let Some(path) = output_path {
         log(
             LogLevel::Info,
-            &format!("Writing GitHub Actions output to file: {}", path),
+            &format!("Writing GitHub Actions output to file: {path}"),
         );
 
         match fs::write(path, &output) {
-            Ok(_) => println!("GitHub Actions output written to: {}", path),
+            Ok(_) => println!("GitHub Actions output written to: {path}"),
             Err(err) => {
                 log_error(
-                    &format!("Failed to write GitHub Actions output file: {}", path),
+                    &format!("Failed to write GitHub Actions output file: {path}"),
                     &err,
                 );
                 println!("Error: Failed to write GitHub Actions output file");
-                println!("{}", output);
+                println!("{output}");
             }
         }
     } else {
         log(LogLevel::Info, "Writing GitHub Actions output to stdout");
-        print!("{}", output);
+        print!("{output}");
     }
 }
 
@@ -751,9 +749,8 @@ fn output_jenkins_format(
     if let Some(license) = project_license {
         test_cases.push(format!(
             r#"    <testcase classname="feluda.project" name="project_license" time="0">
-        <system-out>Project is using {} license</system-out>
-    </testcase>"#,
-            license
+        <system-out>Project is using {license} license</system-out>
+    </testcase>"#
         ));
     }
 
@@ -761,7 +758,7 @@ fn output_jenkins_format(
         let test_case_name = format!("{}-{}", info.name(), info.version());
         log(
             LogLevel::Info,
-            &format!("Processing test case: {}", test_case_name),
+            &format!("Processing test case: {test_case_name}"),
         );
 
         let mut failures = Vec::new();
@@ -809,8 +806,7 @@ fn output_jenkins_format(
 
         if failures.is_empty() {
             test_cases.push(format!(
-                r#"    <testcase classname="feluda.licenses" name="{}" time="0" />"#,
-                test_case_name
+                r#"    <testcase classname="feluda.licenses" name="{test_case_name}" time="0" />"#
             ));
         } else {
             test_cases.push(format!(
@@ -860,23 +856,23 @@ fn output_jenkins_format(
     if let Some(path) = output_path {
         log(
             LogLevel::Info,
-            &format!("Writing Jenkins JUnit XML to file: {}", path),
+            &format!("Writing Jenkins JUnit XML to file: {path}"),
         );
 
         match fs::write(path, &junit_xml) {
-            Ok(_) => println!("Jenkins JUnit XML output written to: {}", path),
+            Ok(_) => println!("Jenkins JUnit XML output written to: {path}"),
             Err(err) => {
                 log_error(
-                    &format!("Failed to write Jenkins output file: {}", path),
+                    &format!("Failed to write Jenkins output file: {path}"),
                     &err,
                 );
                 println!("Error: Failed to write Jenkins JUnit XML output file");
-                println!("{}", junit_xml); // Fallback to stdout
+                println!("{junit_xml}"); // Fallback to stdout
             }
         }
     } else {
         log(LogLevel::Info, "Writing Jenkins JUnit XML to stdout");
-        println!("{}", junit_xml);
+        println!("{junit_xml}");
     }
 }
 
@@ -1151,7 +1147,7 @@ mod tests {
         let content = match fs::read_to_string(&output_path) {
             Ok(content) => content,
             Err(err) => {
-                panic!("Failed to read output file: {}", err);
+                panic!("Failed to read output file: {err}");
             }
         };
 
@@ -1184,7 +1180,7 @@ mod tests {
         let content = match fs::read_to_string(&output_path) {
             Ok(content) => content,
             Err(err) => {
-                panic!("Failed to read output file: {}", err);
+                panic!("Failed to read output file: {err}");
             }
         };
 
@@ -1218,7 +1214,7 @@ mod tests {
         let content = match fs::read_to_string(&output_path) {
             Ok(content) => content,
             Err(err) => {
-                panic!("Failed to read output file: {}", err);
+                panic!("Failed to read output file: {err}");
             }
         };
 
@@ -1612,7 +1608,7 @@ mod tests {
             false,
         );
 
-        let debug_str = format!("{:?}", config);
+        let debug_str = format!("{config:?}");
         assert!(debug_str.contains("ReportConfig"));
         assert!(debug_str.contains("json: true"));
         assert!(debug_str.contains("yaml: false"));

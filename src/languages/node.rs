@@ -130,7 +130,7 @@ impl DependencyResolver {
         name: &str,
         version_spec: &str,
     ) -> Result<PackageMetadata, String> {
-        let cache_key = format!("{}@{}", name, version_spec);
+        let cache_key = format!("{name}@{version_spec}");
 
         if let Some(cached) = self.resolved_cache.get(&cache_key) {
             return Ok(cached.clone());
@@ -148,13 +148,13 @@ impl DependencyResolver {
     ) -> Result<PackageMetadata, String> {
         let clean_version = clean_version_string(version_spec);
         let url = if clean_version == "latest" || clean_version.is_empty() {
-            format!("https://registry.npmjs.org/{}", name)
+            format!("https://registry.npmjs.org/{name}")
         } else {
-            format!("https://registry.npmjs.org/{}/{}", name, clean_version)
+            format!("https://registry.npmjs.org/{name}/{clean_version}")
         };
 
         let response =
-            reqwest::blocking::get(&url).map_err(|e| format!("Registry request failed: {}", e))?;
+            reqwest::blocking::get(&url).map_err(|e| format!("Registry request failed: {e}"))?;
 
         if !response.status().is_success() {
             return Err(format!("Registry returned status: {}", response.status()));
@@ -162,7 +162,7 @@ impl DependencyResolver {
 
         let json: Value = response
             .json()
-            .map_err(|e| format!("Failed to parse registry response: {}", e))?;
+            .map_err(|e| format!("Failed to parse registry response: {e}"))?;
 
         self.parse_registry_metadata(&json, name, &clean_version)
     }
@@ -232,10 +232,10 @@ impl DependencyResolver {
 
     fn parse_local_package_json(&self, path: &str) -> Result<PackageMetadata, String> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read package.json: {}", e))?;
+            .map_err(|e| format!("Failed to read package.json: {e}"))?;
 
         let json: Value = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse package.json: {}", e))?;
+            .map_err(|e| format!("Failed to parse package.json: {e}"))?;
 
         let dependencies = self.extract_dependencies_from_json(&json, "dependencies");
 
@@ -252,8 +252,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
         &format!(
-            "Analyzing JavaScript dependencies from: {}",
-            package_json_path
+            "Analyzing JavaScript dependencies from: {package_json_path}"
         ),
     );
 
@@ -313,7 +312,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
             if is_restrictive {
                 log(
                     LogLevel::Warn,
-                    &format!("Restrictive license found: {} for {}", license, name),
+                    &format!("Restrictive license found: {license} for {name}"),
                 );
             }
 
@@ -492,7 +491,7 @@ fn pnpm_list_all_recursive(project_root: &Path) -> Result<HashMap<String, String
         ])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("pnpm list recursive failed: {}", e))?;
+        .map_err(|e| format!("pnpm list recursive failed: {e}"))?;
 
     parse_pnpm_json_output(&output)
 }
@@ -504,7 +503,7 @@ fn pnpm_list_json_depth_infinity(project_root: &Path) -> Result<HashMap<String, 
         .args(["list", "--json", "--depth", "Infinity"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("pnpm list depth infinity failed: {}", e))?;
+        .map_err(|e| format!("pnpm list depth infinity failed: {e}"))?;
 
     parse_pnpm_json_output(&output)
 }
@@ -516,7 +515,7 @@ fn pnpm_list_prod_dev(project_root: &Path) -> Result<HashMap<String, String>, St
         .args(["list", "--prod", "--dev", "--long", "--depth", "999"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("pnpm list prod dev failed: {}", e))?;
+        .map_err(|e| format!("pnpm list prod dev failed: {e}"))?;
 
     parse_pnpm_text_output(&output)
 }
@@ -525,10 +524,10 @@ fn pnpm_why_based_detection(project_root: &Path) -> Result<HashMap<String, Strin
     log(LogLevel::Info, "Trying: pnpm-based package discovery");
 
     let package_json_content = fs::read_to_string(project_root.join("package.json"))
-        .map_err(|e| format!("Failed to read package.json: {}", e))?;
+        .map_err(|e| format!("Failed to read package.json: {e}"))?;
 
     let package_json: Value = serde_json::from_str(&package_json_content)
-        .map_err(|e| format!("Failed to parse package.json: {}", e))?;
+        .map_err(|e| format!("Failed to parse package.json: {e}"))?;
 
     let mut all_deps = HashMap::new();
 
@@ -552,7 +551,7 @@ fn get_pnpm_transitive_deps(
         .args(["why", package_name, "--json"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("pnpm why failed: {}", e))?;
+        .map_err(|e| format!("pnpm why failed: {e}"))?;
 
     if !output.status.success() {
         return Ok(HashMap::new());
@@ -579,7 +578,7 @@ fn yarn_list_recursive(project_root: &Path) -> Result<HashMap<String, String>, S
         .args(["list", "--recursive", "--json"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("yarn list recursive failed: {}", e))?;
+        .map_err(|e| format!("yarn list recursive failed: {e}"))?;
 
     parse_yarn_json_output(&output)
 }
@@ -591,7 +590,7 @@ fn yarn_list_all_pattern(project_root: &Path) -> Result<HashMap<String, String>,
         .args(["list", "--pattern", "*", "--json"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("yarn list pattern failed: {}", e))?;
+        .map_err(|e| format!("yarn list pattern failed: {e}"))?;
 
     parse_yarn_json_output(&output)
 }
@@ -603,7 +602,7 @@ fn yarn_info_workspaces(project_root: &Path) -> Result<HashMap<String, String>, 
         .args(["workspaces", "info", "--json"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("yarn workspaces info failed: {}", e))?;
+        .map_err(|e| format!("yarn workspaces info failed: {e}"))?;
 
     parse_yarn_workspaces_output(&output)
 }
@@ -624,7 +623,7 @@ fn npm_ls_all_json(project_root: &Path) -> Result<HashMap<String, String>, Strin
         .args(["ls", "--all", "--json", "--production", "--dev"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("npm ls all failed: {}", e))?;
+        .map_err(|e| format!("npm ls all failed: {e}"))?;
 
     parse_npm_json_output(&output)
 }
@@ -641,7 +640,7 @@ fn npm_ls_long_format(project_root: &Path) -> Result<HashMap<String, String>, St
         .args(["ls", "--long", "--parseable", "--all"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("npm ls long failed: {}", e))?;
+        .map_err(|e| format!("npm ls long failed: {e}"))?;
 
     parse_npm_parseable_output(&output)
 }
@@ -658,7 +657,7 @@ fn npm_list_global_style(project_root: &Path) -> Result<HashMap<String, String>,
         .args(["list", "--global-style", "--depth", "999"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("npm list global-style failed: {}", e))?;
+        .map_err(|e| format!("npm list global-style failed: {e}"))?;
 
     parse_npm_tree_output(&output)
 }
@@ -729,7 +728,7 @@ fn scan_with_symlink_resolution(
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("");
-                        let full_name = format!("{}/{}", name, scoped_name);
+                        let full_name = format!("{name}/{scoped_name}");
 
                         if let Some(version) = read_package_version_safe(&scoped_path) {
                             packages.insert(full_name, version);
@@ -759,7 +758,7 @@ fn scan_pnpm_virtual_store(
     pnpm_dir: &Path,
     packages: &mut HashMap<String, String>,
 ) -> Result<(), String> {
-    let entries = fs::read_dir(pnpm_dir).map_err(|e| format!("Failed to read .pnpm: {}", e))?;
+    let entries = fs::read_dir(pnpm_dir).map_err(|e| format!("Failed to read .pnpm: {e}"))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -1038,7 +1037,7 @@ fn parse_pnpm_json_output(
 ) -> Result<HashMap<String, String>, String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("pnpm command failed: {}", stderr));
+        return Err(format!("pnpm command failed: {stderr}"));
     }
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
@@ -1103,7 +1102,7 @@ fn parse_yarn_workspaces_output(
         if let Some(workspaces) = json.as_object() {
             for (_workspace_name, workspace_info) in workspaces {
                 if let Some(location) = workspace_info.get("location").and_then(|l| l.as_str()) {
-                    log(LogLevel::Info, &format!("Found workspace at: {}", location));
+                    log(LogLevel::Info, &format!("Found workspace at: {location}"));
                 }
             }
         }
@@ -1247,7 +1246,7 @@ fn parse_dependency_line(line: &str) -> Option<(String, String)> {
         if version_part
             .chars()
             .next()
-            .map_or(false, |c| c.is_ascii_digit())
+            .is_some_and(|c| c.is_ascii_digit())
         {
             return Some((name_part.to_string(), version_part.to_string()));
         }
@@ -1355,8 +1354,7 @@ fn get_license_from_package_json(
                         log(
                             LogLevel::Info,
                             &format!(
-                                "Found license in package.json for {}: {}",
-                                package_name, license
+                                "Found license in package.json for {package_name}: {license}"
                             ),
                         );
                         return Some(license.to_string());
@@ -1371,8 +1369,7 @@ fn get_license_from_package_json(
                             log(
                                 LogLevel::Info,
                                 &format!(
-                                    "Found license in licenses array for {}: {}",
-                                    package_name, license_type
+                                    "Found license in licenses array for {package_name}: {license_type}"
                                 ),
                             );
                             return Some(license_type.to_string());
@@ -1391,12 +1388,12 @@ fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -
     let package_spec = if clean_version == "latest" || clean_version.is_empty() {
         package_name.to_string()
     } else {
-        format!("{}@{}", package_name, clean_version)
+        format!("{package_name}@{clean_version}")
     };
 
     log(
         LogLevel::Info,
-        &format!("Trying npm view for: {}", package_spec),
+        &format!("Trying npm view for: {package_spec}"),
     );
 
     let output = Command::new(npm_cmd)
@@ -1430,7 +1427,7 @@ fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -
 fn get_license_from_npm_registry_api(package_name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
-        &format!("Trying npm registry API for {}", package_name),
+        &format!("Trying npm registry API for {package_name}"),
     );
 
     let versions_to_try = if version == "latest" || version.is_empty() {
@@ -1441,9 +1438,9 @@ fn get_license_from_npm_registry_api(package_name: &str, version: &str) -> Optio
 
     for ver in versions_to_try {
         let url = if ver == "latest" {
-            format!("https://registry.npmjs.org/{}", package_name)
+            format!("https://registry.npmjs.org/{package_name}")
         } else {
-            format!("https://registry.npmjs.org/{}/{}", package_name, ver)
+            format!("https://registry.npmjs.org/{package_name}/{ver}")
         };
 
         if let Ok(response) = reqwest::blocking::get(&url) {
@@ -1463,8 +1460,7 @@ fn get_license_from_npm_registry_api(package_name: &str, version: &str) -> Optio
                                     log(
                                         LogLevel::Info,
                                         &format!(
-                                            "Found license via registry API for {}: {}",
-                                            package_name, license_str
+                                            "Found license via registry API for {package_name}: {license_str}"
                                         ),
                                     );
                                     return Some(license_str.to_string());
@@ -1488,7 +1484,7 @@ fn get_license_from_pnpm_metadata(
     let pnpm_meta_path = project_root.join("node_modules").join(".pnpm");
 
     if pnpm_meta_path.exists() {
-        let expected_dir_name = format!("{}@{}", package_name, version);
+        let expected_dir_name = format!("{package_name}@{version}");
 
         if let Ok(entries) = fs::read_dir(&pnpm_meta_path) {
             for entry in entries.flatten() {
@@ -1548,14 +1544,14 @@ fn parse_package_json_dependencies(
 ) -> Result<HashMap<String, String>, String> {
     log(
         LogLevel::Info,
-        &format!("Parsing dependencies directly from: {}", package_json_path),
+        &format!("Parsing dependencies directly from: {package_json_path}"),
     );
 
     let content = std::fs::read_to_string(package_json_path)
-        .map_err(|e| format!("Failed to read package.json: {}", e))?;
+        .map_err(|e| format!("Failed to read package.json: {e}"))?;
 
     let package_json: PackageJson = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse package.json: {}", e))?;
+        .map_err(|e| format!("Failed to parse package.json: {e}"))?;
 
     let all_deps = package_json.get_all_dependencies();
 
@@ -1755,7 +1751,7 @@ fn parse_pnpm_lockfile_comprehensive(
     log(LogLevel::Info, "Parsing pnpm-lock.yaml comprehensively");
 
     let content = fs::read_to_string(&lockfile_path)
-        .map_err(|e| format!("Failed to read pnpm-lock.yaml: {}", e))?;
+        .map_err(|e| format!("Failed to read pnpm-lock.yaml: {e}"))?;
 
     let mut deps = HashMap::new();
     let mut in_packages_section = false;
@@ -1814,7 +1810,7 @@ fn parse_pnpm_package_entry(pkg_info: &str) -> Option<(String, String)> {
         if version_part
             .chars()
             .next()
-            .map_or(false, |c| c.is_ascii_digit())
+            .is_some_and(|c| c.is_ascii_digit())
         {
             return Some((name_part.to_string(), version_part.to_string()));
         }
@@ -1843,7 +1839,7 @@ fn extract_package_from_lockfile_line(line: &str) -> Option<(String, String)> {
         if version_part
             .chars()
             .next()
-            .map_or(false, |c| c.is_ascii_digit())
+            .is_some_and(|c| c.is_ascii_digit())
         {
             return Some((name_part.to_string(), version_part.to_string()));
         }
@@ -1869,11 +1865,11 @@ fn try_pnpm_list_comprehensive(project_root: &Path) -> Result<HashMap<String, St
         ])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("pnpm list comprehensive failed: {}", e))?;
+        .map_err(|e| format!("pnpm list comprehensive failed: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("pnpm list failed: {}", stderr));
+        return Err(format!("pnpm list failed: {stderr}"));
     }
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
@@ -1932,7 +1928,7 @@ fn try_pnpm_list_flat(project_root: &Path) -> Result<HashMap<String, String>, St
         .args(["list", "--depth=Infinity"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("pnpm list flat failed: {}", e))?;
+        .map_err(|e| format!("pnpm list flat failed: {e}"))?;
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let mut dependencies = HashMap::new();
@@ -1959,7 +1955,7 @@ fn parse_pnpm_tree_line(line: &str) -> Option<(String, String)> {
         let name = parts[0];
         let version = parts[1];
 
-        if version.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+        if version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
             return Some((name.to_string(), version.to_string()));
         }
     }
@@ -1974,11 +1970,11 @@ fn try_pnpm_list_recursive_json(project_root: &Path) -> Result<HashMap<String, S
         .args(["list", "--recursive", "--json"])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("pnpm list recursive json failed: {}", e))?;
+        .map_err(|e| format!("pnpm list recursive json failed: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("pnpm list recursive failed: {}", stderr));
+        return Err(format!("pnpm list recursive failed: {stderr}"));
     }
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
@@ -2007,7 +2003,7 @@ fn analyze_pnpm_virtual_store_comprehensive(
     let mut packages = HashMap::new();
 
     let entries =
-        fs::read_dir(&pnpm_dir).map_err(|e| format!("Failed to read .pnpm directory: {}", e))?;
+        fs::read_dir(&pnpm_dir).map_err(|e| format!("Failed to read .pnpm directory: {e}"))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -2088,14 +2084,14 @@ fn parse_any_pnpm_directory_name(dir_name: &str) -> Option<(String, String)> {
     if let Some((pkg_with_version, _hash)) = dir_name.split_once('_') {
         let pkg_with_version = pkg_with_version.replace('+', "/");
         if let Some((pkg_name, version)) = pkg_with_version.rsplit_once('@') {
-            if version.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+            if version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                 return Some((pkg_name.to_string(), version.to_string()));
             }
         }
     }
 
     if let Some((pkg_name, version)) = dir_name.rsplit_once('@') {
-        if version.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+        if version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
             return Some((pkg_name.replace('+', "/"), version.to_string()));
         }
     }
@@ -2126,7 +2122,7 @@ fn scan_all_packages_in_node_modules(
                                     .file_name()
                                     .and_then(|n| n.to_str())
                                     .unwrap_or("");
-                                let full_name = format!("{}/{}", name, scoped_name);
+                                let full_name = format!("{name}/{scoped_name}");
 
                                 if let Some(version) = read_package_version_safe(&scoped_path) {
                                     packages.insert(full_name, version);
@@ -2161,15 +2157,15 @@ fn try_pnpm_list_all_dependencies(project_root: &Path) -> Result<HashMap<String,
         ])
         .current_dir(project_root)
         .output()
-        .map_err(|e| format!("pnpm list all failed: {}", e))?;
+        .map_err(|e| format!("pnpm list all failed: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         log(
             LogLevel::Warn,
-            &format!("pnpm list --all failed: {}", stderr),
+            &format!("pnpm list --all failed: {stderr}"),
         );
-        return Err(format!("pnpm list all failed: {}", stderr));
+        return Err(format!("pnpm list all failed: {stderr}"));
     }
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
@@ -2191,7 +2187,7 @@ fn parse_pnpm_lockfile_enhanced(project_root: &Path) -> Result<HashMap<String, S
     log(LogLevel::Info, "Enhanced parsing of pnpm-lock.yaml");
 
     let content = fs::read_to_string(&lockfile_path)
-        .map_err(|e| format!("Failed to read pnpm-lock.yaml: {}", e))?;
+        .map_err(|e| format!("Failed to read pnpm-lock.yaml: {e}"))?;
 
     let mut deps = HashMap::new();
     let mut current_section = None;
@@ -2231,7 +2227,7 @@ fn parse_pnpm_lockfile_enhanced(project_root: &Path) -> Result<HashMap<String, S
                 if trimmed.contains('@') && trimmed.contains(':') && !trimmed.starts_with('#') {
                     if let Some((potential_pkg, _)) = trimmed.split_once(':') {
                         if let Some((pkg_name, version)) = potential_pkg.trim().rsplit_once('@') {
-                            if version.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                            if version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                                 deps.insert(pkg_name.to_string(), version.to_string());
                             }
                         }
@@ -2256,7 +2252,7 @@ fn parse_pnpm_virtual_store_entry(dir_name: &str) -> Option<(String, String)> {
         let pkg_with_version = pkg_with_version.replace('+', "/");
 
         if let Some((pkg_name, version)) = pkg_with_version.rsplit_once('@') {
-            if version.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+            if version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                 return Some((pkg_name.to_string(), version.to_string()));
             }
         }
@@ -2321,7 +2317,7 @@ fn scan_pnpm_symlinks_recursive(
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("");
-                        let full_name = format!("{}/{}", name, scoped_name);
+                        let full_name = format!("{name}/{scoped_name}");
 
                         if let Some(version) = read_package_version_safe(&scoped_path) {
                             packages.insert(full_name, version);
@@ -2376,7 +2372,7 @@ fn scan_nested_node_modules(
                                     .file_name()
                                     .and_then(|n| n.to_str())
                                     .unwrap_or("");
-                                let full_name = format!("{}/{}", name, scoped_name);
+                                let full_name = format!("{name}/{scoped_name}");
 
                                 if let Some(version) = read_package_version_safe(&scoped_path) {
                                     packages.insert(full_name, version);

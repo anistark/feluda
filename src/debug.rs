@@ -309,14 +309,14 @@ mod tests {
     #[test]
     fn test_log_level_debug_format() {
         let info = LogLevel::Info;
-        let debug_str = format!("{:?}", info);
+        let debug_str = format!("{info:?}");
         assert_eq!(debug_str, "Info");
     }
 
     #[test]
     fn test_feluda_error_debug_format() {
         let error = FeludaError::Config("test config error".to_string());
-        let debug_str = format!("{:?}", error);
+        let debug_str = format!("{error:?}");
         assert!(debug_str.contains("Config"));
         assert!(debug_str.contains("test config error"));
     }
