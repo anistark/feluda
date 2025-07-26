@@ -234,6 +234,9 @@ impl LoadingIndicator {
         let spinner_frames = self.spinner_frames.clone();
         let progress = self.progress.clone();
 
+        // Clear the current line and move to beginning
+        print!("\x1B[2K\r");
+
         // Print initial message with spinner
         print!("{} {} ", spinner_frames[0].cyan(), message);
         io::stdout().flush().unwrap();
@@ -244,7 +247,7 @@ impl LoadingIndicator {
                 frame_idx = (frame_idx + 1) % spinner_frames.len();
 
                 // Clear the current line and move to beginning
-                print!("\r");
+                print!("\x1B[2K\r");
 
                 // Print spinner and message
                 let spinner_char = spinner_frames[frame_idx];
@@ -260,7 +263,7 @@ impl LoadingIndicator {
             }
 
             // Clear line and print completion message
-            print!("\r");
+            print!("\x1B[2K\r");
             print!("{} {} ", "✓".green().bold(), message);
             if let Some(ref progress_text) = *progress.lock().unwrap() {
                 print!("({progress_text})");
@@ -299,10 +302,10 @@ impl LoadingIndicator {
 /// let result = with_spinner("Processing data", |indicator| {
 ///     // Initial work
 ///     let data = prepare_data();
-///     
+///
 ///     // Update progress
 ///     indicator.update_progress(&format!("processed {} items", data.len()));
-///     
+///
 ///     // Continue processing
 ///     process_data(data)
 /// });
