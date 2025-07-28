@@ -1,7 +1,7 @@
 # Feluda
 
 [![Crates.io Version](https://img.shields.io/crates/v/feluda)
-](https://crates.io/crates/feluda) [![Crates.io Downloads](https://img.shields.io/crates/d/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)](https://crates.io/crates/feluda) [![Open Source](https://img.shields.io/badge/open-source-brightgreen)](https://github.com/anistark/feluda) [![Contributors](https://img.shields.io/github/contributors/anistark/feluda)](https://github.com/anistark/feluda/graphs/contributors) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
+](https://crates.io/crates/feluda) [![Crates.io Downloads](https://img.shields.io/crates/d/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)](https://crates.io/crates/feluda) [![Open Source](https://img.shields.io/badge/open-source-brightgreen)](https://github.com/anistark/feluda) [![Contributors](https://img.shields.io/github/contributors/anistark/feluda)](https://github.com/anistark/feluda/graphs/contributors) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg) [![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-red)](https://github.com/anistark/feluda)
 
 🔎 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage or are incompatible with your project's license.
 

@@ -1,3 +1,4 @@
+# .github/workflows/license-check.yml
 name: License Check
 
 on:
@@ -21,4 +22,43 @@ jobs:
         run: cargo install feluda
 
       - name: Check licenses
-        run: feluda --ci-format github --fail-on-restrictive
+        id: feluda
+        shell: bash
+        run: |
+          set +e
+          FELUDA_LOG=$(feluda --ci-format github --fail-on-restrictive 2>&1)
+          FELUDA_EXIT=$?
+          echo "feluda_log<<EOF" >> $GITHUB_OUTPUT
+          echo "$FELUDA_LOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          if [[ $FELUDA_EXIT -eq 0 ]]; then
+            echo "license_check=success" >> $GITHUB_OUTPUT
+          else
+            echo "license_check=failure" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: Update Feluda badge
+        if: always()
+        run: |
+          if [[ "${{ steps.feluda.outputs.license_check }}" == "success" ]]; then
+            COLOR="brightgreen"
+            echo "License check passed"
+          else
+            COLOR="red"
+            echo "License check failed"
+          fi
+
+          sed -i -E "s#https://img\.shields\.io/badge/Scanned%20with-Feluda-[^)]+#https://img.shields.io/badge/Scanned%20with-Feluda-${COLOR}#g" README.md
+
+      - name: Commit badge update
+        if: always()
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: README.md
+          message: "docs: update Feluda scan badge"
+
+      - name: Fail if license check failed
+        if: steps.feluda.outputs.license_check == 'failure'
+        run: exit 1
