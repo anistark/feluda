@@ -437,6 +437,26 @@ pub fn is_license_compatible(
                 "WTFPL",
             ],
         ),
+        // AGPL-3.0 compatibility (similar to GPL-3.0)
+        (
+            "AGPL-3.0",
+            vec![
+                "MIT",
+                "BSD-2-Clause",
+                "BSD-3-Clause",
+                "Apache-2.0",
+                "LGPL-2.1",
+                "LGPL-3.0",
+                "GPL-2.0",
+                "GPL-3.0",
+                "AGPL-3.0",
+                "ISC",
+                "0BSD",
+                "Zlib",
+                "Unlicense",
+                "WTFPL",
+            ],
+        ),
         // LGPL-3.0 compatibility
         (
             "LGPL-3.0",
@@ -550,6 +570,9 @@ fn normalize_license_id(license_id: &str) -> String {
         id if id.contains("APACHE") && (id.contains("2.0") || id.contains("2")) => {
             "Apache-2.0".to_string()
         }
+
+        id if id.contains("AGPL") && id.contains("3") => "AGPL-3.0".to_string(),
+        id if id.contains("AFFERO") && id.contains("GPL") && id.contains("3") => "AGPL-3.0".to_string(),
 
         id if id.contains("GPL") && id.contains("3") && !id.contains("LGPL") => {
             "GPL-3.0".to_string()
