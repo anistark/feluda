@@ -120,7 +120,7 @@ pub fn parse_root(
         );
         println!(
             "❌ No supported project files found.\n\
-            Feluda supports: Cargo.toml (Rust), package.json (Node.js), go.mod (Go), requirements.txt/pyproject.toml (Python)"
+            Feluda supports: Rust, Node.js, Go, Python"
         );
         return Ok(Vec::new());
     }

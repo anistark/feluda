@@ -465,10 +465,8 @@ The environment variables take precedence over both the configuration file and d
 
 ---
 
-## License
-
-Feluda is licensed under the [MIT License](./LICENSE).
-
 ![felu](https://github.com/user-attachments/assets/5f2bf6c4-3b70-4d2f-9990-c4005f56c5a9)
+
+[![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 _Happy coding with Feluda!_ 🚀

@@ -366,13 +366,15 @@ pub fn is_license_compatible(
     log(
         LogLevel::Info,
         &format!(
-            "Checking if license {dependency_license} is compatible with project license {project_license}"
+            "Checking if dependency license {dependency_license} is compatible with project license {project_license}"
         ),
     );
 
-    // Define a compatibility matrix using a HashMap
+    // TODO: Move manual compatibility matrix to an open source database
+
+    // Define what dependency licenses can be included in each project license
     let compatibility_matrix: HashMap<&str, Vec<&str>> = [
-        // MIT is compatible with almost everything
+        // MIT projects can include these licenses
         (
             "MIT",
             vec![
@@ -380,33 +382,104 @@ pub fn is_license_compatible(
                 "BSD-2-Clause",
                 "BSD-3-Clause",
                 "Apache-2.0",
-                "LGPL-3.0",
-                "MPL-2.0",
+                "ISC",
+                "0BSD",
             ],
         ),
-        // Apache 2.0 compatibility
+        // Apache 2.0 compatibility  
         (
             "Apache-2.0",
-            vec!["MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0"],
+            vec![
+                "MIT", 
+                "BSD-2-Clause", 
+                "BSD-3-Clause", 
+                "Apache-2.0",
+                "ISC",
+                "0BSD",
+            ],
         ),
         // GPL-3.0 can use code from these licenses
         (
             "GPL-3.0",
-            vec!["MIT", "BSD-2-Clause", "BSD-3-Clause", "LGPL-3.0", "GPL-3.0"],
+            vec![
+                "MIT",
+                "BSD-2-Clause", 
+                "BSD-3-Clause",
+                "Apache-2.0",
+                "LGPL-2.1",
+                "LGPL-3.0",
+                "GPL-2.0",
+                "GPL-3.0",
+                "ISC",
+                "0BSD",
+                "Zlib",
+                "Unlicense",
+                "WTFPL",
+            ],
+        ),
+        // GPL-2.0 projects (stricter than GPL-3.0, cannot include Apache-2.0)
+        (
+            "GPL-2.0",
+            vec![
+                "MIT",
+                "BSD-2-Clause",
+                "BSD-3-Clause", 
+                "LGPL-2.1",
+                "GPL-2.0",
+                "ISC",
+                "0BSD",
+                "Zlib",
+                "Unlicense",
+                "WTFPL",
+            ],
         ),
         // LGPL-3.0 compatibility
         (
             "LGPL-3.0",
-            vec!["MIT", "BSD-2-Clause", "BSD-3-Clause", "LGPL-3.0"],
+            vec![
+                "MIT",
+                "BSD-2-Clause",
+                "BSD-3-Clause",
+                "Apache-2.0", 
+                "LGPL-2.1",
+                "LGPL-3.0",
+                "ISC",
+                "0BSD",
+            ],
+        ),
+        // LGPL-2.1 compatibility
+        (
+            "LGPL-2.1", 
+            vec![
+                "MIT",
+                "BSD-2-Clause",
+                "BSD-3-Clause",
+                "LGPL-2.1",
+                "ISC", 
+                "0BSD",
+            ],
         ),
         // MPL-2.0 compatibility
         (
             "MPL-2.0",
-            vec!["MIT", "BSD-2-Clause", "BSD-3-Clause", "MPL-2.0"],
+            vec![
+                "MIT",
+                "BSD-2-Clause", 
+                "BSD-3-Clause",
+                "MPL-2.0",
+                "ISC",
+                "0BSD",
+            ],
         ),
-        // BSD licenses
-        ("BSD-3-Clause", vec!["MIT", "BSD-2-Clause", "BSD-3-Clause"]),
-        ("BSD-2-Clause", vec!["MIT", "BSD-2-Clause", "BSD-3-Clause"]),
+        // BSD licenses compatibility
+        ("BSD-3-Clause", vec!["MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD"]),
+        ("BSD-2-Clause", vec!["MIT", "BSD-2-Clause", "ISC", "0BSD"]),
+        // ISC compatibility
+        ("ISC", vec!["MIT", "ISC", "0BSD"]),
+        // Very permissive licenses
+        ("0BSD", vec!["0BSD"]),
+        ("Unlicense", vec!["Unlicense", "0BSD"]),
+        ("WTFPL", vec!["WTFPL", "0BSD", "Unlicense"]),
     ]
     .iter()
     .cloned()
