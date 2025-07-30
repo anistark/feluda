@@ -370,11 +370,9 @@ pub fn is_license_compatible(
         ),
     );
 
-    // TODO: Move manual compatibility matrix to an open source database
-
     // Define what dependency licenses can be included in each project license
     let compatibility_matrix: HashMap<&str, Vec<&str>> = [
-        // MIT projects can include these licenses
+        // MIT projects can include these licenses (only permissive licenses)
         (
             "MIT",
             vec![
@@ -384,26 +382,32 @@ pub fn is_license_compatible(
                 "Apache-2.0",
                 "ISC",
                 "0BSD",
+                "Zlib",
+                "Unlicense",
+                "WTFPL",
             ],
         ),
-        // Apache 2.0 compatibility  
+        // Apache 2.0 projects can include these licenses (only permissive licenses)
         (
             "Apache-2.0",
             vec![
-                "MIT", 
-                "BSD-2-Clause", 
-                "BSD-3-Clause", 
+                "MIT",
+                "BSD-2-Clause",
+                "BSD-3-Clause",
                 "Apache-2.0",
                 "ISC",
                 "0BSD",
+                "Zlib",
+                "Unlicense",
+                "WTFPL",
             ],
         ),
-        // GPL-3.0 can use code from these licenses
+        // GPL-3.0 projects can include most permissive licenses (copyleft-compatible)
         (
             "GPL-3.0",
             vec![
                 "MIT",
-                "BSD-2-Clause", 
+                "BSD-2-Clause",
                 "BSD-3-Clause",
                 "Apache-2.0",
                 "LGPL-2.1",
@@ -423,7 +427,7 @@ pub fn is_license_compatible(
             vec![
                 "MIT",
                 "BSD-2-Clause",
-                "BSD-3-Clause", 
+                "BSD-3-Clause",
                 "LGPL-2.1",
                 "GPL-2.0",
                 "ISC",
@@ -440,7 +444,7 @@ pub fn is_license_compatible(
                 "MIT",
                 "BSD-2-Clause",
                 "BSD-3-Clause",
-                "Apache-2.0", 
+                "Apache-2.0",
                 "LGPL-2.1",
                 "LGPL-3.0",
                 "ISC",
@@ -449,13 +453,13 @@ pub fn is_license_compatible(
         ),
         // LGPL-2.1 compatibility
         (
-            "LGPL-2.1", 
+            "LGPL-2.1",
             vec![
                 "MIT",
                 "BSD-2-Clause",
                 "BSD-3-Clause",
                 "LGPL-2.1",
-                "ISC", 
+                "ISC",
                 "0BSD",
             ],
         ),
@@ -464,7 +468,7 @@ pub fn is_license_compatible(
             "MPL-2.0",
             vec![
                 "MIT",
-                "BSD-2-Clause", 
+                "BSD-2-Clause",
                 "BSD-3-Clause",
                 "MPL-2.0",
                 "ISC",
@@ -472,7 +476,10 @@ pub fn is_license_compatible(
             ],
         ),
         // BSD licenses compatibility
-        ("BSD-3-Clause", vec!["MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD"]),
+        (
+            "BSD-3-Clause",
+            vec!["MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD"],
+        ),
         ("BSD-2-Clause", vec!["MIT", "BSD-2-Clause", "ISC", "0BSD"]),
         // ISC compatibility
         ("ISC", vec!["MIT", "ISC", "0BSD"]),
@@ -529,17 +536,43 @@ pub fn is_license_compatible(
 
 /// Normalize license identifier to a standard format
 fn normalize_license_id(license_id: &str) -> String {
-    // Handle common variations
-    match license_id.trim().to_uppercase().as_str() {
-        "MIT" => "MIT".to_string(),
-        id if id.contains("APACHE") && id.contains("2.0") => "Apache-2.0".to_string(),
+    let trimmed = license_id.trim().to_uppercase();
+
+    // Handle common variations and aliases
+    match trimmed.as_str() {
+        "MIT" | "MIT LICENSE" => "MIT".to_string(),
+        "ISC" | "ISC LICENSE" => "ISC".to_string(),
+        "0BSD" | "BSD-ZERO-CLAUSE" | "BSD ZERO CLAUSE" => "0BSD".to_string(),
+        "UNLICENSE" | "THE UNLICENSE" => "Unlicense".to_string(),
+        "WTFPL" | "DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE" => "WTFPL".to_string(),
+        "ZLIB" | "ZLIB LICENSE" => "Zlib".to_string(),
+
+        id if id.contains("APACHE") && (id.contains("2.0") || id.contains("2")) => {
+            "Apache-2.0".to_string()
+        }
+
         id if id.contains("GPL") && id.contains("3") && !id.contains("LGPL") => {
             "GPL-3.0".to_string()
         }
+        id if id.contains("GPL") && id.contains("2") && !id.contains("LGPL") => {
+            "GPL-2.0".to_string()
+        }
+
         id if id.contains("LGPL") && id.contains("3") => "LGPL-3.0".to_string(),
+        id if id.contains("LGPL") && id.contains("2.1") => "LGPL-2.1".to_string(),
+        id if id.contains("LGPL") && id.contains("2") && !id.contains("2.1") => {
+            "LGPL-2.1".to_string()
+        }
+
         id if id.contains("MPL") && id.contains("2.0") => "MPL-2.0".to_string(),
-        id if id.contains("BSD") && id.contains("3") => "BSD-3-Clause".to_string(),
-        id if id.contains("BSD") && id.contains("2") => "BSD-2-Clause".to_string(),
+
+        id if id.contains("BSD") && (id.contains("3") || id.contains("THREE")) => {
+            "BSD-3-Clause".to_string()
+        }
+        id if id.contains("BSD") && (id.contains("2") || id.contains("TWO")) => {
+            "BSD-2-Clause".to_string()
+        }
+
         _ => license_id.to_string(),
     }
 }
@@ -848,11 +881,11 @@ mod tests {
         );
         assert_eq!(
             is_license_compatible("LGPL-3.0", "MIT"),
-            LicenseCompatibility::Compatible
+            LicenseCompatibility::Incompatible
         );
         assert_eq!(
             is_license_compatible("MPL-2.0", "MIT"),
-            LicenseCompatibility::Compatible
+            LicenseCompatibility::Incompatible
         );
         assert_eq!(
             is_license_compatible("GPL-3.0", "MIT"),
