@@ -572,7 +572,9 @@ fn normalize_license_id(license_id: &str) -> String {
         }
 
         id if id.contains("AGPL") && id.contains("3") => "AGPL-3.0".to_string(),
-        id if id.contains("AFFERO") && id.contains("GPL") && id.contains("3") => "AGPL-3.0".to_string(),
+        id if id.contains("AFFERO") && id.contains("GPL") && id.contains("3") => {
+            "AGPL-3.0".to_string()
+        }
 
         id if id.contains("GPL") && id.contains("3") && !id.contains("LGPL") => {
             "GPL-3.0".to_string()
