@@ -60,3 +60,34 @@ jobs:
           tar: all
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
+  build-rpm:
+    name: Build .rpm package
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'anistark'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-rpm
+        run: cargo install cargo-rpm
+
+      - name: Build .rpm package
+        run: |
+          # Initialize RPM configuration if .rpm directory doesn't exist
+          if [ ! -d ".rpm" ]; then
+            echo "Initializing RPM configuration..."
+            cargo rpm init
+          fi
+          cargo rpm build --target x86_64-unknown-linux-gnu
+          RPM_FILE=$(find target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS -name "*.rpm")
+          VERSION=${GITHUB_REF#refs/tags/}
+          cp "$RPM_FILE" "feluda-${VERSION}-x86_64.rpm"
+
+      - name: Upload .rpm to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "feluda-*.rpm"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

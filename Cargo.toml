@@ -68,3 +68,11 @@ name = "feluda"
 lto = true
 codegen-units = 1
 opt-level = 3
+[package.metadata.rpm]
+package = "feluda"
+
+[package.metadata.rpm.cargo]
+buildflags = ["--release"]
+
+[package.metadata.rpm.targets]
+feluda = { path = "/usr/bin/feluda" }
