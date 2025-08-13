@@ -13,55 +13,6 @@ permissions:
   contents: write
 
 jobs:
-  upload-assets:
-    name: ${{ matrix.target }}
-    if: github.repository_owner == 'anistark'
-    strategy:
-      matrix:
-        include:
-          - target: aarch64-unknown-linux-gnu
-          - target: aarch64-unknown-linux-musl
-          - target: aarch64-apple-darwin
-            os: macos-13
-          - target: aarch64-pc-windows-msvc
-            os: windows-2019
-          - target: x86_64-unknown-linux-gnu
-          - target: x86_64-unknown-linux-musl
-          - target: x86_64-apple-darwin
-            os: macos-13
-          - target: x86_64-pc-windows-msvc
-            os: windows-2019
-          - target: x86_64-unknown-freebsd
-          - target: universal-apple-darwin
-            os: macos-13
-    runs-on: ${{ matrix.os || 'ubuntu-20.04' }}
-    timeout-minutes: 60
-    env:
-      SHEAR_VERSION: ${{ github.ref }}
-    steps:
-      - uses: taiki-e/checkout-action@v1
-
-      - name: Install Rust
-        uses: moonrepo/setup-rust@v1
-
-      - uses: taiki-e/setup-cross-toolchain-action@v1
-        with:
-          target: ${{ matrix.target }}
-
-      - run: echo "RUSTFLAGS=${RUSTFLAGS} -C target-feature=+crt-static" >>"${GITHUB_ENV}"
-        if: contains(matrix.target, '-windows-msvc')
-
-      - run: echo "RUSTFLAGS=${RUSTFLAGS} -C target-feature=+crt-static -C link-self-contained=yes" >>"${GITHUB_ENV}"
-        if: contains(matrix.target, '-linux-musl')
-
-      - uses: taiki-e/upload-rust-binary-action@v1
-        with:
-          bin: feluda
-          target: ${{ matrix.target }}
-          tar: all
-          zip: windows
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   build-rpm:
     name: Build .rpm package
     runs-on: ubuntu-latest
