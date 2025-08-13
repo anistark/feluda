@@ -1,3 +1,5 @@
+# Generated via cargo rpm init
+
 %define __spec_install_post %{nil}
 %define __os_install_post %{_dbpath}/brp-compress
 %define debug_package %{nil}
