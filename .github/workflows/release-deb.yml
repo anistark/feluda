@@ -1,0 +1,86 @@
+name: Build DEB Package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-deb-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Build Feluda
+        run: |
+          cargo build --release
+          ls -la target/release/feluda
+
+      - name: Extract package info from Cargo.toml and release tag
+        id: package_info
+        run: |
+          # Extract version from release tag (remove 'v' prefix if present)
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          PACKAGE_NAME=feluda
+          echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
+
+          DESCRIPTION="A CLI tool to check dependency licenses."
+          echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
+
+          MAINTAINER_EMAIL="feluda@anirudha.dev"
+          echo "maintainer_email=$MAINTAINER_EMAIL" >> $GITHUB_OUTPUT
+
+          echo "Building $PACKAGE_NAME version: $VERSION"
+          echo "Description: $DESCRIPTION"
+          echo "Maintainer: $MAINTAINER_EMAIL"
+
+      - name: Create DEB package
+        run: |
+          # Create package structure
+          mkdir -p ${{ steps.package_info.outputs.package_name }}_${{ steps.package_info.outputs.version }}_amd64/DEBIAN
+          mkdir -p ${{ steps.package_info.outputs.package_name }}_${{ steps.package_info.outputs.version }}_amd64/usr/local/bin
+
+          # Copy binary
+          cp target/release/${{ steps.package_info.outputs.package_name }} ${{ steps.package_info.outputs.package_name }}_${{ steps.package_info.outputs.version }}_amd64/usr/local/bin/
+          chmod +x ${{ steps.package_info.outputs.package_name }}_${{ steps.package_info.outputs.version }}_amd64/usr/local/bin/${{ steps.package_info.outputs.package_name }}
+
+          # Create control file
+          cat > ${{ steps.package_info.outputs.package_name }}_${{ steps.package_info.outputs.version }}_amd64/DEBIAN/control << EOF
+          Package: ${{ steps.package_info.outputs.package_name }}
+          Version: ${{ steps.package_info.outputs.version }}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libc6
+          Maintainer: Feluda Team <${{ steps.package_info.outputs.maintainer_email }}>
+          Description: ${{ steps.package_info.outputs.description }}
+           Feluda analyzes project dependencies, notes their licenses,
+           and flags any permissions that restrict personal or commercial usage
+           or are incompatible with your project's license.
+          EOF
+
+          # Build DEB package
+          dpkg-deb --build ${{ steps.package_info.outputs.package_name }}_${{ steps.package_info.outputs.version }}_amd64
+
+          # Show the created package
+          ls -la ${{ steps.package_info.outputs.package_name }}_${{ steps.package_info.outputs.version }}_amd64.deb
+
+      - name: Upload DEB package as release asset
+        run: |
+          # Upload as release asset
+          gh release upload ${{ github.event.release.tag_name }} ${{ steps.package_info.outputs.package_name }}_${{ steps.package_info.outputs.version }}_amd64.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}

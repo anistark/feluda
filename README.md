@@ -66,7 +66,7 @@ cargo install feluda
 <details>
 <summary>Homebrew (maintained by <a href="https://github.com/chenrui333" rel="noopener noreferrer">@chenrui333</a>)</summary>
 
-![macOS](https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0) 
+![macOS](https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)
 
 [feluda](https://formulae.brew.sh/formula/feluda) is available in the [Homebrew](https://formulae.brew.sh/).
 You can install it using brew:
@@ -92,9 +92,29 @@ paru -S feluda
 </details>
 
 <details>
+<summary>DEB Package (Debian/Ubuntu)</summary>
+
+![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white) ![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white)
+
+Feluda is available as a DEB package for Debian-based systems. Download the latest release from [GitHub Releases](https://github.com/anistark/feluda/releases).
+
+```bash
+# Download the latest DEB package
+wget https://github.com/anistark/feluda/releases/latest/download/feluda_$(curl -s https://api.github.com/repos/anistark/feluda/releases/latest | grep -o '"tag_name": "v[^"]*"' | cut -d'"' -f4 | sed 's/v//')_amd64.deb
+
+# Install using dpkg
+sudo dpkg -i feluda_*.deb
+
+# If there are dependency issues, fix them
+sudo apt install -f
+```
+
+</details>
+
+<details>
 <summary>NetBSD (maintained by <a href="https://github.com/0323pin" rel="noopener noreferrer">@0323pin</a>)</summary>
 
-![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black) 
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
 
 On NetBSD a package is available from the [official repositories](https://pkgsrc.se/devel/feluda/). To install it, simply run:
 
@@ -202,7 +222,7 @@ A **NOTICE file** is a concise summary document that provides attribution for th
 
 - **Purpose**: Quick overview of all third-party components and their licenses
 - **Content**: Organized by license type, lists all dependencies with their versions
-- **Use Cases**: 
+- **Use Cases**:
   - Legal compliance documentation
   - Quick reference for license audits
   - Attribution requirements for many open source licenses
