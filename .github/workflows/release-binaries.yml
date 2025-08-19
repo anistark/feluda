@@ -1,8 +1,9 @@
 name: Release Binaries
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0, v2.1.3, etc.
 
 defaults:
   run:
@@ -38,51 +39,48 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  upload-assets:
-    name: ${{ matrix.target }}
-    if: github.repository_owner == 'anistark'
+  build-rpm:
+    name: Build .rpm package
+    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - target: aarch64-unknown-linux-gnu
-          - target: aarch64-unknown-linux-musl
-          - target: aarch64-apple-darwin
-            os: macos-13
-          - target: aarch64-pc-windows-msvc
-            os: windows-2019
           - target: x86_64-unknown-linux-gnu
-          - target: x86_64-unknown-linux-musl
-          - target: x86_64-apple-darwin
-            os: macos-13
-          - target: x86_64-pc-windows-msvc
-            os: windows-2019
-          - target: x86_64-unknown-freebsd
-          - target: universal-apple-darwin
-            os: macos-13
-    runs-on: ${{ matrix.os || 'ubuntu-20.04' }}
-    timeout-minutes: 60
-    env:
-      SHEAR_VERSION: ${{ github.ref }}
+            arch: x86_64
+          - target: aarch64-unknown-linux-gnu
+            arch: aarch64
     steps:
-      - uses: taiki-e/checkout-action@v1
+      - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: moonrepo/setup-rust@v1
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-rpm
+        run: cargo install cargo-rpm
 
       - uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
 
-      - run: echo "RUSTFLAGS=${RUSTFLAGS} -C target-feature=+crt-static" >>"${GITHUB_ENV}"
-        if: contains(matrix.target, '-windows-msvc')
+      - name: Build .rpm package
+        run: |
+          # Initialize RPM configuration if .rpm directory doesn't exist
+          if [ ! -d ".rpm" ]; then
+            echo "Initializing RPM configuration..."
+            cargo rpm init
+          fi
+          cargo rpm build --target ${{ matrix.target }}
+          RPM_FILE=$(find target/${{ matrix.target }}/release/rpmbuild/RPMS -name "*.rpm")
+          VERSION=${GITHUB_REF#refs/tags/}
+          cp "$RPM_FILE" "feluda-${VERSION}-${{ matrix.arch }}.rpm"
 
-      - run: echo "RUSTFLAGS=${RUSTFLAGS} -C target-feature=+crt-static -C link-self-contained=yes" >>"${GITHUB_ENV}"
-        if: contains(matrix.target, '-linux-musl')
-
-      - uses: taiki-e/upload-rust-binary-action@v1
+      - name: Upload .rpm artifacts
+        uses: softprops/action-gh-release@v1
         with:
-          bin: feluda
-          target: ${{ matrix.target }}
-          tar: all
-          zip: windows
-          token: ${{ secrets.GITHUB_TOKEN }}
+          files: "feluda-*.rpm"
+          draft: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
