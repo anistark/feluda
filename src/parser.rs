@@ -6,6 +6,7 @@ use crate::languages::{Language, PYTHON_PATHS};
 use crate::licenses::{LicenseCompatibility, LicenseInfo};
 use cargo_metadata::MetadataCommand;
 use ignore::Walk;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 /// Project root information
@@ -125,52 +126,56 @@ pub fn parse_root(
         return Ok(Vec::new());
     }
 
-    let mut licenses = Vec::new();
+    let licenses: Vec<LicenseInfo> = project_roots
+        .into_par_iter()
+        .filter_map(|root| {
+            if let Some(language) = language {
+                if !matches_language(root.project_type, language) {
+                    log(
+                        LogLevel::Info,
+                        &format!(
+                            "Skipping {:?} project (language filter: {})",
+                            root.project_type, language
+                        ),
+                    );
+                    return None;
+                }
+            }
 
-    for root in project_roots {
-        if let Some(language) = language {
-            if !matches_language(root.project_type, language) {
-                log(
-                    LogLevel::Info,
-                    &format!(
-                        "Skipping {:?} project (language filter: {})",
-                        root.project_type, language
-                    ),
-                );
-                continue;
+            match parse_dependencies(&root) {
+                Ok(deps) => {
+                    log(
+                        LogLevel::Info,
+                        &format!(
+                            "Found {} dependencies in {}",
+                            deps.len(),
+                            root.path.display()
+                        ),
+                    );
+                    Some(deps)
+                }
+                Err(err) => {
+                    log(
+                        LogLevel::Error,
+                        &format!(
+                            "Error parsing dependencies in {}: {}",
+                            root.path.display(),
+                            err
+                        ),
+                    );
+                    None
+                }
             }
-        }
-
-        match parse_dependencies(&root) {
-            Ok(mut deps) => {
-                log(
-                    LogLevel::Info,
-                    &format!(
-                        "Found {} dependencies in {}",
-                        deps.len(),
-                        root.path.display()
-                    ),
-                );
-                licenses.append(&mut deps);
-            }
-            Err(err) => {
-                log(
-                    LogLevel::Error,
-                    &format!(
-                        "Error parsing dependencies in {}: {}",
-                        root.path.display(),
-                        err
-                    ),
-                );
-            }
-        }
-    }
+        })
+        .flatten()
+        .collect();
 
     log(
         LogLevel::Info,
         &format!("Total dependencies found: {}", licenses.len()),
     );
 
+    let mut licenses = licenses;
     for license in &mut licenses {
         license.compatibility = LicenseCompatibility::Unknown;
     }
