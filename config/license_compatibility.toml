@@ -1,0 +1,160 @@
+# License Compatibility Matrix Configuration
+# 
+# This file defines which dependency licenses are compatible with each project license type.
+# Each section represents a project license, and the 'compatible_with' array lists
+# all dependency licenses that can be safely included in projects using that license.
+#
+# Location: This file should be placed in one of the following locations (in order of precedence):
+# 1. config/license_compatibility.toml (recommended - project-specific config directory)
+# 2. .feluda/license_compatibility.toml (user-specific config directory)
+#
+# This file is required for the application to function.
+
+[MIT]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "ISC",
+    "0BSD",
+    "Zlib",
+    "Unlicense",
+    "WTFPL",
+]
+
+[Apache-2_0]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "ISC",
+    "0BSD",
+    "Zlib",
+    "Unlicense",
+    "WTFPL",
+]
+
+[GPL-3_0]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+    "GPL-2.0",
+    "GPL-3.0",
+    "ISC",
+    "0BSD",
+    "Zlib",
+    "Unlicense",
+    "WTFPL",
+]
+
+[GPL-2_0]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "LGPL-2.1",
+    "GPL-2.0",
+    "ISC",
+    "0BSD",
+    "Zlib",
+    "Unlicense",
+    "WTFPL",
+]
+
+[AGPL-3_0]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+    "GPL-2.0",
+    "GPL-3.0",
+    "AGPL-3.0",
+    "ISC",
+    "0BSD",
+    "Zlib",
+    "Unlicense",
+    "WTFPL",
+]
+
+[LGPL-3_0]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+    "ISC",
+    "0BSD",
+]
+
+[LGPL-2_1]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "LGPL-2.1",
+    "ISC",
+    "0BSD",
+]
+
+[MPL-2_0]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "ISC",
+    "0BSD",
+]
+
+[BSD-3-Clause]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+]
+
+[BSD-2-Clause]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "ISC",
+    "0BSD",
+]
+
+[ISC]
+compatible_with = [
+    "MIT",
+    "ISC",
+    "0BSD",
+]
+
+[_0BSD]
+compatible_with = [
+    "0BSD",
+]
+
+[Unlicense]
+compatible_with = [
+    "Unlicense",
+    "0BSD",
+]
+
+[WTFPL]
+compatible_with = [
+    "WTFPL",
+    "0BSD",
+    "Unlicense",
+]
