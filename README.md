@@ -485,6 +485,81 @@ export FELUDA_LICENSES_RESTRICTIVE='["GPL-3.0","AGPL-3.0","Custom-1.0"]'
 
 The environment variables take precedence over both the configuration file and default values.
 
+## License Compatibility Matrix
+
+Feluda uses a comprehensive license compatibility matrix to determine whether dependency licenses are compatible with your project's license. This matrix is maintained in an external TOML configuration file for easy updates and maintenance.
+
+### How It Works
+
+When you use the `--project-license` flag or Feluda auto-detects your project license, it checks each dependency's license against a compatibility matrix to determine:
+- ✅ **Compatible**: Safe to use with your project license
+- ❌ **Incompatible**: May create legal issues or licensing conflicts  
+- ❓ **Unknown**: License compatibility cannot be determined
+
+### Compatibility Matrix Location
+
+The license compatibility rules are stored in:
+
+```sh
+config/license_compatibility.toml
+```
+
+This file defines which dependency licenses are compatible with each project license type. For example:
+
+```toml
+[MIT]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause", 
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "ISC",
+    # ... more permissive licenses
+]
+
+[GPL-3.0]
+compatible_with = [
+    "MIT",
+    "BSD-2-Clause",
+    "Apache-2.0",
+    "LGPL-2.1",
+    "LGPL-3.0", 
+    "GPL-2.0",
+    "GPL-3.0",
+    # ... GPL-compatible licenses
+]
+```
+
+### Supported Project Licenses
+
+The matrix currently supports compatibility checking for:
+- **MIT** - Most permissive, allows only permissive dependency licenses
+- **Apache-2.0** - Permissive license compatible with most open source licenses
+- **GPL-3.0** - Copyleft license with broad compatibility including LGPL and other GPL versions
+- **GPL-2.0** - Stricter copyleft (cannot include Apache-2.0 dependencies)
+- **AGPL-3.0** - Network copyleft with GPL-3.0 compatibility plus AGPL
+- **LGPL-3.0 / LGPL-2.1** - Lesser GPL variants with limited compatibility
+- **MPL-2.0** - Mozilla Public License with moderate compatibility
+- **BSD-3-Clause / BSD-2-Clause** - BSD variants with permissive-only compatibility
+- **ISC, 0BSD, Unlicense, WTFPL** - Various permissive licenses
+
+### Custom Compatibility Rules
+
+Advanced users can customize compatibility rules by:
+
+1. **User-specific overrides**: Create `.feluda/license_compatibility.toml` in your home directory
+2. **Project-specific rules**: The local `config/license_compatibility.toml` takes precedence
+
+**Important**: Modifying compatibility rules requires legal expertise. Consult legal counsel before making changes that could affect your project's compliance.
+
+### Limitations and Disclaimers
+
+⚠️ **Legal Disclaimer**: The license compatibility matrix is provided as a helpful tool, but:
+- **Not legal advice**: Always consult qualified legal counsel for license compliance
+- **Your responsibility**: Users must verify all license compatibility decisions  
+- **No warranty**: Feluda and its contributors provide no warranties regarding license compatibility
+- **Complexity**: License compatibility can depend on specific use cases, distribution methods, and jurisdictions
+
 ---
 
 ![felu](https://github.com/user-attachments/assets/5f2bf6c4-3b70-4d2f-9990-c4005f56c5a9)
