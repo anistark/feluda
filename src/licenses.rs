@@ -5,9 +5,11 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 #[cfg(not(test))]
 use std::sync::OnceLock;
 use std::time::Duration;
+use tokio::sync::Semaphore;
 use toml::Value as TomlValue;
 
 use crate::cli;
@@ -133,183 +135,235 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
     log(LogLevel::Info, "Fetching licenses from GitHub Licenses API");
 
     let licenses_map = cli::with_spinner("Fetching licenses from GitHub API", |indicator| {
-        let mut licenses_map = HashMap::new();
-        let mut license_count = 0;
-
-        // First, get the list of available licenses
-        let client = match reqwest::blocking::Client::builder()
-            .user_agent("feluda-license-checker/1.0")
-            .timeout(Duration::from_secs(30))
-            .build()
-        {
-            Ok(client) => client,
+        // Use tokio runtime for async operations
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
             Err(err) => {
-                log_error("Failed to create HTTP client", &err);
-                return licenses_map;
+                log_error("Failed to create tokio runtime", &err);
+                return HashMap::new();
             }
         };
 
-        indicator.update_progress("fetching license list");
-
-        let licenses_list_url = "https://api.github.com/licenses";
-        let response = match client.get(licenses_list_url).send() {
-            Ok(response) => response,
-            Err(err) => {
-                log_error("Failed to fetch licenses list from GitHub API", &err);
-                return licenses_map;
-            }
-        };
-
-        if !response.status().is_success() {
-            log(
-                LogLevel::Error,
-                &format!("GitHub API returned error status: {}", response.status()),
-            );
-            return licenses_map;
-        }
-
-        let licenses_list: Vec<serde_json::Value> = match response.json() {
-            Ok(list) => list,
-            Err(err) => {
-                log_error("Failed to parse licenses list JSON", &err);
-                return licenses_map;
-            }
-        };
-
-        let total_licenses = licenses_list.len();
-        indicator.update_progress(&format!("found {total_licenses} licenses"));
-
-        for (idx, license_info) in licenses_list.iter().enumerate() {
-            if let Some(license_key) = license_info.get("key").and_then(|k| k.as_str()) {
-                indicator.update_progress(&format!(
-                    "processing {}/{}: {}",
-                    idx + 1,
-                    total_licenses,
-                    license_key
-                ));
-
-                log(
-                    LogLevel::Info,
-                    &format!("Fetching detailed license info: {license_key}"),
-                );
-
-                // Fetch detailed license information
-                let license_url = format!("https://api.github.com/licenses/{license_key}");
-
-                // Add a small delay to avoid rate limiting
-                std::thread::sleep(Duration::from_millis(100));
-
-                match client.get(&license_url).send() {
-                    Ok(license_response) => {
-                        if license_response.status().is_success() {
-                            match license_response.json::<serde_json::Value>() {
-                                Ok(license_data) => {
-                                    // Extract the license information we need
-                                    let title = license_data
-                                        .get("name")
-                                        .and_then(|n| n.as_str())
-                                        .unwrap_or(license_key)
-                                        .to_string();
-
-                                    let spdx_id = license_data
-                                        .get("spdx_id")
-                                        .and_then(|s| s.as_str())
-                                        .unwrap_or(license_key)
-                                        .to_string();
-
-                                    let permissions = license_data
-                                        .get("permissions")
-                                        .and_then(|p| p.as_array())
-                                        .map(|arr| {
-                                            arr.iter()
-                                                .filter_map(|v| v.as_str())
-                                                .map(String::from)
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-
-                                    let conditions = license_data
-                                        .get("conditions")
-                                        .and_then(|c| c.as_array())
-                                        .map(|arr| {
-                                            arr.iter()
-                                                .filter_map(|v| v.as_str())
-                                                .map(String::from)
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-
-                                    let limitations = license_data
-                                        .get("limitations")
-                                        .and_then(|l| l.as_array())
-                                        .map(|arr| {
-                                            arr.iter()
-                                                .filter_map(|v| v.as_str())
-                                                .map(String::from)
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-
-                                    let license = License {
-                                        title,
-                                        spdx_id,
-                                        permissions,
-                                        conditions,
-                                        limitations,
-                                    };
-
-                                    // Use the SPDX ID as the key for consistency
-                                    let key_to_use = license_data
-                                        .get("spdx_id")
-                                        .and_then(|s| s.as_str())
-                                        .unwrap_or(license_key);
-
-                                    licenses_map.insert(key_to_use.to_string(), license);
-                                    license_count += 1;
-
-                                    log(
-                                        LogLevel::Info,
-                                        &format!("Successfully processed license: {key_to_use}"),
-                                    );
-                                }
-                                Err(err) => {
-                                    log_error(
-                                        &format!("Failed to parse license JSON for {license_key}"),
-                                        &err,
-                                    );
-                                }
-                            }
-                        } else {
-                            log(
-                                LogLevel::Error,
-                                &format!(
-                                    "Failed to fetch license {}: HTTP {}",
-                                    license_key,
-                                    license_response.status()
-                                ),
-                            );
-                        }
-                    }
-                    Err(err) => {
-                        log_error(
-                            &format!("Failed to fetch license details for {license_key}"),
-                            &err,
-                        );
-                    }
-                }
-            }
-        }
-
-        indicator.update_progress(&format!("processed {license_count} licenses"));
-
-        log(
-            LogLevel::Info,
-            &format!("Successfully fetched {license_count} licenses from GitHub API"),
-        );
-        licenses_map
+        rt.block_on(fetch_licenses_concurrent(indicator))
     });
 
     Ok(licenses_map)
+}
+
+/// Async helper function for concurrent license fetching with rate limiting
+async fn fetch_licenses_concurrent(
+    indicator: &crate::cli::LoadingIndicator,
+) -> HashMap<String, License> {
+    let mut licenses_map = HashMap::new();
+
+    // Create async HTTP client
+    let client = match reqwest::Client::builder()
+        .user_agent("feluda-license-checker/1.0")
+        .timeout(Duration::from_secs(30))
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            log_error("Failed to create HTTP client", &err);
+            return licenses_map;
+        }
+    };
+
+    indicator.update_progress("fetching license list");
+
+    // First, get the list of available licenses
+    let licenses_list_url = "https://api.github.com/licenses";
+    let response = match client.get(licenses_list_url).send().await {
+        Ok(response) => response,
+        Err(err) => {
+            log_error("Failed to fetch licenses list from GitHub API", &err);
+            return licenses_map;
+        }
+    };
+
+    if !response.status().is_success() {
+        log(
+            LogLevel::Error,
+            &format!("GitHub API returned error status: {}", response.status()),
+        );
+        return licenses_map;
+    }
+
+    let licenses_list: Vec<serde_json::Value> = match response.json().await {
+        Ok(list) => list,
+        Err(err) => {
+            log_error("Failed to parse licenses list JSON", &err);
+            return licenses_map;
+        }
+    };
+
+    let total_licenses = licenses_list.len();
+    indicator.update_progress(&format!("found {total_licenses} licenses"));
+
+    // Rate limiting: Allow max 10 concurrent requests (GitHub's recommended limit)
+    let semaphore = Arc::new(Semaphore::new(10));
+    let client = Arc::new(client);
+
+    // Collect all license keys
+    let license_keys: Vec<String> = licenses_list
+        .iter()
+        .filter_map(|license_info| {
+            license_info
+                .get("key")
+                .and_then(|k| k.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+
+    // Create futures for concurrent processing
+    let mut tasks = Vec::new();
+
+    for license_key in license_keys {
+        let semaphore = Arc::clone(&semaphore);
+        let client = Arc::clone(&client);
+
+        let task = tokio::spawn(async move {
+            // Acquire semaphore permit for rate limiting
+            let _permit = semaphore.acquire().await.unwrap();
+
+            log(
+                LogLevel::Info,
+                &format!("Fetching detailed license info: {license_key}"),
+            );
+
+            let license_url = format!("https://api.github.com/licenses/{license_key}");
+
+            // Add delay for rate limiting (reduced from 100ms since we have concurrency control)
+            tokio::time::sleep(Duration::from_millis(50)).await;
+
+            match client.get(&license_url).send().await {
+                Ok(license_response) => {
+                    if license_response.status().is_success() {
+                        match license_response.json::<serde_json::Value>().await {
+                            Ok(license_data) => {
+                                // Extract the license information we need
+                                let title = license_data
+                                    .get("name")
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or(&license_key)
+                                    .to_string();
+
+                                let spdx_id = license_data
+                                    .get("spdx_id")
+                                    .and_then(|s| s.as_str())
+                                    .unwrap_or(&license_key)
+                                    .to_string();
+
+                                let permissions = license_data
+                                    .get("permissions")
+                                    .and_then(|p| p.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str())
+                                            .map(String::from)
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+
+                                let conditions = license_data
+                                    .get("conditions")
+                                    .and_then(|c| c.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str())
+                                            .map(String::from)
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+
+                                let limitations = license_data
+                                    .get("limitations")
+                                    .and_then(|l| l.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str())
+                                            .map(String::from)
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+
+                                let license = License {
+                                    title,
+                                    spdx_id,
+                                    permissions,
+                                    conditions,
+                                    limitations,
+                                };
+
+                                // Use the SPDX ID as the key for consistency
+                                let key_to_use = license_data
+                                    .get("spdx_id")
+                                    .and_then(|s| s.as_str())
+                                    .unwrap_or(&license_key);
+
+                                log(
+                                    LogLevel::Info,
+                                    &format!("Successfully processed license: {key_to_use}"),
+                                );
+
+                                Some((key_to_use.to_string(), license))
+                            }
+                            Err(err) => {
+                                log_error(
+                                    &format!("Failed to parse license JSON for {license_key}"),
+                                    &err,
+                                );
+                                None
+                            }
+                        }
+                    } else {
+                        log(
+                            LogLevel::Error,
+                            &format!(
+                                "Failed to fetch license {}: HTTP {}",
+                                license_key,
+                                license_response.status()
+                            ),
+                        );
+                        None
+                    }
+                }
+                Err(err) => {
+                    log_error(
+                        &format!("Failed to fetch license details for {license_key}"),
+                        &err,
+                    );
+                    None
+                }
+            }
+        });
+
+        tasks.push(task);
+    }
+
+    // Wait for all tasks to complete and collect results
+    let mut license_count = 0;
+    for (i, task) in tasks.into_iter().enumerate() {
+        indicator.update_progress(&format!(
+            "processing {}/{}: concurrent requests",
+            i + 1,
+            total_licenses,
+        ));
+
+        if let Ok(Some((key, license))) = task.await {
+            licenses_map.insert(key, license);
+            license_count += 1;
+        }
+    }
+
+    indicator.update_progress(&format!("processed {license_count} licenses"));
+
+    log(
+        LogLevel::Info,
+        &format!("Successfully fetched {license_count} licenses from GitHub API using concurrent requests"),
+    );
+
+    licenses_map
 }
 
 /// Check if a license is considered restrictive based on configuration and known licenses
