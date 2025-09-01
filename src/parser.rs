@@ -3,7 +3,9 @@
 use crate::cli;
 use crate::debug::{log, log_debug, FeludaResult, LogLevel};
 use crate::languages::{Language, PYTHON_PATHS};
-use crate::licenses::{LicenseCompatibility, LicenseInfo};
+use crate::licenses::{
+    detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
+};
 use cargo_metadata::MetadataCommand;
 use ignore::Walk;
 use rayon::prelude::*;
@@ -175,12 +177,26 @@ pub fn parse_root(
         &format!("Total dependencies found: {}", licenses.len()),
     );
 
+    // Set license compatibility based on project license
+    let project_license =
+        detect_project_license(root_path.as_ref().to_str().unwrap_or("")).unwrap_or(None);
+
     let mut licenses = licenses;
-    for license in &mut licenses {
-        license.compatibility = LicenseCompatibility::Unknown;
-    }
+    set_license_compatibility(&mut licenses, &project_license);
 
     Ok(licenses)
+}
+
+/// Set license compatibility for all dependencies
+fn set_license_compatibility(licenses: &mut [LicenseInfo], project_license: &Option<String>) {
+    for license in licenses {
+        license.compatibility = match (project_license, &license.license) {
+            (Some(proj_license), Some(dep_license)) => {
+                is_license_compatible(dep_license, proj_license)
+            }
+            _ => LicenseCompatibility::Unknown,
+        };
+    }
 }
 
 /// Check if a project type matches the given language filter
@@ -224,14 +240,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                             metadata.packages.len()
                         ));
 
-                        let mut license_info =
-                            crate::languages::analyze_rust_licenses(metadata.packages);
-
-                        for info in &mut license_info {
-                            info.compatibility = LicenseCompatibility::Unknown;
-                        }
-
-                        license_info
+                        crate::languages::analyze_rust_licenses(metadata.packages)
                     }
                     Err(err) => {
                         log(
@@ -253,12 +262,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
 
                 match project_path.to_str() {
                     Some(path_str) => {
-                        let mut deps = crate::languages::analyze_js_licenses(path_str);
-
-                        for info in &mut deps {
-                            info.compatibility = LicenseCompatibility::Unknown;
-                        }
-
+                        let deps = crate::languages::analyze_js_licenses(path_str);
                         indicator.update_progress(&format!("found {} dependencies", deps.len()));
                         deps
                     }
@@ -279,12 +283,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
 
                 match project_path.to_str() {
                     Some(path_str) => {
-                        let mut deps = crate::languages::analyze_go_licenses(path_str);
-
-                        for info in &mut deps {
-                            info.compatibility = LicenseCompatibility::Unknown;
-                        }
-
+                        let deps = crate::languages::analyze_go_licenses(path_str);
                         indicator.update_progress(&format!("found {} dependencies", deps.len()));
                         deps
                     }
@@ -306,12 +305,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
 
                     match project_path.to_str() {
                         Some(path_str) => {
-                            let mut deps = crate::languages::analyze_python_licenses(path_str);
-
-                            for info in &mut deps {
-                                info.compatibility = LicenseCompatibility::Unknown;
-                            }
-
+                            let deps = crate::languages::analyze_python_licenses(path_str);
                             indicator
                                 .update_progress(&format!("found {} dependencies", deps.len()));
                             deps
