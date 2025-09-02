@@ -19,6 +19,17 @@ pub enum CiFormat {
     Jenkins,
 }
 
+/// SBOM format options
+#[derive(ValueEnum, Clone, Debug)]
+pub enum SbomFormat {
+    /// SPDX format
+    Spdx,
+    /// CycloneDX format
+    Cyclonedx,
+    /// Generate all supported formats
+    All,
+}
+
 /// CLI Commands
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
@@ -132,6 +143,10 @@ pub struct Cli {
     // Show a concise gist summary
     #[arg(long, group = "output")]
     pub gist: bool,
+
+    /// Generate SBOM in specified format
+    #[arg(long, value_enum)]
+    pub sbom: Option<SbomFormat>,
 }
 
 impl Cli {
@@ -381,6 +396,7 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
+            sbom: None,
         };
 
         assert_eq!(cli.path, "./");
@@ -417,6 +433,7 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
+            sbom: None,
         };
 
         let cmd = cli.get_command_args();
@@ -457,6 +474,7 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
+            sbom: None,
         };
 
         let cmd = cli.get_command_args();
