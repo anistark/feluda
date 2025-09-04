@@ -6,6 +6,7 @@ mod languages;
 mod licenses;
 mod parser;
 mod reporter;
+mod sbom;
 mod table;
 mod utils;
 
@@ -16,6 +17,7 @@ use generate::handle_generate_command;
 use licenses::{detect_project_license, is_license_compatible, LicenseCompatibility};
 use parser::parse_root;
 use reporter::{generate_report, ReportConfig};
+use sbom::handle_sbom_command;
 use std::env;
 use std::path::Path;
 use std::process;
@@ -111,7 +113,11 @@ fn run() -> FeludaResult<()> {
 
     // Handle SBOM generation if requested
     if let Some(sbom_format) = &args.sbom {
-        return handle_sbom_command(analysis_path.to_string_lossy().to_string(), sbom_format, args.output_file.clone());
+        return handle_sbom_command(
+            analysis_path.to_string_lossy().to_string(),
+            sbom_format,
+            args.output_file.clone(),
+        );
     }
 
     // Handle the command based on whether a subcommand was provided
@@ -383,28 +389,3 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     Ok(())
 }
 
-fn handle_sbom_command(path: String, format: &SbomFormat, output_file: Option<String>) -> FeludaResult<()> {
-    log(LogLevel::Info, &format!("Generating SBOM for path: {path}"));
-    
-    match format {
-        SbomFormat::Spdx => {
-            log(LogLevel::Info, "TODO: Generate SPDX SBOM");
-            println!("TODO: SPDX SBOM generation not yet implemented");
-        }
-        SbomFormat::Cyclonedx => {
-            log(LogLevel::Info, "TODO: Generate CycloneDX SBOM");
-            println!("TODO: CycloneDX SBOM generation not yet implemented");
-        }
-        SbomFormat::All => {
-            log(LogLevel::Info, "TODO: Generate all SBOM formats");
-            println!("TODO: All SBOM formats generation not yet implemented");
-        }
-    }
-    
-    if let Some(file_path) = output_file {
-        log(LogLevel::Info, &format!("TODO: Write SBOM to file: {file_path}"));
-        println!("TODO: File output not yet implemented");
-    }
-    
-    Ok(())
-}

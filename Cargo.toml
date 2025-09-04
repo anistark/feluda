@@ -37,6 +37,7 @@ colored = "3.0.0"
 rayon = "1.10.0"
 figment = { version = "0.10", features = ["toml", "env"] }
 ignore = "0.4.23"
+uuid = { version = "1.11.0", features = ["v4", "serde"] }
 toml = "0.8.23"
 regex = "1.11.1"
 thiserror = "2.0.12"

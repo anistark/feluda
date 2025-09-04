@@ -17,6 +17,7 @@
 - Flag dependencies with licenses that may restrict personal or commercial use.
 - Flag dependencies with licenses that may be incompatible with your project's license.
 - Generate compliance files (NOTICE and THIRD_PARTY_LICENSES) for legal requirements.
+- Generate Software Bill of Materials (SBOM) in SPDX format for security and compliance.
 - Output results in plain text, JSON or TUI formats. There's also a gist format which is available in strict mode to output a single line only.
 - CI/CD support for Github Actions and Jenkins.
 - Verbose mode gives an enhanced view of all licenses.
@@ -188,6 +189,37 @@ feluda generate --path /path/to/project/
 
 ![generate-ss](https://github.com/user-attachments/assets/a965843f-7d87-4ba8-a311-c982d717a4f8)
 
+### SBOM Generation
+
+Generate Software Bill of Materials (SBOM) for your project:
+
+```sh
+# Generate SPDX format SBOM to console
+feluda --sbom spdx
+
+# Generate SPDX SBOM to file
+feluda --sbom spdx --output-file project-name-sbom.json
+
+# Generate all supported formats (currently only SPDX is implemented)
+feluda --sbom all --output-file project-name-sbom
+```
+
+**Supported SBOM Formats:**
+- **SPDX 2.3** - Software Package Data Exchange format (JSON)
+- **CycloneDX** - [Coming soon](https://github.com/anistark/feluda/issues/73)
+
+**What's Included in SBOM:**
+- Package names and versions
+- License information
+- SPDX identifiers
+- License compatibility flags
+- Tool metadata and generation timestamp
+
+**Use Cases:**
+- 🔒 **Security compliance** - Track all dependencies for vulnerability management
+- 📋 **Supply chain transparency** - Document your software's components
+- 🏢 **Enterprise requirements** - Meet organizational SBOM mandates
+- 🔍 **Audit preparation** - Provide comprehensive dependency documentation
 
 ### Run feluda on a github repo directly
 
@@ -428,6 +460,9 @@ jobs:
           echo "1" | feluda generate  # Auto-select NOTICE file
           echo "2" | feluda generate  # Auto-select THIRD_PARTY_LICENSES file
 
+      - name: Generate SBOM
+        run: feluda --sbom spdx --output-file sbom.spdx.json
+
       - name: Upload compliance artifacts
         uses: actions/upload-artifact@v3
         with:
@@ -435,6 +470,7 @@ jobs:
           path: |
             NOTICE
             THIRD_PARTY_LICENSES.md
+            sbom.spdx.json
 ```
 
 Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.

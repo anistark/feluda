@@ -437,6 +437,7 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
+            sbom: None,
         };
 
         let result = clone_repository(&args, temp_dir.path());
@@ -489,6 +490,7 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
+            sbom: None,
         };
 
         // Enable debug mode for this test
@@ -540,6 +542,7 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
+            sbom: None,
         };
 
         let result = clone_repository(&args, temp_dir.path());
