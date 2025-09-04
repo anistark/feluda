@@ -46,14 +46,14 @@ _If your fav language or framework isn't supported, feel free to open an feature
 
 ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
 
-### Prerequisites
+#### Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install) installed on your system.
 
 If you already had it, make sure it's up-to-date and update if needed.
 (Optional) Set rust path if not set already.
 
-### Install
+#### Install
 
 ```sh
 cargo install feluda
@@ -105,9 +105,9 @@ pkgin install feluda
 </details>
 
 <details>
-<summary>DEB Package (Debian/Ubuntu)</summary>
+<summary>DEB Package (Debian/Ubuntu/Pop! OS)</summary>
 
-![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white) ![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white)
+![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white) ![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white) ![Pop!\_OS](https://img.shields.io/badge/Pop!_OS-48B9C7?style=for-the-badge&logo=Pop!_OS&logoColor=white) ![Linux Mint](https://img.shields.io/badge/Linux%20Mint-87CF3E?style=for-the-badge&logo=Linux%20Mint&logoColor=white)
 
 Feluda is available as a DEB package for Debian-based systems.
 
@@ -122,6 +122,30 @@ sudo dpkg -i feluda_*.deb
 sudo apt install -f
 ```
 </details>
+
+<details>
+<summary>RPM Package (RHEL/Fedora/CentOS)</summary>
+
+![Fedora](https://img.shields.io/badge/Fedora-294172?style=for-the-badge&logo=fedora&logoColor=white) ![Red Hat](https://img.shields.io/badge/Red%20Hat-EE0000?style=for-the-badge&logo=redhat&logoColor=white) ![CentOS](https://img.shields.io/badge/cent%20os-002260?style=for-the-badge&logo=centos&logoColor=F0F0F0)
+
+Feluda is available as an RPM package for Red Hat-based systems.
+
+1. Download the latest `.rpm` file from [GitHub Releases](https://github.com/anistark/feluda/releases)
+2. Install the package:
+
+```bash
+# Install the downloaded RPM package
+sudo rpm -ivh feluda_*.rpm
+
+# Or using dnf (Fedora/newer RHEL)
+sudo dnf install feluda_*.rpm
+
+# Or using yum (older RHEL/CentOS)
+sudo yum install feluda_*.rpm
+```
+</details>
+
+### Package Managers 📦:
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/feluda.svg)](https://repology.org/project/feluda/versions)
 
