@@ -97,18 +97,27 @@ pub fn convert_to_spdx_license_expression(license: &str) -> String {
         || result.trim() != result
         || result.contains("  ")
     {
-        log(LogLevel::Trace, &format!("License '{license}' failed validation -> '{result}' -> NOASSERTION"));
+        log(
+            LogLevel::Trace,
+            &format!("License '{license}' failed validation -> '{result}' -> NOASSERTION"),
+        );
         return "NOASSERTION".to_string();
     }
 
     let safe_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-+() ";
     if !result.chars().all(|c| safe_chars.contains(c)) {
-        log(LogLevel::Trace, &format!("License '{license}' has invalid characters -> '{result}' -> NOASSERTION"));
+        log(
+            LogLevel::Trace,
+            &format!("License '{license}' has invalid characters -> '{result}' -> NOASSERTION"),
+        );
         return "NOASSERTION".to_string();
     }
 
     if license != result {
-        log(LogLevel::Trace, &format!("License conversion: '{license}' -> '{result}'"));
+        log(
+            LogLevel::Trace,
+            &format!("License conversion: '{license}' -> '{result}'"),
+        );
     }
 
     result

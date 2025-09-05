@@ -11,7 +11,7 @@ mod table;
 mod utils;
 
 use clap::Parser;
-use cli::{print_version_info, Cli, Commands, SbomFormat};
+use cli::{print_version_info, Cli, Commands};
 use debug::{log, log_debug, set_debug_mode, FeludaError, FeludaResult, LogLevel};
 use generate::handle_generate_command;
 use licenses::{detect_project_license, is_license_compatible, LicenseCompatibility};
@@ -388,4 +388,3 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
     Ok(())
 }
-
