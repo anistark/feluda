@@ -42,6 +42,8 @@ use crate::debug::{log, log_debug, log_error, FeludaError, FeludaResult, LogLeve
 pub struct FeludaConfig {
     #[serde(default)]
     pub licenses: LicenseConfig,
+    #[serde(default)]
+    pub dependencies: DependencyConfig,
 }
 
 /// Configuration for license-related settings
@@ -68,6 +70,28 @@ impl Default for LicenseConfig {
             restrictive: default_restrictive_licenses(),
         }
     }
+}
+
+/// Configuration for dependency-related settings
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DependencyConfig {
+    /// Maximum depth for transitive dependency resolution
+    /// Default is 10 levels deep
+    #[serde(default = "default_max_depth")]
+    pub max_depth: u32,
+}
+
+impl Default for DependencyConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: default_max_depth(),
+        }
+    }
+}
+
+/// Returns the default maximum depth for dependency resolution
+fn default_max_depth() -> u32 {
+    10
 }
 
 /// Returns the default list of restrictive licenses
@@ -181,7 +205,10 @@ mod tests {
             fs::write(
                 ".feluda.toml",
                 r#"[licenses]
-restrictive = ["TEST-1.0", "TEST-2.0"]"#,
+restrictive = ["TEST-1.0", "TEST-2.0"]
+
+[dependencies]
+max_depth = 5"#,
             )
             .unwrap();
 
@@ -195,6 +222,7 @@ restrictive = ["TEST-1.0", "TEST-2.0"]"#,
                 .licenses
                 .restrictive
                 .contains(&"TEST-2.0".to_string()));
+            assert_eq!(config.dependencies.max_depth, 5);
         });
     }
 
@@ -411,6 +439,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
             licenses: LicenseConfig {
                 restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
             },
+            dependencies: DependencyConfig { max_depth: 5 },
         };
 
         // Test that config can be serialized and deserialized

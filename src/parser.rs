@@ -106,6 +106,16 @@ pub fn parse_root(
     root_path: impl AsRef<Path>,
     language: Option<&str>,
 ) -> FeludaResult<Vec<LicenseInfo>> {
+    let config = crate::config::load_config().unwrap_or_default();
+    parse_root_with_config(root_path, language, &config)
+}
+
+/// Main entry point for parsing project dependencies
+pub fn parse_root_with_config(
+    root_path: impl AsRef<Path>,
+    language: Option<&str>,
+    config: &crate::config::FeludaConfig,
+) -> FeludaResult<Vec<LicenseInfo>> {
     log(
         LogLevel::Info,
         &format!("Parsing root path: {}", root_path.as_ref().display()),
@@ -144,7 +154,7 @@ pub fn parse_root(
                 }
             }
 
-            match parse_dependencies(&root) {
+            match parse_dependencies(&root, config) {
                 Ok(deps) => {
                     log(
                         LogLevel::Info,
@@ -211,7 +221,10 @@ fn matches_language(project_type: Language, language: &str) -> bool {
 }
 
 /// Parse dependencies based on the project type
-fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
+fn parse_dependencies(
+    root: &ProjectRoot,
+    config: &crate::config::FeludaConfig,
+) -> FeludaResult<Vec<LicenseInfo>> {
     let project_path = &root.path;
     let project_type = root.project_type;
 
@@ -305,7 +318,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
 
                     match project_path.to_str() {
                         Some(path_str) => {
-                            let deps = crate::languages::analyze_python_licenses(path_str);
+                            let deps = crate::languages::analyze_python_licenses(path_str, config);
                             indicator
                                 .update_progress(&format!("found {} dependencies", deps.len()));
                             deps
@@ -524,7 +537,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = parse_dependencies(&rust_project_root);
+        let config = crate::config::FeludaConfig::default();
+        let result = parse_dependencies(&rust_project_root, &config);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());
@@ -542,7 +556,8 @@ mod tests {
         // Create invalid package.json
         std::fs::write(temp_dir.path().join("package.json"), "invalid json content").unwrap();
 
-        let result = parse_dependencies(&node_project_root);
+        let config = crate::config::FeludaConfig::default();
+        let result = parse_dependencies(&node_project_root, &config);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());
@@ -560,7 +575,8 @@ mod tests {
         // Create empty requirements.txt
         std::fs::write(temp_dir.path().join("requirements.txt"), "").unwrap();
 
-        let result = parse_dependencies(&python_project_root);
+        let config = crate::config::FeludaConfig::default();
+        let result = parse_dependencies(&python_project_root, &config);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());
