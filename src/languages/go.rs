@@ -1,12 +1,14 @@
-use rayon::prelude::*;
 use regex::Regex;
 use reqwest::blocking::Client;
 use scraper::{Html, Selector};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::Path;
+use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 
+use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
     fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
@@ -30,7 +32,7 @@ pub struct GoPackages {
 }
 
 /// Analyze the licenses of Go dependencies
-pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
+pub fn analyze_go_licenses(go_mod_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
         &format!("Analyzing Go dependencies from: {go_mod_path}"),
@@ -58,45 +60,54 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
         }
     };
 
-    let dependencies = get_go_dependencies(content);
+    let direct_dependencies = get_go_dependencies(content);
     log(
         LogLevel::Info,
-        &format!("Found {} Go dependencies", dependencies.len()),
+        &format!("Found {} direct Go dependencies", direct_dependencies.len()),
     );
-    log_debug("Go dependencies", &dependencies);
+    log_debug("Direct Go dependencies", &direct_dependencies);
 
-    dependencies
-        .par_iter()
-        .map(|dependency| -> LicenseInfo {
-            let name = dependency.name.clone();
-            let version = dependency.version.clone();
+    // Try to resolve all dependencies using go mod graph
+    let max_depth = config.dependencies.max_depth;
+    log(
+        LogLevel::Info,
+        &format!("Using max dependency depth: {max_depth}"),
+    );
+    let all_deps = resolve_go_dependencies(go_mod_path, &direct_dependencies, max_depth);
 
+    // Process all resolved dependencies
+    let mut licenses = Vec::new();
+    for (name, version) in all_deps {
+        log(
+            LogLevel::Info,
+            &format!("Processing dependency: {name} ({version})"),
+        );
+
+        let license_result = fetch_license_for_go_dependency(name.as_str(), version.as_str());
+        let license = Some(license_result);
+        let is_restrictive = is_license_restrictive(&license, &known_licenses);
+
+        if is_restrictive {
             log(
-                LogLevel::Info,
-                &format!("Fetching license for Go dependency: {name} ({version})"),
+                LogLevel::Warn,
+                &format!("Restrictive license found: {license:?} for {name}"),
             );
+        }
 
-            let license_result = fetch_license_for_go_dependency(name.as_str(), version.as_str());
-            let license = Some(license_result);
+        licenses.push(LicenseInfo {
+            name,
+            version,
+            license,
+            is_restrictive,
+            compatibility: LicenseCompatibility::Unknown,
+        });
+    }
 
-            let is_restrictive = is_license_restrictive(&license, &known_licenses);
-
-            if is_restrictive {
-                log(
-                    LogLevel::Warn,
-                    &format!("Restrictive license found: {license:?} for {name}"),
-                );
-            }
-
-            LicenseInfo {
-                name,
-                version,
-                license,
-                is_restrictive,
-                compatibility: LicenseCompatibility::Unknown,
-            }
-        })
-        .collect()
+    log(
+        LogLevel::Info,
+        &format!("Found {} Go dependencies with licenses", licenses.len()),
+    );
+    licenses
 }
 
 /// Parse Go dependencies from go.mod content
@@ -154,6 +165,231 @@ pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
         &format!("Parsed {} Go dependencies", dependency.len()),
     );
     dependency
+}
+
+/// Resolve all Go dependencies
+fn resolve_go_dependencies(
+    go_mod_path: &str,
+    direct_deps: &[GoPackages],
+    max_depth: u32,
+) -> Vec<(String, String)> {
+    log(
+        LogLevel::Info,
+        &format!("Resolving Go dependencies (including transitive up to depth {max_depth})"),
+    );
+
+    // go mod graph for complete dependency resolution
+    if let Ok(go_deps) = resolve_with_go_mod_graph(go_mod_path, max_depth) {
+        if !go_deps.is_empty() {
+            log(
+                LogLevel::Info,
+                &format!(
+                    "Resolved {} dependencies using go mod graph (depth {})",
+                    go_deps.len(),
+                    max_depth
+                ),
+            );
+            return go_deps;
+        }
+    }
+
+    // Direct dependencies in case go mod graph fails
+    log(
+        LogLevel::Info,
+        "Falling back to direct dependencies only (go mod graph not available)",
+    );
+    direct_deps
+        .iter()
+        .map(|dep| (dep.name.clone(), dep.version.clone()))
+        .collect()
+}
+
+/// Resolve dependencies using go mod graph with depth limit
+fn resolve_with_go_mod_graph(
+    go_mod_path: &str,
+    max_depth: u32,
+) -> Result<Vec<(String, String)>, String> {
+    let project_dir = Path::new(go_mod_path)
+        .parent()
+        .ok_or("Cannot determine project directory")?;
+
+    log(
+        LogLevel::Info,
+        &format!("Attempting to resolve dependencies with go mod graph (max depth: {max_depth})"),
+    );
+
+    // Run go mod graph to get dependency graph
+    let output = Command::new("go")
+        .args(["mod", "graph"])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to run go mod graph: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("go mod graph failed: {stderr}"));
+    }
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let deps = parse_go_mod_graph_output(&stdout_str, max_depth);
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Resolved {} dependencies from go mod graph output",
+            deps.len()
+        ),
+    );
+
+    Ok(deps)
+}
+
+/// Parse go mod graph output to extract dependencies with depth awareness
+fn parse_go_mod_graph_output(output: &str, max_depth: u32) -> Vec<(String, String)> {
+    let mut all_deps = HashMap::new();
+    let mut depth_map = HashMap::new();
+    let mut edges = HashMap::new();
+
+    log(
+        LogLevel::Info,
+        &format!("Parsing go mod graph with max depth {max_depth}"),
+    );
+
+    // Collect all edges and modules
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if let Some((from, to)) = line.split_once(' ') {
+            let from = from.trim();
+            let to = to.trim();
+
+            // Parse module name and version
+            if let Some((from_name, from_version)) = parse_go_module_version(from) {
+                all_deps.insert(from_name.clone(), from_version);
+            }
+
+            if let Some((to_name, to_version)) = parse_go_module_version(to) {
+                all_deps.insert(to_name.clone(), to_version);
+
+                // Track edges for depth calculation
+                edges
+                    .entry(from.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(to.to_string());
+            }
+        }
+    }
+
+    // Find root modules
+    let mut roots = HashSet::new();
+    let mut destinations = HashSet::new();
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if let Some((from, to)) = line.split_once(' ') {
+            let from = from.trim();
+            let to = to.trim();
+            roots.insert(from.to_string());
+            destinations.insert(to.to_string());
+        }
+    }
+
+    let root_modules: Vec<_> = roots.difference(&destinations).collect();
+
+    // Calculate depths using BFS from root modules
+    let mut queue = Vec::new();
+    let mut visited = HashSet::new();
+
+    for root in root_modules {
+        queue.push((root.clone(), 0u32));
+        depth_map.insert(root.clone(), 0);
+    }
+
+    let mut depth_stats = HashMap::new();
+
+    while let Some((current, depth)) = queue.pop() {
+        if visited.contains(&current) || depth >= max_depth {
+            if depth >= max_depth {
+                log(
+                    LogLevel::Info,
+                    &format!("Skipping {current} - exceeded max depth {max_depth}"),
+                );
+            }
+            continue;
+        }
+
+        visited.insert(current.clone());
+        depth_map.insert(current.clone(), depth);
+
+        // Track depth statistics
+        *depth_stats.entry(depth).or_insert(0) += 1;
+
+        // Add children to queue
+        if let Some(children) = edges.get(&current) {
+            for child in children {
+                if !visited.contains(child) && depth + 1 < max_depth {
+                    queue.push((child.clone(), depth + 1));
+                }
+            }
+        }
+    }
+
+    // Filter dependencies based on depth limit
+    let filtered_deps: Vec<(String, String)> = all_deps
+        .into_iter()
+        .filter(|(name, _version)| {
+            // Find the full module name in depth_map
+            for (module_full, depth) in &depth_map {
+                if let Some((module_name, _)) = parse_go_module_version(module_full) {
+                    if module_name == *name && *depth < max_depth {
+                        return true;
+                    }
+                }
+            }
+            false
+        })
+        .collect();
+
+    // Log depth statistics
+    for depth in 0..max_depth {
+        if let Some(count) = depth_stats.get(&depth) {
+            log(
+                LogLevel::Info,
+                &format!("Depth {depth}: {count} dependencies"),
+            );
+        }
+    }
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Go mod graph resolution completed. Total dependencies: {} (explored up to depth {})",
+            filtered_deps.len(),
+            max_depth
+        ),
+    );
+
+    filtered_deps
+}
+
+/// Parse Go module string to extract name and version
+fn parse_go_module_version(module_str: &str) -> Option<(String, String)> {
+    // Handle formats like: github.com/user/repo@v1.2.3 or github.com/user/repo@v1.2.3-0.20210101000000-abcdef123456
+    if let Some(at_pos) = module_str.rfind('@') {
+        let name = module_str[..at_pos].to_string();
+        let version = module_str[at_pos + 1..].to_string();
+        Some((name, version))
+    } else {
+        // Handle cases without version
+        Some((module_str.to_string(), "unknown".to_string()))
+    }
 }
 
 /// Fetch the license for a Go dependency from the Go Package Index (pkg.go.dev)
@@ -419,5 +655,94 @@ mod tests {
         let debug_str = format!("{go_package:?}");
         assert!(debug_str.contains("github.com/test/package"));
         assert!(debug_str.contains("v1.0.0"));
+    }
+
+    #[test]
+    fn test_parse_go_module_version() {
+        // Test with version
+        assert_eq!(
+            parse_go_module_version("github.com/user/repo@v1.2.3"),
+            Some(("github.com/user/repo".to_string(), "v1.2.3".to_string()))
+        );
+
+        // Test with complex version
+        assert_eq!(
+            parse_go_module_version("github.com/user/repo@v1.2.3-0.20210101000000-abcdef123456"),
+            Some((
+                "github.com/user/repo".to_string(),
+                "v1.2.3-0.20210101000000-abcdef123456".to_string()
+            ))
+        );
+
+        // Test without version
+        assert_eq!(
+            parse_go_module_version("github.com/user/repo"),
+            Some(("github.com/user/repo".to_string(), "unknown".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_go_mod_graph_output() {
+        let graph_output = r#"
+github.com/myproject@v0.0.0 github.com/gin-gonic/gin@v1.9.1
+github.com/myproject@v0.0.0 github.com/golang/protobuf@v1.5.3
+github.com/gin-gonic/gin@v1.9.1 github.com/bytedance/sonic@v1.9.1
+github.com/gin-gonic/gin@v1.9.1 github.com/chenzhuoyu/base64x@v0.0.0-20221115062448-fe3a3abad311
+github.com/bytedance/sonic@v1.9.1 github.com/klauspost/cpuid/v2@v2.0.9
+"#;
+
+        let deps = parse_go_mod_graph_output(graph_output, 5);
+
+        // Should include dependencies up to the specified depth
+        assert!(!deps.is_empty());
+
+        // Should include root dependencies
+        let dep_names: Vec<String> = deps.iter().map(|(name, _)| name.clone()).collect();
+        assert!(dep_names.contains(&"github.com/gin-gonic/gin".to_string()));
+        assert!(dep_names.contains(&"github.com/golang/protobuf".to_string()));
+    }
+
+    #[test]
+    fn test_parse_go_mod_graph_output_with_depth_limit() {
+        let graph_output = r#"github.com/myproject@v0.0.0 github.com/level1@v1.0.0
+github.com/level1@v1.0.0 github.com/level2@v1.0.0
+github.com/level2@v1.0.0 github.com/level3@v1.0.0"#;
+
+        // With depth limit 3, should include level1 and level2 but not level3
+        let deps = parse_go_mod_graph_output(graph_output, 3);
+        let dep_names: Vec<String> = deps.iter().map(|(name, _)| name.clone()).collect();
+
+        // level1 is at depth 1, level2 is at depth 2 - both should be included with max_depth 3
+        assert!(dep_names.contains(&"github.com/level1".to_string()));
+        assert!(dep_names.contains(&"github.com/level2".to_string()));
+        // level3 is at depth 3, should not be included with max_depth 3 (since we check depth >= max_depth)
+        assert!(!dep_names.contains(&"github.com/level3".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_go_dependencies_fallback() {
+        let direct_deps = vec![
+            GoPackages {
+                name: "github.com/test/pkg1".to_string(),
+                version: "v1.0.0".to_string(),
+            },
+            GoPackages {
+                name: "github.com/test/pkg2".to_string(),
+                version: "v2.0.0".to_string(),
+            },
+        ];
+
+        // This should fall back to direct dependencies when go mod graph fails
+        let result = resolve_go_dependencies("/nonexistent/go.mod", &direct_deps, 5);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result[0],
+            ("github.com/test/pkg1".to_string(), "v1.0.0".to_string())
+        );
+        assert_eq!(
+            result[1],
+            ("github.com/test/pkg2".to_string(), "v2.0.0".to_string())
+        );
     }
 }

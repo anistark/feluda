@@ -296,7 +296,7 @@ fn parse_dependencies(
 
                 match project_path.to_str() {
                     Some(path_str) => {
-                        let deps = crate::languages::analyze_go_licenses(path_str);
+                        let deps = crate::languages::analyze_go_licenses(path_str, config);
                         indicator.update_progress(&format!("found {} dependencies", deps.len()));
                         deps
                     }
