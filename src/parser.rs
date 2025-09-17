@@ -106,7 +106,7 @@ pub fn parse_root(
     root_path: impl AsRef<Path>,
     language: Option<&str>,
 ) -> FeludaResult<Vec<LicenseInfo>> {
-    let config = crate::config::load_config().unwrap_or_default();
+    let config = crate::config::load_config()?;
     parse_root_with_config(root_path, language, &config)
 }
 

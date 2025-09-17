@@ -46,6 +46,15 @@ pub struct FeludaConfig {
     pub dependencies: DependencyConfig,
 }
 
+impl FeludaConfig {
+    /// Validates the configuration for logical consistency and correctness
+    pub fn validate(&self) -> FeludaResult<()> {
+        self.licenses.validate()?;
+        self.dependencies.validate()?;
+        Ok(())
+    }
+}
+
 /// Configuration for license-related settings
 ///
 /// By default, the following licenses are considered restrictive:
@@ -72,6 +81,64 @@ impl Default for LicenseConfig {
     }
 }
 
+impl LicenseConfig {
+    /// Validates the license configuration
+    pub fn validate(&self) -> FeludaResult<()> {
+        // Check for empty restrictive licenses list
+        if self.restrictive.is_empty() {
+            log(LogLevel::Warn, "No restrictive licenses configured - all licenses will be considered acceptable");
+        }
+
+        // Check for duplicate licenses
+        let mut seen = std::collections::HashSet::new();
+        let mut duplicates = Vec::new();
+
+        for license in &self.restrictive {
+            if license.trim().is_empty() {
+                return Err(FeludaError::Config(
+                    "Empty license string found in restrictive licenses list".to_string()
+                ));
+            }
+
+            if !seen.insert(license) {
+                duplicates.push(license.clone());
+            }
+        }
+
+        if !duplicates.is_empty() {
+            return Err(FeludaError::Config(
+                format!("Duplicate licenses found in restrictive list: {}", duplicates.join(", "))
+            ));
+        }
+
+        // Validate license format (basic SPDX-like validation)
+        for license in &self.restrictive {
+            if !Self::is_valid_license_identifier(license) {
+                log(LogLevel::Warn, &format!("License '{}' may not be a valid SPDX identifier", license));
+            }
+        }
+
+        log_debug("License configuration validation passed", &self.restrictive);
+        Ok(())
+    }
+
+    /// Basic validation for license identifiers
+    fn is_valid_license_identifier(license: &str) -> bool {
+        let license = license.trim();
+
+        // Special cases that are valid but don't follow standard patterns
+        if matches!(license, "SEE LICENSE IN LICENSE" | "UNLICENSED" | "NOASSERTION") {
+            return true;
+        }
+
+        // Basic pattern: should contain only alphanumeric, dots, hyphens, plus, parentheses
+        // TODO: Improve with a full SPDX regex
+        license.chars().all(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '+' | '(' | ')' | '_'))
+            && !license.is_empty()
+            && license.len() <= 100
+    }
+}
+
 /// Configuration for dependency-related settings
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DependencyConfig {
@@ -86,6 +153,34 @@ impl Default for DependencyConfig {
         Self {
             max_depth: default_max_depth(),
         }
+    }
+}
+
+impl DependencyConfig {
+    /// Validates the dependency configuration
+    pub fn validate(&self) -> FeludaResult<()> {
+        // Validate max_depth is within reasonable bounds
+        if self.max_depth == 0 {
+            return Err(FeludaError::Config(
+                "max_depth must be greater than 0".to_string()
+            ));
+        }
+
+        if self.max_depth > 100 {
+            return Err(FeludaError::Config(
+                "max_depth must be 100 or less to prevent excessive resource usage".to_string()
+            ));
+        }
+
+        if self.max_depth > 50 {
+            log(LogLevel::Warn, &format!(
+                "max_depth of {} is quite high and may impact performance",
+                self.max_depth
+            ));
+        }
+
+        log_debug("Dependency configuration validation passed", &self.max_depth);
+        Ok(())
     }
 }
 
@@ -151,10 +246,18 @@ pub fn load_config() -> FeludaResult<FeludaConfig> {
     log(LogLevel::Info, "Checking for FELUDA_ environment variables");
 
     // Extract the final configuration
-    match figment.extract() {
+    match figment.extract::<FeludaConfig>() {
         Ok(config) => {
             log(LogLevel::Info, "Configuration loaded successfully");
             log_debug("Loaded configuration", &config);
+
+            // Validate the configuration
+            if let Err(e) = config.validate() {
+                log_error("Configuration validation failed", &e);
+                return Err(e);
+            }
+
+            log(LogLevel::Info, "Configuration validation passed");
             Ok(config)
         }
         Err(e) => {
@@ -558,6 +661,181 @@ restrictive = [
                     .contains(&"WRONG-PREFIX".to_string()));
             },
         );
+    }
+
+    // Validation tests
+    #[test]
+    fn test_license_config_validation_empty_list() {
+        let config = LicenseConfig {
+            restrictive: vec![],
+        };
+        // Empty list should pass validation but generate a warning
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_license_config_validation_empty_license() {
+        let config = LicenseConfig {
+            restrictive: vec!["MIT".to_string(), "".to_string(), "GPL-3.0".to_string()],
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty license string"));
+    }
+
+    #[test]
+    fn test_license_config_validation_duplicate_licenses() {
+        let config = LicenseConfig {
+            restrictive: vec![
+                "MIT".to_string(),
+                "GPL-3.0".to_string(),
+                "MIT".to_string(),
+                "Apache-2.0".to_string(),
+            ],
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Duplicate licenses"));
+        assert!(error_msg.contains("MIT"));
+    }
+
+    #[test]
+    fn test_license_config_validation_valid_licenses() {
+        let config = LicenseConfig {
+            restrictive: vec![
+                "MIT".to_string(),
+                "Apache-2.0".to_string(),
+                "GPL-3.0".to_string(),
+                "SEE LICENSE IN LICENSE".to_string(),
+            ],
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_license_identifier_validation() {
+        assert!(LicenseConfig::is_valid_license_identifier("MIT"));
+        assert!(LicenseConfig::is_valid_license_identifier("Apache-2.0"));
+        assert!(LicenseConfig::is_valid_license_identifier("GPL-3.0+"));
+        assert!(LicenseConfig::is_valid_license_identifier("SEE LICENSE IN LICENSE"));
+        assert!(LicenseConfig::is_valid_license_identifier("UNLICENSED"));
+        assert!(LicenseConfig::is_valid_license_identifier("NOASSERTION"));
+
+        assert!(!LicenseConfig::is_valid_license_identifier(""));
+        assert!(!LicenseConfig::is_valid_license_identifier(&"x".repeat(101))); // Too long
+    }
+
+    #[test]
+    fn test_dependency_config_validation_zero_depth() {
+        let config = DependencyConfig { max_depth: 0 };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be greater than 0"));
+    }
+
+    #[test]
+    fn test_dependency_config_validation_excessive_depth() {
+        let config = DependencyConfig { max_depth: 150 };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be 100 or less"));
+    }
+
+    #[test]
+    fn test_dependency_config_validation_high_depth_warning() {
+        let config = DependencyConfig { max_depth: 75 };
+        // Should pass validation but generate a warning
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_dependency_config_validation_valid_depth() {
+        let config = DependencyConfig { max_depth: 10 };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_feluda_config_validation_success() {
+        let config = FeludaConfig {
+            licenses: LicenseConfig {
+                restrictive: vec!["MIT".to_string(), "GPL-3.0".to_string()],
+            },
+            dependencies: DependencyConfig { max_depth: 10 },
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_feluda_config_validation_license_failure() {
+        let config = FeludaConfig {
+            licenses: LicenseConfig {
+                restrictive: vec!["".to_string()], // Invalid empty license
+            },
+            dependencies: DependencyConfig { max_depth: 10 },
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty license string"));
+    }
+
+    #[test]
+    fn test_feluda_config_validation_dependency_failure() {
+        let config = FeludaConfig {
+            licenses: LicenseConfig {
+                restrictive: vec!["MIT".to_string()],
+            },
+            dependencies: DependencyConfig { max_depth: 0 }, // Invalid zero depth
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be greater than 0"));
+    }
+
+    #[test]
+    fn test_load_config_validation_integration() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+restrictive = ["MIT", "GPL-3.0"]
+
+[dependencies]
+max_depth = 15"#,
+            )
+            .unwrap();
+
+            // Should pass validation
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.restrictive.len(), 2);
+            assert_eq!(config.dependencies.max_depth, 15);
+        });
+    }
+
+    #[test]
+    fn test_load_config_validation_failure() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+restrictive = ["MIT", ""]
+
+[dependencies]
+max_depth = 5"#,
+            )
+            .unwrap();
+
+            // Should fail validation due to empty license string
+            let result = load_config();
+            assert!(result.is_err());
+            assert!(result.unwrap_err().to_string().contains("Empty license string"));
+        });
     }
 
     #[test]
