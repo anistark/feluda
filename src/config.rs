@@ -114,7 +114,7 @@ impl LicenseConfig {
         // Validate license format (basic SPDX-like validation)
         for license in &self.restrictive {
             if !Self::is_valid_license_identifier(license) {
-                log(LogLevel::Warn, &format!("License '{}' may not be a valid SPDX identifier", license));
+                log(LogLevel::Warn, &format!("License '{license}' may not be a valid SPDX identifier"));
             }
         }
 
