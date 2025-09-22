@@ -1,0 +1,125 @@
+name: 'Feluda License Scanner'
+description: 'Scan project dependencies for restrictive and incompatible licenses'
+author: 'anistark'
+branding:
+  icon: 'shield'
+  color: 'green'
+
+inputs:
+  path:
+    description: 'Path to the project directory to scan'
+    required: false
+    default: './'
+  fail-on-restrictive:
+    description: 'Fail when restrictive licenses are found'
+    required: false
+    default: 'true'
+  fail-on-incompatible:
+    description: 'Fail when incompatible licenses are found'
+    required: false
+    default: 'false'
+  project-license:
+    description: 'Specify the project license (overrides auto-detection)'
+    required: false
+  update-badge:
+    description: 'Update README badge with scan results'
+    required: false
+    default: 'true'
+  badge-path:
+    description: 'Path to README file for badge updates'
+    required: false
+    default: 'README.md'
+
+outputs:
+  license-check:
+    description: 'Result of license check (success/failure)'
+    value: ${{ steps.feluda-scan.outputs.license_check }}
+  feluda-log:
+    description: 'Full output from Feluda scan'
+    value: ${{ steps.feluda-scan.outputs.feluda_log }}
+  restrictive-count:
+    description: 'Number of restrictive licenses found'
+    value: ${{ steps.feluda-scan.outputs.restrictive_count }}
+  incompatible-count:
+    description: 'Number of incompatible licenses found'
+    value: ${{ steps.feluda-scan.outputs.incompatible_count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install Feluda
+      shell: bash
+      run: cargo install feluda
+
+    - name: Run Feluda License Check
+      id: feluda-scan
+      shell: bash
+      run: |
+        set +e
+
+        # Build command with optional flags
+        CMD="feluda --ci-format github"
+
+        if [[ "${{ inputs.path }}" != "./" ]]; then
+          CMD="$CMD --path ${{ inputs.path }}"
+        fi
+
+        if [[ "${{ inputs.project-license }}" != "" ]]; then
+          CMD="$CMD --project-license ${{ inputs.project-license }}"
+        fi
+
+        if [[ "${{ inputs.fail-on-restrictive }}" == "true" ]]; then
+          CMD="$CMD --fail-on-restrictive"
+        fi
+
+        if [[ "${{ inputs.fail-on-incompatible }}" == "true" ]]; then
+          CMD="$CMD --fail-on-incompatible"
+        fi
+
+        # Run Feluda
+        FELUDA_LOG=$(eval $CMD 2>&1)
+        FELUDA_EXIT=$?
+
+        # Store outputs
+        echo "feluda_log<<EOF" >> $GITHUB_OUTPUT
+        echo "$FELUDA_LOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+        # Extract counts from log
+        RESTRICTIVE_COUNT=$(echo "$FELUDA_LOG" | grep -o "Found [0-9]* dependencies with restrictive licenses" | grep -o "[0-9]*" | head -1 || echo "0")
+        INCOMPATIBLE_COUNT=$(echo "$FELUDA_LOG" | grep -o "and [0-9]* dependencies with incompatible licenses" | grep -o "[0-9]*" | head -1 || echo "0")
+
+        echo "restrictive_count=$RESTRICTIVE_COUNT" >> $GITHUB_OUTPUT
+        echo "incompatible_count=$INCOMPATIBLE_COUNT" >> $GITHUB_OUTPUT
+
+        if [[ $FELUDA_EXIT -eq 0 ]]; then
+          echo "license_check=success" >> $GITHUB_OUTPUT
+        else
+          echo "license_check=failure" >> $GITHUB_OUTPUT
+          exit $FELUDA_EXIT
+        fi
+
+    - name: Update Badge
+      if: always() && inputs.update-badge == 'true'
+      shell: bash
+      run: |
+        if [[ "${{ steps.feluda-scan.outputs.license_check }}" == "success" ]]; then
+          COLOR="brightgreen"
+          echo "License check passed"
+        else
+          COLOR="red"
+          echo "License check failed"
+        fi
+
+        # Update badge in README
+        sed -i -E "s#https://img\.shields\.io/badge/Scanned%20with-Feluda-[^)]+#https://img.shields.io/badge/Scanned%20with-Feluda-${COLOR}#g" ${{ inputs.badge-path }}
+
+    - name: Commit Badge Update
+      if: always() && inputs.update-badge == 'true'
+      uses: EndBug/add-and-commit@v9
+      with:
+        add: ${{ inputs.badge-path }}
+        message: "docs: update Feluda scan badge"
