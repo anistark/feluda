@@ -1,4 +1,4 @@
-# .github/workflows/license-check.yml
+# .github/workflows/feluda.yml
 name: License Check
 
 permissions:
@@ -12,15 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: true
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install Feluda
         run: cargo install feluda
@@ -40,8 +36,8 @@ jobs:
             echo "license_check=success" >> $GITHUB_OUTPUT
           else
             echo "license_check=failure" >> $GITHUB_OUTPUT
+            exit $FELUDA_EXIT
           fi
-        continue-on-error: true
 
       - name: Update Feluda badge
         if: always()
@@ -62,7 +58,3 @@ jobs:
         with:
           add: README.md
           message: "docs: update Feluda scan badge"
-
-      - name: Fail if license check failed
-        if: steps.feluda.outputs.license_check == 'failure'
-        run: exit 1
