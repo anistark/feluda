@@ -265,7 +265,7 @@ _If you're using Feluda, feel free to grab a Scanned with Feluda badge for your 
 [![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-brightgreen)](https://github.com/anistark/feluda)
 ```
 
-Replace the repo name and username. Once you've the github action setup, this badge should keep updated by itself.
+Replace the repo name and username. Once you've the Feluda GitHub Action setup, this badge will be automatically updated.
 
 ## License Compliance Files
 
@@ -448,7 +448,7 @@ Feluda can be easily integrated into your CI/CD pipelines with built-in support 
 
 ### GitHub Actions
 
-To use Feluda with GitHub Actions, create a `.github/workflows/feluda.yml` file with the following content:
+To use Feluda with GitHub Actions, simply use the published action:
 
 ```yaml
 name: License Check
@@ -460,24 +460,28 @@ on:
     branches: [ main ]
 
 jobs:
-  check-licenses:
+  license-check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - name: Scan licenses
+        uses: anistark/feluda@v1
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          fail-on-restrictive: true
+          fail-on-incompatible: true
+```
 
-      - name: Install Feluda
-        run: cargo install feluda
+**Advanced usage with compliance files:**
 
-      - name: Check licenses
-        run: feluda --ci-format github --fail-on-restrictive --fail-on-incompatible
+```yaml
+      - name: Scan licenses
+        uses: anistark/feluda@v1
+        with:
+          fail-on-restrictive: true
+          project-license: 'MIT'
+          update-badge: true
 
       - name: Generate compliance files
         run: |
@@ -488,7 +492,7 @@ jobs:
         run: feluda --sbom spdx --output-file sbom.spdx.json
 
       - name: Upload compliance artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: license-compliance
           path: |
