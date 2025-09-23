@@ -24,6 +24,8 @@ feluda/
 │   ├── utils.rs             # Git repository utilities
 │   └── languages/           # Language-specific parsers
 │       ├── mod.rs           # Language detection and common traits
+│       ├── c.rs             # C project support
+│       ├── cpp.rs           # C++ project support
 │       ├── rust.rs          # Rust/Cargo support
 │       ├── node.rs          # Node.js/npm support
 │       ├── go.rs            # Go modules support
@@ -245,6 +247,150 @@ Contributors modifying the license compatibility matrix acknowledge that:
 - Users are responsible for their own license compliance
 - Maintainers and contributors provide no warranty regarding compatibility decisions
 - Legal counsel should be consulted for important compliance decisions
+
+### Adding Support for New Languages
+
+Feluda follows a modular architecture for language support. Each language has its own module in `src/languages/` that implements dependency parsing and license resolution.
+
+#### Language Module Structure
+
+When adding a new language, create a new file `src/languages/your_language.rs` with this structure:
+
+```rust
+use crate::config::FeludaConfig;
+use crate::debug::{log, LogLevel};
+use crate::licenses::LicenseInfo;
+use std::collections::{HashMap, HashSet};
+
+/// Analyze dependencies and their licenses for YourLanguage projects
+pub fn analyze_your_language_licenses(project_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
+    // Implementation here
+}
+
+/// Parse direct dependencies from project files
+fn parse_direct_dependencies(project_path: &str, config: &FeludaConfig) -> Vec<(String, String)> {
+    // Parse project files (package.json, Cargo.toml, etc.)
+}
+
+/// Resolve transitive dependencies with depth tracking
+fn resolve_transitive_dependencies(
+    project_path: &str,
+    direct_deps: &[(String, String)],
+    max_depth: u32,
+) -> Vec<(String, String)> {
+    // Implement BFS traversal for transitive dependencies
+    // Follow the pattern used in other language modules
+}
+
+/// Fetch license information for a specific dependency
+fn fetch_license_for_dependency(name: &str, version: &str) -> Option<String> {
+    // Query package registries/APIs for license information
+}
+```
+
+#### Implementation Guidelines for Language Modules
+
+1. **Follow Existing Patterns**: Study `src/languages/rust.rs` or `src/languages/python.rs` for reference implementation patterns.
+
+2. **Transitive Dependency Resolution**: Implement BFS (Breadth-First Search) traversal with these features:
+   - Cycle detection using `HashSet<String>` to track visited packages
+   - Depth tracking with `max_depth` parameter from config
+   - Progress tracking for large dependency trees
+
+3. **Error Handling**: Use the debug logging system consistently:
+   ```rust
+   use crate::debug::{log, LogLevel};
+
+   if let Err(err) = some_operation() {
+       log(LogLevel::Warn, &format!("Failed to fetch {}: {}", package_name, err));
+   }
+   ```
+
+4. **Configuration Support**: Respect the `max_depth` configuration:
+   ```rust
+   let max_depth = config.max_depth.unwrap_or(3);
+   ```
+
+5. **Package Manager Integration**: Connect to official package registries when possible:
+   - Query official APIs for license information
+   - Handle API rate limits and failures gracefully
+   - Cache results when appropriate
+
+#### C/C++ Language Implementation Example
+
+The C and C++ modules (`src/languages/c.rs` and `src/languages/cpp.rs`) demonstrate handling different ecosystem approaches:
+
+**C Module Features:**
+- Autotools support (`configure.ac`, `configure.in`)
+- Makefile parsing
+- pkg-config integration
+- System package resolution
+
+**C++ Module Features:**
+- Modern package managers (vcpkg, Conan)
+- Build system integration (CMake, Bazel)
+- Package manager API queries
+- Transitive dependency resolution
+
+#### Updating Language Detection
+
+After creating your language module, update `src/languages/mod.rs`:
+
+1. **Add the module**:
+   ```rust
+   pub mod your_language;
+   ```
+
+2. **Add to exports**:
+   ```rust
+   pub use your_language::analyze_your_language_licenses;
+   ```
+
+3. **Update Language enum**:
+   ```rust
+   pub enum Language {
+       YourLanguage(&'static str),
+       // ... existing variants
+   }
+   ```
+
+4. **Add file detection**:
+   ```rust
+   impl Language {
+       pub fn from_file_name(file_name: &str) -> Option<Self> {
+           match file_name {
+               "your-project-file.ext" => Some(Language::YourLanguage("your-project-file.ext")),
+               // ... existing patterns
+           }
+       }
+   }
+   ```
+
+5. **Update parser.rs**: Add parsing logic in `src/parser.rs`:
+   ```rust
+   match language {
+       Language::YourLanguage(file_name) => {
+           languages::analyze_your_language_licenses(project_path, config)
+       }
+       // ... existing cases
+   }
+   ```
+
+#### Testing New Language Support
+
+1. **Create test projects** in various scenarios
+2. **Test transitive dependency resolution** with different depth configurations
+3. **Validate license detection** accuracy
+4. **Test error handling** for invalid/missing project files
+
+#### Documentation Updates
+
+After implementing language support:
+
+1. **Update README.md** with language badge and supported file types
+2. **Add usage examples** specific to your language
+3. **Document supported package managers** and build systems
+4. **Update CLI help text** to include the new language filter
 
 ### Submitting Changes
 

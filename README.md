@@ -28,6 +28,8 @@
 2. ![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white) ![JavaScript](https://img.shields.io/badge/javascript-%23323330.svg?style=for-the-badge&logo=javascript&logoColor=%23F7DF1E) ![NodeJS](https://img.shields.io/badge/node.js-6DA55F?style=for-the-badge&logo=node.js&logoColor=white)
 3. ![Go](https://img.shields.io/badge/go-%2300ADD8.svg?style=for-the-badge&logo=go&logoColor=white)
 4. ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
+5. ![C](https://img.shields.io/badge/c-%2300599C.svg?style=for-the-badge&logo=c&logoColor=white)
+6. ![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)
 
 Feluda supports analyzing dependencies across multiple languages simultaneously.
 
@@ -36,7 +38,6 @@ feluda
 ```
 
 You can also filter the analysis to a specific language using the `--language` flag.
-_If your fav language or framework isn't supported, feel free to open an feature request issue! 👋_
 
 ## Installation
 
@@ -193,7 +194,7 @@ feluda
 feluda --path /path/to/project/
 
 # Check with specific language
-feluda --language {rust|node|go|python}
+feluda --language {rust|node|go|python|c|cpp}
 ```
 
 ### License File Generation
