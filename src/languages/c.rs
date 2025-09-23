@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -30,12 +30,27 @@ pub fn analyze_c_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Lice
         }
     };
 
-    let dependencies = detect_c_dependencies(project_path, config);
+    let direct_dependencies = detect_c_dependencies(project_path, config);
     log(
         LogLevel::Info,
-        &format!("Found {} C dependencies", dependencies.len()),
+        &format!("Found {} direct C dependencies", direct_dependencies.len()),
     );
-    log_debug("C dependencies", &dependencies);
+    log_debug("Direct C dependencies", &direct_dependencies);
+
+    let max_depth = config.dependencies.max_depth;
+    log(
+        LogLevel::Info,
+        &format!("Using max dependency depth: {max_depth}"),
+    );
+
+    let all_deps = resolve_c_dependencies(project_path, &direct_dependencies, max_depth);
+    log(
+        LogLevel::Info,
+        &format!("Total C dependencies (including transitive): {}", all_deps.len()),
+    );
+    log_debug("All C dependencies", &all_deps);
+
+    let dependencies = all_deps;
 
     dependencies
         .into_iter()
@@ -100,6 +115,283 @@ fn detect_c_dependencies(project_path: &str, config: &FeludaConfig) -> Vec<(Stri
     }
 
     dependencies
+}
+
+fn resolve_c_dependencies(
+    _project_path: &str,
+    direct_deps: &[(String, String)],
+    max_depth: u32,
+) -> Vec<(String, String)> {
+    log(
+        LogLevel::Info,
+        &format!("Resolving C dependencies (including transitive up to depth {max_depth})"),
+    );
+
+    let mut all_dependencies = Vec::new();
+    let mut visited = HashSet::new();
+    let mut depth_stats = HashMap::new();
+
+    // Add direct dependencies first
+    for (name, version) in direct_deps {
+        all_dependencies.push((name.clone(), version.clone()));
+        visited.insert(name.clone());
+        *depth_stats.entry(0u32).or_insert(0) += 1;
+    }
+
+    // Queue for BFS: (package_name, version, depth)
+    let mut to_process: Vec<(String, String, u32)> = direct_deps
+        .iter()
+        .map(|(name, version)| (name.clone(), version.clone(), 0))
+        .collect();
+
+    while let Some((name, version, depth)) = to_process.pop() {
+        if depth >= max_depth {
+            log(
+                LogLevel::Trace,
+                &format!("Skipping {name} - exceeded max depth {max_depth}"),
+            );
+            continue;
+        }
+
+        log(
+            LogLevel::Trace,
+            &format!("Resolving transitive dependencies for: {name} (depth {depth})"),
+        );
+
+        if let Ok(transitive_deps) = resolve_c_transitive_deps(&name, &version) {
+            log(
+                LogLevel::Trace,
+                &format!(
+                    "Found {} transitive dependencies for {} at depth {}",
+                    transitive_deps.len(),
+                    name,
+                    depth
+                ),
+            );
+
+            for (dep_name, dep_version) in transitive_deps {
+                if !visited.contains(&dep_name) {
+                    visited.insert(dep_name.clone());
+                    all_dependencies.push((dep_name.clone(), dep_version.clone()));
+                    to_process.push((dep_name, dep_version, depth + 1));
+                    *depth_stats.entry(depth + 1).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    // Log depth statistics
+    for depth in 0..=max_depth {
+        if let Some(count) = depth_stats.get(&depth) {
+            log(
+                LogLevel::Info,
+                &format!("Depth {depth}: {count} dependencies"),
+            );
+        }
+    }
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "C dependency resolution completed. Total dependencies: {} (explored up to depth {})",
+            all_dependencies.len(),
+            max_depth
+        ),
+    );
+
+    all_dependencies
+}
+
+fn resolve_c_transitive_deps(
+    package_name: &str,
+    version: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let mut dependencies = Vec::new();
+
+    // Try pkg-config for transitive dependencies
+    if let Ok(pkg_deps) = get_pkgconfig_requires(package_name) {
+        dependencies.extend(pkg_deps);
+    }
+
+    // Try parsing .pc file directly
+    if let Ok(pc_deps) = parse_pc_file_requires(package_name) {
+        dependencies.extend(pc_deps);
+    }
+
+    // Try system package dependencies
+    if version == "system" {
+        if let Ok(sys_deps) = get_system_package_dependencies(package_name) {
+            dependencies.extend(sys_deps);
+        }
+    }
+
+    Ok(dependencies)
+}
+
+fn get_pkgconfig_requires(package_name: &str) -> Result<Vec<(String, String)>, String> {
+    let output = Command::new("pkg-config")
+        .args(["--print-requires", package_name])
+        .output()
+        .map_err(|e| format!("Failed to run pkg-config --print-requires: {e}"))?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let mut dependencies = Vec::new();
+
+    for line in stdout_str.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if let Some(pkg_name) = parts.first() {
+                let version = if parts.len() > 2 && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">") {
+                    parts[2].to_string()
+                } else {
+                    "system".to_string()
+                };
+                dependencies.push((pkg_name.to_string(), version));
+            }
+        }
+    }
+
+    // Also check private requires
+    let private_output = Command::new("pkg-config")
+        .args(["--print-requires-private", package_name])
+        .output();
+
+    if let Ok(private_out) = private_output {
+        if private_out.status.success() {
+            let private_str = String::from_utf8_lossy(&private_out.stdout);
+            for line in private_str.lines() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                    if let Some(pkg_name) = parts.first() {
+                        let version = if parts.len() > 2 && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">") {
+                            parts[2].to_string()
+                        } else {
+                            "system".to_string()
+                        };
+                        dependencies.push((pkg_name.to_string(), version));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(dependencies)
+}
+
+fn parse_pc_file_requires(package_name: &str) -> Result<Vec<(String, String)>, String> {
+    let potential_paths = [
+        format!("/usr/lib/pkgconfig/{package_name}.pc"),
+        format!("/usr/local/lib/pkgconfig/{package_name}.pc"),
+        format!("/usr/share/pkgconfig/{package_name}.pc"),
+        format!("/usr/local/share/pkgconfig/{package_name}.pc"),
+        format!("/opt/homebrew/lib/pkgconfig/{package_name}.pc"),
+    ];
+
+    for pc_path in &potential_paths {
+        if let Ok(content) = fs::read_to_string(pc_path) {
+            return parse_pc_content(&content);
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn parse_pc_content(content: &str) -> Result<Vec<(String, String)>, String> {
+    let mut dependencies = Vec::new();
+    let requires_regex = Regex::new(r"^Requires(?:\.private)?\s*:\s*(.+)$")
+        .map_err(|e| format!("Failed to compile requires regex: {e}"))?;
+
+    for line in content.lines() {
+        if let Some(cap) = requires_regex.captures(line) {
+            if let Some(requires_str) = cap.get(1) {
+                let requires = requires_str.as_str().trim();
+                for dep in requires.split(',') {
+                    let dep = dep.trim();
+                    if !dep.is_empty() {
+                        let parts: Vec<&str> = dep.split_whitespace().collect();
+                        if let Some(pkg_name) = parts.first() {
+                            let version = if parts.len() > 2 && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">") {
+                                parts[2].to_string()
+                            } else {
+                                "system".to_string()
+                            };
+                            dependencies.push((pkg_name.to_string(), version));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(dependencies)
+}
+
+fn get_system_package_dependencies(package_name: &str) -> Result<Vec<(String, String)>, String> {
+    // Try dpkg (Debian/Ubuntu)
+    if let Ok(output) = Command::new("dpkg-query")
+        .args(["-W", "-f", "${Depends}\\n", package_name])
+        .output()
+    {
+        if output.status.success() {
+            let depends_str = String::from_utf8_lossy(&output.stdout);
+            return parse_debian_dependencies(&depends_str);
+        }
+    }
+
+    // Try rpm (RedHat/CentOS/Fedora)
+    if let Ok(output) = Command::new("rpm")
+        .args(["-q", "--requires", package_name])
+        .output()
+    {
+        if output.status.success() {
+            let requires_str = String::from_utf8_lossy(&output.stdout);
+            return parse_rpm_dependencies(&requires_str);
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn parse_debian_dependencies(depends_str: &str) -> Result<Vec<(String, String)>, String> {
+    let mut dependencies = Vec::new();
+
+    for dep in depends_str.split(',') {
+        let dep = dep.trim();
+        if !dep.is_empty() && !dep.starts_with("${") {
+            // Remove version constraints and alternatives
+            let parts: Vec<&str> = dep.split_whitespace().collect();
+            if let Some(pkg_name) = parts.first() {
+                let clean_name = pkg_name.split('|').next().unwrap_or(pkg_name).trim();
+                if !clean_name.is_empty() {
+                    dependencies.push((clean_name.to_string(), "system".to_string()));
+                }
+            }
+        }
+    }
+
+    Ok(dependencies)
+}
+
+fn parse_rpm_dependencies(requires_str: &str) -> Result<Vec<(String, String)>, String> {
+    let mut dependencies = Vec::new();
+
+    for line in requires_str.lines() {
+        let line = line.trim();
+        if !line.is_empty() && !line.starts_with("rpmlib(") && !line.starts_with('/') {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if let Some(pkg_name) = parts.first() {
+                dependencies.push((pkg_name.to_string(), "system".to_string()));
+            }
+        }
+    }
+
+    Ok(dependencies)
 }
 
 fn parse_autotools_dependencies(

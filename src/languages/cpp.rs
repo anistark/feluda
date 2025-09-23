@@ -1,6 +1,6 @@
 use regex::Regex;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -10,6 +10,15 @@ use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
     fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
 };
+
+#[derive(Debug, Clone)]
+enum CppPackageManager {
+    Vcpkg,
+    Conan,
+    CMake,
+    Bazel,
+    Unknown,
+}
 
 pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
     log(
@@ -31,12 +40,27 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
         }
     };
 
-    let dependencies = detect_cpp_dependencies(project_path, config);
+    let (direct_dependencies, package_manager) = detect_cpp_dependencies_with_type(project_path, config);
     log(
         LogLevel::Info,
-        &format!("Found {} C++ dependencies", dependencies.len()),
+        &format!("Found {} direct C++ dependencies", direct_dependencies.len()),
     );
-    log_debug("C++ dependencies", &dependencies);
+    log_debug("Direct C++ dependencies", &direct_dependencies);
+
+    let max_depth = config.dependencies.max_depth;
+    log(
+        LogLevel::Info,
+        &format!("Using max dependency depth: {max_depth}"),
+    );
+
+    let all_deps = resolve_cpp_dependencies(project_path, &direct_dependencies, package_manager, max_depth);
+    log(
+        LogLevel::Info,
+        &format!("Total C++ dependencies (including transitive): {}", all_deps.len()),
+    );
+    log_debug("All C++ dependencies", &all_deps);
+
+    let dependencies = all_deps;
 
     dependencies
         .into_iter()
@@ -69,6 +93,11 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
 }
 
 fn detect_cpp_dependencies(project_path: &str, config: &FeludaConfig) -> Vec<(String, String)> {
+    let (deps, _) = detect_cpp_dependencies_with_type(project_path, config);
+    deps
+}
+
+fn detect_cpp_dependencies_with_type(project_path: &str, config: &FeludaConfig) -> (Vec<(String, String)>, CppPackageManager) {
     let project_dir = Path::new(project_path).parent().unwrap_or(Path::new("."));
 
     if let Ok(vcpkg_deps) = parse_vcpkg_dependencies(project_dir, config) {
@@ -76,7 +105,7 @@ fn detect_cpp_dependencies(project_path: &str, config: &FeludaConfig) -> Vec<(St
             LogLevel::Info,
             &format!("Found {} vcpkg dependencies", vcpkg_deps.len()),
         );
-        return vcpkg_deps;
+        return (vcpkg_deps, CppPackageManager::Vcpkg);
     }
 
     if let Ok(conan_deps) = parse_conan_dependencies(project_dir, config) {
@@ -84,7 +113,7 @@ fn detect_cpp_dependencies(project_path: &str, config: &FeludaConfig) -> Vec<(St
             LogLevel::Info,
             &format!("Found {} conan dependencies", conan_deps.len()),
         );
-        return conan_deps;
+        return (conan_deps, CppPackageManager::Conan);
     }
 
     if let Ok(cmake_deps) = parse_cmake_dependencies(project_dir, config) {
@@ -92,7 +121,7 @@ fn detect_cpp_dependencies(project_path: &str, config: &FeludaConfig) -> Vec<(St
             LogLevel::Info,
             &format!("Found {} cmake dependencies", cmake_deps.len()),
         );
-        return cmake_deps;
+        return (cmake_deps, CppPackageManager::CMake);
     }
 
     if let Ok(bazel_deps) = parse_bazel_dependencies(project_dir, config) {
@@ -100,10 +129,264 @@ fn detect_cpp_dependencies(project_path: &str, config: &FeludaConfig) -> Vec<(St
             LogLevel::Info,
             &format!("Found {} bazel dependencies", bazel_deps.len()),
         );
-        return bazel_deps;
+        return (bazel_deps, CppPackageManager::Bazel);
     }
 
-    Vec::new()
+    (Vec::new(), CppPackageManager::Unknown)
+}
+
+fn resolve_cpp_dependencies(
+    _project_path: &str,
+    direct_deps: &[(String, String)],
+    package_manager: CppPackageManager,
+    max_depth: u32,
+) -> Vec<(String, String)> {
+    log(
+        LogLevel::Info,
+        &format!("Resolving C++ dependencies (including transitive up to depth {max_depth})"),
+    );
+
+    let mut all_dependencies = Vec::new();
+    let mut visited = HashSet::new();
+    let mut depth_stats = HashMap::new();
+
+    // Add direct dependencies first
+    for (name, version) in direct_deps {
+        all_dependencies.push((name.clone(), version.clone()));
+        visited.insert(name.clone());
+        *depth_stats.entry(0u32).or_insert(0) += 1;
+    }
+
+    // Queue for BFS: (package_name, version, depth)
+    let mut to_process: Vec<(String, String, u32)> = direct_deps
+        .iter()
+        .map(|(name, version)| (name.clone(), version.clone(), 0))
+        .collect();
+
+    while let Some((name, version, depth)) = to_process.pop() {
+        if depth >= max_depth {
+            log(
+                LogLevel::Trace,
+                &format!("Skipping {name} - exceeded max depth {max_depth}"),
+            );
+            continue;
+        }
+
+        log(
+            LogLevel::Trace,
+            &format!("Resolving transitive dependencies for: {name} (depth {depth})"),
+        );
+
+        if let Ok(transitive_deps) = resolve_cpp_transitive_deps(&name, &version, &package_manager) {
+            log(
+                LogLevel::Trace,
+                &format!(
+                    "Found {} transitive dependencies for {} at depth {}",
+                    transitive_deps.len(),
+                    name,
+                    depth
+                ),
+            );
+
+            for (dep_name, dep_version) in transitive_deps {
+                if !visited.contains(&dep_name) {
+                    visited.insert(dep_name.clone());
+                    all_dependencies.push((dep_name.clone(), dep_version.clone()));
+                    to_process.push((dep_name, dep_version, depth + 1));
+                    *depth_stats.entry(depth + 1).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    // Log depth statistics
+    for depth in 0..=max_depth {
+        if let Some(count) = depth_stats.get(&depth) {
+            log(
+                LogLevel::Info,
+                &format!("Depth {depth}: {count} dependencies"),
+            );
+        }
+    }
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "C++ dependency resolution completed. Total dependencies: {} (explored up to depth {})",
+            all_dependencies.len(),
+            max_depth
+        ),
+    );
+
+    all_dependencies
+}
+
+fn resolve_cpp_transitive_deps(
+    package_name: &str,
+    version: &str,
+    package_manager: &CppPackageManager,
+) -> Result<Vec<(String, String)>, String> {
+    match package_manager {
+        CppPackageManager::Vcpkg => resolve_vcpkg_transitive(package_name, version),
+        CppPackageManager::Conan => resolve_conan_transitive(package_name, version),
+        CppPackageManager::CMake => resolve_cmake_transitive(package_name, version),
+        CppPackageManager::Bazel => resolve_bazel_transitive(package_name, version),
+        CppPackageManager::Unknown => Ok(Vec::new()),
+    }
+}
+
+fn resolve_vcpkg_transitive(
+    package_name: &str,
+    _version: &str,
+) -> Result<Vec<(String, String)>, String> {
+    // Try to fetch dependencies from vcpkg registry
+    let url = format!("https://raw.githubusercontent.com/microsoft/vcpkg/master/ports/{package_name}/vcpkg.json");
+
+    match reqwest::blocking::get(&url) {
+        Ok(response) => {
+            if response.status().is_success() {
+                if let Ok(json) = response.json::<Value>() {
+                    let mut dependencies = Vec::new();
+
+                    if let Some(deps) = json.get("dependencies").and_then(|d| d.as_array()) {
+                        for dep in deps {
+                            match dep {
+                                Value::String(name) => {
+                                    dependencies.push((name.clone(), "latest".to_string()));
+                                }
+                                Value::Object(obj) => {
+                                    if let Some(name) = obj.get("name").and_then(|n| n.as_str()) {
+                                        let version = obj
+                                            .get("version")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("latest");
+                                        dependencies.push((name.to_string(), version.to_string()));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    return Ok(dependencies);
+                }
+            }
+        }
+        Err(_) => {}
+    }
+
+    Ok(Vec::new())
+}
+
+fn resolve_conan_transitive(
+    package_name: &str,
+    version: &str,
+) -> Result<Vec<(String, String)>, String> {
+    // Try to fetch dependencies from Conan Center
+    let url = format!("https://conan.io/center/api/packages/{package_name}/{version}");
+
+    match reqwest::blocking::get(&url) {
+        Ok(response) => {
+            if response.status().is_success() {
+                if let Ok(json) = response.json::<Value>() {
+                    let mut dependencies = Vec::new();
+
+                    if let Some(requires) = json.get("requires").and_then(|r| r.as_array()) {
+                        for req in requires {
+                            if let Some(req_str) = req.as_str() {
+                                if let Some(slash_pos) = req_str.find('/') {
+                                    let name = &req_str[..slash_pos];
+                                    let version = &req_str[slash_pos + 1..];
+                                    let clean_version = version.split('@').next().unwrap_or(version);
+                                    dependencies.push((name.to_string(), clean_version.to_string()));
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok(dependencies);
+                }
+            }
+        }
+        Err(_) => {}
+    }
+
+    Ok(Vec::new())
+}
+
+fn resolve_cmake_transitive(
+    package_name: &str,
+    _version: &str,
+) -> Result<Vec<(String, String)>, String> {
+    // For CMake, we could try to find installed CMake config files
+    // This is complex as it depends on the system and CMake installation
+
+    // Try pkg-config if the package has a .pc file
+    if let Ok(output) = Command::new("pkg-config")
+        .args(["--print-requires", package_name])
+        .output()
+    {
+        if output.status.success() {
+            let stdout_str = String::from_utf8_lossy(&output.stdout);
+            let mut dependencies = Vec::new();
+
+            for line in stdout_str.lines() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                    if let Some(pkg_name) = parts.first() {
+                        let version = if parts.len() > 2 && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">") {
+                            parts[2].to_string()
+                        } else {
+                            "system".to_string()
+                        };
+                        dependencies.push((pkg_name.to_string(), version));
+                    }
+                }
+            }
+
+            return Ok(dependencies);
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn resolve_bazel_transitive(
+    package_name: &str,
+    _version: &str,
+) -> Result<Vec<(String, String)>, String> {
+    // For Bazel, we could try to query the build graph
+    // This would require being in a Bazel workspace
+
+    // Try to run bazel query for dependencies
+    if let Ok(output) = Command::new("bazel")
+        .args(["query", &format!("deps(@{package_name}//...)")])
+        .output()
+    {
+        if output.status.success() {
+            let stdout_str = String::from_utf8_lossy(&output.stdout);
+            let mut dependencies = Vec::new();
+
+            for line in stdout_str.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('@') && trimmed.contains("//") {
+                    if let Some(at_pos) = trimmed.find('@') {
+                        if let Some(slash_pos) = trimmed.find("//") {
+                            let dep_name = &trimmed[at_pos + 1..slash_pos];
+                            if !dep_name.is_empty() && dep_name != package_name {
+                                dependencies.push((dep_name.to_string(), "bazel".to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+
+            return Ok(dependencies);
+        }
+    }
+
+    Ok(Vec::new())
 }
 
 fn parse_vcpkg_dependencies(
