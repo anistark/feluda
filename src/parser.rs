@@ -2,7 +2,7 @@
 
 use crate::cli;
 use crate::debug::{log, log_debug, FeludaResult, LogLevel};
-use crate::languages::{Language, PYTHON_PATHS};
+use crate::languages::{Language, C_PATHS, CPP_PATHS, PYTHON_PATHS};
 use crate::licenses::{
     detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
 };
@@ -78,6 +78,52 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRo
     Ok(project_roots)
 }
 
+/// Check which C project file exists in the given path
+fn check_which_c_file_exists(project_path: impl AsRef<Path>) -> Option<String> {
+    for &path in C_PATHS.iter() {
+        let full_path = Path::new(project_path.as_ref()).join(path);
+        if full_path.exists() {
+            log(
+                LogLevel::Info,
+                &format!("Found C project file: {}", full_path.display()),
+            );
+            return Some(path.to_string());
+        }
+    }
+
+    log(
+        LogLevel::Warn,
+        &format!(
+            "No C project file found in: {}",
+            project_path.as_ref().display()
+        ),
+    );
+    None
+}
+
+/// Check which C++ project file exists in the given path
+fn check_which_cpp_file_exists(project_path: impl AsRef<Path>) -> Option<String> {
+    for &path in CPP_PATHS.iter() {
+        let full_path = Path::new(project_path.as_ref()).join(path);
+        if full_path.exists() {
+            log(
+                LogLevel::Info,
+                &format!("Found C++ project file: {}", full_path.display()),
+            );
+            return Some(path.to_string());
+        }
+    }
+
+    log(
+        LogLevel::Warn,
+        &format!(
+            "No C++ project file found in: {}",
+            project_path.as_ref().display()
+        ),
+    );
+    None
+}
+
 /// Check which Python project file exists in the given path
 fn check_which_python_file_exists(project_path: impl AsRef<Path>) -> Option<String> {
     for &path in PYTHON_PATHS.iter() {
@@ -133,7 +179,7 @@ pub fn parse_root_with_config(
         );
         println!(
             "❌ No supported project files found.\n\
-            Feluda supports: Rust, Node.js, Go, Python"
+            Feluda supports: C, C++, Rust, Node.js, Go, Python"
         );
         return Ok(Vec::new());
     }
@@ -213,7 +259,9 @@ fn set_license_compatibility(licenses: &mut [LicenseInfo], project_license: &Opt
 fn matches_language(project_type: Language, language: &str) -> bool {
     matches!(
         (project_type, language.to_lowercase().as_str()),
-        (Language::Rust(_), "rust")
+        (Language::C(_), "c")
+            | (Language::Cpp(_), "cpp" | "c++")
+            | (Language::Rust(_), "rust")
             | (Language::Node(_), "node")
             | (Language::Go(_), "go")
             | (Language::Python(_), "python")
@@ -333,6 +381,62 @@ fn parse_dependencies(
                     log(LogLevel::Error, "Python package file not found");
                     Vec::new()
                 }
+            }
+            Language::C(_) => match check_which_c_file_exists(project_path) {
+                Some(c_build_file) => {
+                    let project_path = Path::new(project_path).join(&c_build_file);
+                    log(
+                        LogLevel::Info,
+                        &format!("Parsing C project: {}", project_path.display()),
+                    );
+
+                    indicator.update_progress(&format!("analyzing {c_build_file}"));
+
+                    match project_path.to_str() {
+                        Some(path_str) => {
+                            let deps = crate::languages::analyze_c_licenses(path_str, config);
+                            indicator
+                                .update_progress(&format!("found {} dependencies", deps.len()));
+                            deps
+                        }
+                        None => {
+                            log(LogLevel::Error, "Failed to convert C path to string");
+                            Vec::new()
+                        }
+                    }
+                }
+                None => {
+                    log(LogLevel::Error, "C build file not found");
+                    Vec::new()
+                }
+            }
+            Language::Cpp(_) => match check_which_cpp_file_exists(project_path) {
+                Some(cpp_build_file) => {
+                    let project_path = Path::new(project_path).join(&cpp_build_file);
+                    log(
+                        LogLevel::Info,
+                        &format!("Parsing C++ project: {}", project_path.display()),
+                    );
+
+                    indicator.update_progress(&format!("analyzing {cpp_build_file}"));
+
+                    match project_path.to_str() {
+                        Some(path_str) => {
+                            let deps = crate::languages::analyze_cpp_licenses(path_str, config);
+                            indicator
+                                .update_progress(&format!("found {} dependencies", deps.len()));
+                            deps
+                        }
+                        None => {
+                            log(LogLevel::Error, "Failed to convert C++ path to string");
+                            Vec::new()
+                        }
+                    }
+                }
+                None => {
+                    log(LogLevel::Error, "C++ build file not found");
+                    Vec::new()
+                }
             },
         }
     });
@@ -346,6 +450,13 @@ mod tests {
 
     #[test]
     fn test_matches_language() {
+        assert!(matches_language(Language::C(&C_PATHS), "c"));
+        assert!(matches_language(Language::C(&C_PATHS), "C"));
+
+        assert!(matches_language(Language::Cpp(&CPP_PATHS), "cpp"));
+        assert!(matches_language(Language::Cpp(&CPP_PATHS), "c++"));
+        assert!(matches_language(Language::Cpp(&CPP_PATHS), "CPP"));
+
         assert!(matches_language(Language::Rust("Cargo.toml"), "rust"));
         assert!(matches_language(Language::Rust("Cargo.toml"), "RUST"));
         assert!(matches_language(Language::Rust("Cargo.toml"), "Rust"));
@@ -366,9 +477,11 @@ mod tests {
         assert!(!matches_language(Language::Node("package.json"), "python"));
         assert!(!matches_language(Language::Go("go.mod"), "rust"));
         assert!(!matches_language(Language::Python(&PYTHON_PATHS), "go"));
+        assert!(!matches_language(Language::C(&C_PATHS), "cpp"));
+        assert!(!matches_language(Language::Cpp(&CPP_PATHS), "c"));
 
         assert!(!matches_language(Language::Rust("Cargo.toml"), "java"));
-        assert!(!matches_language(Language::Node("package.json"), "cpp"));
+        assert!(!matches_language(Language::Node("package.json"), "java"));
     }
 
     #[test]
