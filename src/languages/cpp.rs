@@ -40,10 +40,14 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
         }
     };
 
-    let (direct_dependencies, package_manager) = detect_cpp_dependencies_with_type(project_path, config);
+    let (direct_dependencies, package_manager) =
+        detect_cpp_dependencies_with_type(project_path, config);
     log(
         LogLevel::Info,
-        &format!("Found {} direct C++ dependencies", direct_dependencies.len()),
+        &format!(
+            "Found {} direct C++ dependencies",
+            direct_dependencies.len()
+        ),
     );
     log_debug("Direct C++ dependencies", &direct_dependencies);
 
@@ -53,10 +57,18 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
         &format!("Using max dependency depth: {max_depth}"),
     );
 
-    let all_deps = resolve_cpp_dependencies(project_path, &direct_dependencies, package_manager, max_depth);
+    let all_deps = resolve_cpp_dependencies(
+        project_path,
+        &direct_dependencies,
+        package_manager,
+        max_depth,
+    );
     log(
         LogLevel::Info,
-        &format!("Total C++ dependencies (including transitive): {}", all_deps.len()),
+        &format!(
+            "Total C++ dependencies (including transitive): {}",
+            all_deps.len()
+        ),
     );
     log_debug("All C++ dependencies", &all_deps);
 
@@ -92,12 +104,10 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
         .collect()
 }
 
-fn detect_cpp_dependencies(project_path: &str, config: &FeludaConfig) -> Vec<(String, String)> {
-    let (deps, _) = detect_cpp_dependencies_with_type(project_path, config);
-    deps
-}
-
-fn detect_cpp_dependencies_with_type(project_path: &str, config: &FeludaConfig) -> (Vec<(String, String)>, CppPackageManager) {
+fn detect_cpp_dependencies_with_type(
+    project_path: &str,
+    config: &FeludaConfig,
+) -> (Vec<(String, String)>, CppPackageManager) {
     let project_dir = Path::new(project_path).parent().unwrap_or(Path::new("."));
 
     if let Ok(vcpkg_deps) = parse_vcpkg_dependencies(project_dir, config) {
@@ -177,7 +187,8 @@ fn resolve_cpp_dependencies(
             &format!("Resolving transitive dependencies for: {name} (depth {depth})"),
         );
 
-        if let Ok(transitive_deps) = resolve_cpp_transitive_deps(&name, &version, &package_manager) {
+        if let Ok(transitive_deps) = resolve_cpp_transitive_deps(&name, &version, &package_manager)
+        {
             log(
                 LogLevel::Trace,
                 &format!(
@@ -240,39 +251,38 @@ fn resolve_vcpkg_transitive(
     _version: &str,
 ) -> Result<Vec<(String, String)>, String> {
     // Try to fetch dependencies from vcpkg registry
-    let url = format!("https://raw.githubusercontent.com/microsoft/vcpkg/master/ports/{package_name}/vcpkg.json");
+    let url = format!(
+        "https://raw.githubusercontent.com/microsoft/vcpkg/master/ports/{package_name}/vcpkg.json"
+    );
 
-    match reqwest::blocking::get(&url) {
-        Ok(response) => {
-            if response.status().is_success() {
-                if let Ok(json) = response.json::<Value>() {
-                    let mut dependencies = Vec::new();
+    if let Ok(response) = reqwest::blocking::get(&url) {
+        if response.status().is_success() {
+            if let Ok(json) = response.json::<Value>() {
+                let mut dependencies = Vec::new();
 
-                    if let Some(deps) = json.get("dependencies").and_then(|d| d.as_array()) {
-                        for dep in deps {
-                            match dep {
-                                Value::String(name) => {
-                                    dependencies.push((name.clone(), "latest".to_string()));
-                                }
-                                Value::Object(obj) => {
-                                    if let Some(name) = obj.get("name").and_then(|n| n.as_str()) {
-                                        let version = obj
-                                            .get("version")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("latest");
-                                        dependencies.push((name.to_string(), version.to_string()));
-                                    }
-                                }
-                                _ => {}
+                if let Some(deps) = json.get("dependencies").and_then(|d| d.as_array()) {
+                    for dep in deps {
+                        match dep {
+                            Value::String(name) => {
+                                dependencies.push((name.clone(), "latest".to_string()));
                             }
+                            Value::Object(obj) => {
+                                if let Some(name) = obj.get("name").and_then(|n| n.as_str()) {
+                                    let version = obj
+                                        .get("version")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("latest");
+                                    dependencies.push((name.to_string(), version.to_string()));
+                                }
+                            }
+                            _ => {}
                         }
                     }
-
-                    return Ok(dependencies);
                 }
+
+                return Ok(dependencies);
             }
         }
-        Err(_) => {}
     }
 
     Ok(Vec::new())
@@ -285,30 +295,27 @@ fn resolve_conan_transitive(
     // Try to fetch dependencies from Conan Center
     let url = format!("https://conan.io/center/api/packages/{package_name}/{version}");
 
-    match reqwest::blocking::get(&url) {
-        Ok(response) => {
-            if response.status().is_success() {
-                if let Ok(json) = response.json::<Value>() {
-                    let mut dependencies = Vec::new();
+    if let Ok(response) = reqwest::blocking::get(&url) {
+        if response.status().is_success() {
+            if let Ok(json) = response.json::<Value>() {
+                let mut dependencies = Vec::new();
 
-                    if let Some(requires) = json.get("requires").and_then(|r| r.as_array()) {
-                        for req in requires {
-                            if let Some(req_str) = req.as_str() {
-                                if let Some(slash_pos) = req_str.find('/') {
-                                    let name = &req_str[..slash_pos];
-                                    let version = &req_str[slash_pos + 1..];
-                                    let clean_version = version.split('@').next().unwrap_or(version);
-                                    dependencies.push((name.to_string(), clean_version.to_string()));
-                                }
+                if let Some(requires) = json.get("requires").and_then(|r| r.as_array()) {
+                    for req in requires {
+                        if let Some(req_str) = req.as_str() {
+                            if let Some(slash_pos) = req_str.find('/') {
+                                let name = &req_str[..slash_pos];
+                                let version = &req_str[slash_pos + 1..];
+                                let clean_version = version.split('@').next().unwrap_or(version);
+                                dependencies.push((name.to_string(), clean_version.to_string()));
                             }
                         }
                     }
-
-                    return Ok(dependencies);
                 }
+
+                return Ok(dependencies);
             }
         }
-        Err(_) => {}
     }
 
     Ok(Vec::new())
@@ -335,7 +342,9 @@ fn resolve_cmake_transitive(
                 if !trimmed.is_empty() {
                     let parts: Vec<&str> = trimmed.split_whitespace().collect();
                     if let Some(pkg_name) = parts.first() {
-                        let version = if parts.len() > 2 && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">") {
+                        let version = if parts.len() > 2
+                            && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">")
+                        {
                             parts[2].to_string()
                         } else {
                             "system".to_string()
@@ -398,11 +407,11 @@ fn parse_vcpkg_dependencies(
         return Err("No vcpkg.json found".to_string());
     }
 
-    let content = fs::read_to_string(&vcpkg_json)
-        .map_err(|e| format!("Failed to read vcpkg.json: {e}"))?;
+    let content =
+        fs::read_to_string(&vcpkg_json).map_err(|e| format!("Failed to read vcpkg.json: {e}"))?;
 
-    let json: Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse vcpkg.json: {e}"))?;
+    let json: Value =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse vcpkg.json: {e}"))?;
 
     let mut dependencies = Vec::new();
 
@@ -575,13 +584,14 @@ fn parse_bazel_dependencies(
 }
 
 fn parse_module_bazel(module_path: &Path) -> Result<Vec<(String, String)>, String> {
-    let content = fs::read_to_string(module_path)
-        .map_err(|e| format!("Failed to read MODULE.bazel: {e}"))?;
+    let content =
+        fs::read_to_string(module_path).map_err(|e| format!("Failed to read MODULE.bazel: {e}"))?;
 
     let mut dependencies = Vec::new();
 
-    let bazel_dep_regex = Regex::new(r#"bazel_dep\s*\(\s*name\s*=\s*"([^"]+)"\s*,\s*version\s*=\s*"([^"]+)""#)
-        .map_err(|e| format!("Failed to compile bazel_dep regex: {e}"))?;
+    let bazel_dep_regex =
+        Regex::new(r#"bazel_dep\s*\(\s*name\s*=\s*"([^"]+)"\s*,\s*version\s*=\s*"([^"]+)""#)
+            .map_err(|e| format!("Failed to compile bazel_dep regex: {e}"))?;
 
     for cap in bazel_dep_regex.captures_iter(&content) {
         if let (Some(name), Some(version)) = (cap.get(1), cap.get(2)) {
@@ -593,8 +603,8 @@ fn parse_module_bazel(module_path: &Path) -> Result<Vec<(String, String)>, Strin
 }
 
 fn parse_workspace_bazel(workspace_path: &Path) -> Result<Vec<(String, String)>, String> {
-    let content = fs::read_to_string(workspace_path)
-        .map_err(|e| format!("Failed to read WORKSPACE: {e}"))?;
+    let content =
+        fs::read_to_string(workspace_path).map_err(|e| format!("Failed to read WORKSPACE: {e}"))?;
 
     let mut dependencies = Vec::new();
 
@@ -622,19 +632,18 @@ fn fetch_license_for_cpp_dependency(name: &str, version: &str) -> String {
 }
 
 fn fetch_license_from_vcpkg_registry(package_name: &str) -> String {
-    let url = format!("https://raw.githubusercontent.com/microsoft/vcpkg/master/ports/{package_name}/vcpkg.json");
+    let url = format!(
+        "https://raw.githubusercontent.com/microsoft/vcpkg/master/ports/{package_name}/vcpkg.json"
+    );
 
-    match reqwest::blocking::get(&url) {
-        Ok(response) => {
-            if response.status().is_success() {
-                if let Ok(json) = response.json::<Value>() {
-                    if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
-                        return license.to_string();
-                    }
+    if let Ok(response) = reqwest::blocking::get(&url) {
+        if response.status().is_success() {
+            if let Ok(json) = response.json::<Value>() {
+                if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
+                    return license.to_string();
                 }
             }
         }
-        Err(_) => {}
     }
 
     format!("Unknown license (vcpkg: {package_name})")
@@ -643,17 +652,14 @@ fn fetch_license_from_vcpkg_registry(package_name: &str) -> String {
 fn fetch_license_from_conan_center(package_name: &str, version: &str) -> String {
     let url = format!("https://conan.io/center/api/packages/{package_name}/{version}");
 
-    match reqwest::blocking::get(&url) {
-        Ok(response) => {
-            if response.status().is_success() {
-                if let Ok(json) = response.json::<Value>() {
-                    if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
-                        return license.to_string();
-                    }
+    if let Ok(response) = reqwest::blocking::get(&url) {
+        if response.status().is_success() {
+            if let Ok(json) = response.json::<Value>() {
+                if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
+                    return license.to_string();
                 }
             }
         }
-        Err(_) => {}
     }
 
     format!("Unknown license (conan: {package_name})")
@@ -706,7 +712,9 @@ mod tests {
 
         assert_eq!(result.len(), 2);
         assert!(result.iter().any(|(name, _)| name == "boost"));
-        assert!(result.iter().any(|(name, version)| name == "opencv" && version == "4.5.0"));
+        assert!(result
+            .iter()
+            .any(|(name, version)| name == "opencv" && version == "4.5.0"));
     }
 
     #[test]
@@ -730,9 +738,15 @@ cmake
         let result = parse_conanfile_txt(&conanfile).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(result.iter().any(|(name, version)| name == "boost" && version == "1.75.0"));
-        assert!(result.iter().any(|(name, version)| name == "openssl" && version == "1.1.1k"));
-        assert!(result.iter().any(|(name, version)| name == "zlib" && version == "1.2.11"));
+        assert!(result
+            .iter()
+            .any(|(name, version)| name == "boost" && version == "1.75.0"));
+        assert!(result
+            .iter()
+            .any(|(name, version)| name == "openssl" && version == "1.1.1k"));
+        assert!(result
+            .iter()
+            .any(|(name, version)| name == "zlib" && version == "1.2.11"));
     }
 
     #[test]
@@ -761,7 +775,9 @@ find_package(OpenSSL REQUIRED)
 
         assert!(!result.is_empty());
         assert!(result.iter().any(|(name, _)| name == "json"));
-        assert!(result.iter().any(|(name, version)| name == "Boost" && version == "1.70"));
+        assert!(result
+            .iter()
+            .any(|(name, version)| name == "Boost" && version == "1.70"));
         assert!(result.iter().any(|(name, _)| name == "OpenSSL"));
     }
 

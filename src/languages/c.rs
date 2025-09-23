@@ -46,7 +46,10 @@ pub fn analyze_c_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Lice
     let all_deps = resolve_c_dependencies(project_path, &direct_dependencies, max_depth);
     log(
         LogLevel::Info,
-        &format!("Total C dependencies (including transitive): {}", all_deps.len()),
+        &format!(
+            "Total C dependencies (including transitive): {}",
+            all_deps.len()
+        ),
     );
     log_debug("All C dependencies", &all_deps);
 
@@ -246,7 +249,9 @@ fn get_pkgconfig_requires(package_name: &str) -> Result<Vec<(String, String)>, S
         if !trimmed.is_empty() {
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             if let Some(pkg_name) = parts.first() {
-                let version = if parts.len() > 2 && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">") {
+                let version = if parts.len() > 2
+                    && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">")
+                {
                     parts[2].to_string()
                 } else {
                     "system".to_string()
@@ -269,7 +274,9 @@ fn get_pkgconfig_requires(package_name: &str) -> Result<Vec<(String, String)>, S
                 if !trimmed.is_empty() {
                     let parts: Vec<&str> = trimmed.split_whitespace().collect();
                     if let Some(pkg_name) = parts.first() {
-                        let version = if parts.len() > 2 && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">") {
+                        let version = if parts.len() > 2
+                            && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">")
+                        {
                             parts[2].to_string()
                         } else {
                             "system".to_string()
@@ -316,7 +323,9 @@ fn parse_pc_content(content: &str) -> Result<Vec<(String, String)>, String> {
                     if !dep.is_empty() {
                         let parts: Vec<&str> = dep.split_whitespace().collect();
                         if let Some(pkg_name) = parts.first() {
-                            let version = if parts.len() > 2 && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">") {
+                            let version = if parts.len() > 2
+                                && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">")
+                            {
                                 parts[2].to_string()
                             } else {
                                 "system".to_string()
@@ -419,11 +428,17 @@ fn parse_autotools_dependencies(
 
     for cap in pkg_check_regex.captures_iter(&content) {
         if let Some(pkg_spec) = cap.get(1) {
-            let spec = pkg_spec.as_str().trim().trim_matches('"').trim_matches('\'');
+            let spec = pkg_spec
+                .as_str()
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'');
 
             let parts: Vec<&str> = spec.split_whitespace().collect();
             if let Some(pkg_name) = parts.first() {
-                let version = if parts.len() > 2 && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">") {
+                let version = if parts.len() > 2
+                    && (parts[1] == ">=" || parts[1] == "=" || parts[1] == ">")
+                {
                     parts[2].to_string()
                 } else {
                     "system".to_string()
@@ -438,7 +453,11 @@ fn parse_autotools_dependencies(
 
     for cap in ac_check_lib_regex.captures_iter(&content) {
         if let Some(lib_name) = cap.get(1) {
-            let name = lib_name.as_str().trim().trim_matches('"').trim_matches('\'');
+            let name = lib_name
+                .as_str()
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'');
             dependencies.push((name.to_string(), "system".to_string()));
         }
     }

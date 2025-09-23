@@ -86,7 +86,10 @@ impl LicenseConfig {
     pub fn validate(&self) -> FeludaResult<()> {
         // Check for empty restrictive licenses list
         if self.restrictive.is_empty() {
-            log(LogLevel::Warn, "No restrictive licenses configured - all licenses will be considered acceptable");
+            log(
+                LogLevel::Warn,
+                "No restrictive licenses configured - all licenses will be considered acceptable",
+            );
         }
 
         // Check for duplicate licenses
@@ -96,7 +99,7 @@ impl LicenseConfig {
         for license in &self.restrictive {
             if license.trim().is_empty() {
                 return Err(FeludaError::Config(
-                    "Empty license string found in restrictive licenses list".to_string()
+                    "Empty license string found in restrictive licenses list".to_string(),
                 ));
             }
 
@@ -106,15 +109,19 @@ impl LicenseConfig {
         }
 
         if !duplicates.is_empty() {
-            return Err(FeludaError::Config(
-                format!("Duplicate licenses found in restrictive list: {}", duplicates.join(", "))
-            ));
+            return Err(FeludaError::Config(format!(
+                "Duplicate licenses found in restrictive list: {}",
+                duplicates.join(", ")
+            )));
         }
 
         // Validate license format (basic SPDX-like validation)
         for license in &self.restrictive {
             if !Self::is_valid_license_identifier(license) {
-                log(LogLevel::Warn, &format!("License '{license}' may not be a valid SPDX identifier"));
+                log(
+                    LogLevel::Warn,
+                    &format!("License '{license}' may not be a valid SPDX identifier"),
+                );
             }
         }
 
@@ -127,13 +134,18 @@ impl LicenseConfig {
         let license = license.trim();
 
         // Special cases that are valid but don't follow standard patterns
-        if matches!(license, "SEE LICENSE IN LICENSE" | "UNLICENSED" | "NOASSERTION") {
+        if matches!(
+            license,
+            "SEE LICENSE IN LICENSE" | "UNLICENSED" | "NOASSERTION"
+        ) {
             return true;
         }
 
         // Basic pattern: should contain only alphanumeric, dots, hyphens, plus, parentheses
         // TODO: Improve with a full SPDX regex
-        license.chars().all(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '+' | '(' | ')' | '_'))
+        license
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '+' | '(' | ')' | '_'))
             && !license.is_empty()
             && license.len() <= 100
     }
@@ -162,24 +174,30 @@ impl DependencyConfig {
         // Validate max_depth is within reasonable bounds
         if self.max_depth == 0 {
             return Err(FeludaError::Config(
-                "max_depth must be greater than 0".to_string()
+                "max_depth must be greater than 0".to_string(),
             ));
         }
 
         if self.max_depth > 100 {
             return Err(FeludaError::Config(
-                "max_depth must be 100 or less to prevent excessive resource usage".to_string()
+                "max_depth must be 100 or less to prevent excessive resource usage".to_string(),
             ));
         }
 
         if self.max_depth > 50 {
-            log(LogLevel::Warn, &format!(
-                "max_depth of {} is quite high and may impact performance",
-                self.max_depth
-            ));
+            log(
+                LogLevel::Warn,
+                &format!(
+                    "max_depth of {} is quite high and may impact performance",
+                    self.max_depth
+                ),
+            );
         }
 
-        log_debug("Dependency configuration validation passed", &self.max_depth);
+        log_debug(
+            "Dependency configuration validation passed",
+            &self.max_depth,
+        );
         Ok(())
     }
 }
@@ -680,7 +698,10 @@ restrictive = [
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Empty license string"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Empty license string"));
     }
 
     #[test]
@@ -718,12 +739,16 @@ restrictive = [
         assert!(LicenseConfig::is_valid_license_identifier("MIT"));
         assert!(LicenseConfig::is_valid_license_identifier("Apache-2.0"));
         assert!(LicenseConfig::is_valid_license_identifier("GPL-3.0+"));
-        assert!(LicenseConfig::is_valid_license_identifier("SEE LICENSE IN LICENSE"));
+        assert!(LicenseConfig::is_valid_license_identifier(
+            "SEE LICENSE IN LICENSE"
+        ));
         assert!(LicenseConfig::is_valid_license_identifier("UNLICENSED"));
         assert!(LicenseConfig::is_valid_license_identifier("NOASSERTION"));
 
         assert!(!LicenseConfig::is_valid_license_identifier(""));
-        assert!(!LicenseConfig::is_valid_license_identifier(&"x".repeat(101))); // Too long
+        assert!(!LicenseConfig::is_valid_license_identifier(
+            &"x".repeat(101)
+        )); // Too long
     }
 
     #[test]
@@ -731,7 +756,10 @@ restrictive = [
         let config = DependencyConfig { max_depth: 0 };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be greater than 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be greater than 0"));
     }
 
     #[test]
@@ -739,7 +767,10 @@ restrictive = [
         let config = DependencyConfig { max_depth: 150 };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be 100 or less"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be 100 or less"));
     }
 
     #[test]
@@ -776,7 +807,10 @@ restrictive = [
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Empty license string"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Empty license string"));
     }
 
     #[test]
@@ -789,7 +823,10 @@ restrictive = [
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be greater than 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be greater than 0"));
     }
 
     #[test]
@@ -834,7 +871,10 @@ max_depth = 5"#,
             // Should fail validation due to empty license string
             let result = load_config();
             assert!(result.is_err());
-            assert!(result.unwrap_err().to_string().contains("Empty license string"));
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("Empty license string"));
         });
     }
 

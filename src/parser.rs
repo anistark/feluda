@@ -2,7 +2,7 @@
 
 use crate::cli;
 use crate::debug::{log, log_debug, FeludaResult, LogLevel};
-use crate::languages::{Language, C_PATHS, CPP_PATHS, PYTHON_PATHS};
+use crate::languages::{Language, CPP_PATHS, C_PATHS, PYTHON_PATHS};
 use crate::licenses::{
     detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
 };
@@ -381,7 +381,7 @@ fn parse_dependencies(
                     log(LogLevel::Error, "Python package file not found");
                     Vec::new()
                 }
-            }
+            },
             Language::C(_) => match check_which_c_file_exists(project_path) {
                 Some(c_build_file) => {
                     let project_path = Path::new(project_path).join(&c_build_file);
@@ -409,7 +409,7 @@ fn parse_dependencies(
                     log(LogLevel::Error, "C build file not found");
                     Vec::new()
                 }
-            }
+            },
             Language::Cpp(_) => match check_which_cpp_file_exists(project_path) {
                 Some(cpp_build_file) => {
                     let project_path = Path::new(project_path).join(&cpp_build_file);

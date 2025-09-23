@@ -115,7 +115,6 @@ pub struct CycloneDxComponent {
     /// Component name (required)
     pub name: String,
 
-
     /// Component version (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
@@ -150,13 +149,9 @@ pub struct CycloneDxComponent {
 #[serde(untagged)]
 pub enum CycloneDxLicenseChoice {
     /// License object wrapper
-    License {
-        license: CycloneDxLicense,
-    },
+    License { license: CycloneDxLicense },
     /// SPDX license expression wrapper
-    Expression {
-        expression: String,
-    },
+    Expression { expression: String },
 }
 
 /// CycloneDX license object
@@ -230,7 +225,10 @@ impl Default for CycloneDxBom {
 /// Convert SPDX license to CycloneDX license format
 fn convert_spdx_license_to_cyclonedx(spdx_license: &str) -> CycloneDxLicenseChoice {
     // Check if it looks like an SPDX expression (contains AND, OR, WITH)
-    if spdx_license.contains(" AND ") || spdx_license.contains(" OR ") || spdx_license.contains(" WITH ") {
+    if spdx_license.contains(" AND ")
+        || spdx_license.contains(" OR ")
+        || spdx_license.contains(" WITH ")
+    {
         CycloneDxLicenseChoice::Expression {
             expression: spdx_license.to_string(),
         }
@@ -275,9 +273,13 @@ pub fn convert_spdx_to_cyclonedx(spdx_doc: &SpdxDocument) -> CycloneDxBom {
 
         // Convert licenses
         if let Some(ref license_concluded) = spdx_package.license_concluded {
-            component.licenses.push(convert_spdx_license_to_cyclonedx(license_concluded));
+            component
+                .licenses
+                .push(convert_spdx_license_to_cyclonedx(license_concluded));
         } else if let Some(ref license_declared) = spdx_package.license_declared {
-            component.licenses.push(convert_spdx_license_to_cyclonedx(license_declared));
+            component
+                .licenses
+                .push(convert_spdx_license_to_cyclonedx(license_declared));
         }
 
         bom.add_component(component);
@@ -285,7 +287,10 @@ pub fn convert_spdx_to_cyclonedx(spdx_doc: &SpdxDocument) -> CycloneDxBom {
 
     log(
         LogLevel::Info,
-        &format!("Converted {} SPDX packages to CycloneDX components", spdx_doc.packages.len()),
+        &format!(
+            "Converted {} SPDX packages to CycloneDX components",
+            spdx_doc.packages.len()
+        ),
     );
 
     bom
@@ -309,7 +314,10 @@ pub fn generate_cyclonedx_output(
         let cyclonedx_file = if file_path.ends_with(".json") {
             file_path
         } else {
-            format!("{}.cyclonedx.json", file_path.trim_end_matches(".cyclonedx"))
+            format!(
+                "{}.cyclonedx.json",
+                file_path.trim_end_matches(".cyclonedx")
+            )
         };
 
         std::fs::write(&cyclonedx_file, &json_output)
@@ -516,7 +524,11 @@ mod tests {
         let packages = vec![
             ("simple-mit", "1.0.0", "MIT"),
             ("dual-license", "2.1.0", "MIT OR Apache-2.0"),
-            ("complex-expr", "3.0.0", "(MIT OR Apache-2.0) AND BSD-3-Clause"),
+            (
+                "complex-expr",
+                "3.0.0",
+                "(MIT OR Apache-2.0) AND BSD-3-Clause",
+            ),
             ("no-license", "0.1.0", "NOASSERTION"),
         ];
 
@@ -545,13 +557,17 @@ mod tests {
                 }
                 "dual-license" => {
                     assert!(!component.licenses.is_empty());
-                    if let CycloneDxLicenseChoice::Expression { expression } = &component.licenses[0] {
+                    if let CycloneDxLicenseChoice::Expression { expression } =
+                        &component.licenses[0]
+                    {
                         assert_eq!(expression, "MIT OR Apache-2.0");
                     }
                 }
                 "complex-expr" => {
                     assert!(!component.licenses.is_empty());
-                    if let CycloneDxLicenseChoice::Expression { expression } = &component.licenses[0] {
+                    if let CycloneDxLicenseChoice::Expression { expression } =
+                        &component.licenses[0]
+                    {
                         assert_eq!(expression, "(MIT OR Apache-2.0) AND BSD-3-Clause");
                     }
                 }
