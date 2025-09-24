@@ -317,9 +317,10 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
             LicenseInfo {
                 name: name.to_string(),
                 version: clean_version_string(version),
-                license: Some(license),
+                license: Some(license.clone()),
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
+                osi_status: crate::licenses::get_osi_status(&license),
             }
         })
         .collect()

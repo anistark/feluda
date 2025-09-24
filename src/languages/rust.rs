@@ -72,6 +72,10 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
                 license: package.license.clone(),
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
+                osi_status: match &package.license {
+                    Some(license) => crate::licenses::get_osi_status(license),
+                    None => crate::licenses::OsiStatus::Unknown,
+                },
             }
         })
         .collect()

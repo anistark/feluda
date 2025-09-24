@@ -42,6 +42,7 @@ struct CheckConfig {
     fail_on_incompatible: bool,
     project_license: Option<String>,
     gist: bool,
+    osi: Option<cli::OsiFilter>,
 }
 
 fn main() {
@@ -138,6 +139,7 @@ fn run() -> FeludaResult<()> {
             fail_on_incompatible: args.fail_on_incompatible,
             project_license: args.project_license,
             gist: args.gist,
+            osi: args.osi,
         };
         handle_check_command(config)
     } else {
@@ -330,6 +332,47 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             }
         }
 
+        // Apply OSI filtering
+        if let Some(osi_filter) = &config.osi {
+            let before_count = analyzed_data.len();
+            match osi_filter {
+                cli::OsiFilter::Approved => {
+                    analyzed_data.retain(|info| info.osi_status == licenses::OsiStatus::Approved);
+                    log(
+                        LogLevel::Info,
+                        &format!(
+                            "Filtered for OSI approved licenses: {} of {} dependencies",
+                            analyzed_data.len(),
+                            before_count
+                        ),
+                    );
+                }
+                cli::OsiFilter::NotApproved => {
+                    analyzed_data
+                        .retain(|info| info.osi_status == licenses::OsiStatus::NotApproved);
+                    log(
+                        LogLevel::Info,
+                        &format!(
+                            "Filtered for non-OSI approved licenses: {} of {} dependencies",
+                            analyzed_data.len(),
+                            before_count
+                        ),
+                    );
+                }
+                cli::OsiFilter::Unknown => {
+                    analyzed_data.retain(|info| info.osi_status == licenses::OsiStatus::Unknown);
+                    log(
+                        LogLevel::Info,
+                        &format!(
+                            "Filtered for unknown OSI status licenses: {} of {} dependencies",
+                            analyzed_data.len(),
+                            before_count
+                        ),
+                    );
+                }
+            }
+        }
+
         log(LogLevel::Info, "Starting TUI mode");
 
         // Initialize the terminal
@@ -361,6 +404,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             config.output_file,
             project_license,
             config.gist,
+            config.osi,
         );
 
         // Generate a report based on the analyzed data

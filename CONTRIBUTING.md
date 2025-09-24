@@ -17,7 +17,7 @@ feluda/
 │   ├── config.rs            # Configuration management
 │   ├── debug.rs             # Debug and logging utilities
 │   ├── parser.rs            # Dependency parsing coordination
-│   ├── licenses.rs          # License analysis and compatibility
+│   ├── licenses.rs          # License analysis, compatibility, and OSI integration
 │   ├── reporter.rs          # Output formatting and reporting
 │   ├── table.rs             # TUI components
 │   ├── generate.rs          # License file generation
@@ -247,6 +247,57 @@ Contributors modifying the license compatibility matrix acknowledge that:
 - Users are responsible for their own license compliance
 - Maintainers and contributors provide no warranty regarding compatibility decisions
 - Legal counsel should be consulted for important compliance decisions
+
+### OSI Integration
+
+Feluda integrates with the Open Source Initiative (OSI) to provide license approval status information. The OSI integration consists of several components that work together to fetch, cache, and display OSI approval status for licenses.
+
+#### OSI Integration Components
+
+1. **OSI API Integration** (`src/licenses.rs`):
+   - `fetch_osi_licenses()`: Fetches approved licenses from [OSI API](`https://api.opensource.org/licenses/`)
+   - `OsiLicenseInfo` struct: Represents OSI license data structure
+   - Concurrent HTTP requests with tokio for performance
+   - Handles API failures gracefully with fallback mechanisms
+
+2. **OSI Status Management**:
+   - `OsiStatus` enum: `Approved`, `NotApproved`, `Unknown`
+   - `get_osi_status()`: Maps SPDX license IDs to OSI approval status
+   - Static fallback mappings for common licenses when API is unavailable
+   - Integration in all language parsers to include OSI status in `LicenseInfo`
+
+3. **Display Integration**:
+   - OSI status column in verbose table mode (`src/table.rs`)
+   - OSI status in JSON/YAML output formats (`src/reporter.rs`)
+   - Color-coded OSI status display in TUI mode
+   - CLI filtering with `--osi` flag (`src/cli.rs`)
+
+#### Modifying OSI Integration
+
+When working with OSI integration:
+
+**Adding New Static Mappings**: Update `get_osi_status()` in `src/licenses.rs`:
+```rust
+pub fn get_osi_status(license_id: &str, osi_licenses: &[OsiLicenseInfo]) -> OsiStatus {
+    // Add new static mappings here for licenses not in OSI API
+    match license_id {
+        "NEW-LICENSE-ID" => OsiStatus::Approved, // If you know it's OSI approved
+        // ... existing mappings
+    }
+}
+```
+
+**Testing OSI Integration**:
+```sh
+# Test OSI API connectivity and filtering
+cargo run -- --osi approved --verbose
+
+# Test fallback behavior (when API fails)
+# Temporarily break API URL in code and test
+
+# Test JSON output includes osi_status field
+cargo run -- --json | jq '.[0].osi_status'
+```
 
 ### Adding Support for New Languages
 

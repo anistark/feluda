@@ -1412,6 +1412,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "tokio".to_string(),
@@ -1419,6 +1420,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ]
     }
@@ -1655,6 +1657,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1662,6 +1665,7 @@ mod tests {
                 license: Some("Apache-2.0".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "package3".to_string(),
@@ -1669,6 +1673,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ];
 
@@ -1714,6 +1719,7 @@ mod tests {
             license: None,
             is_restrictive: true,
             compatibility: LicenseCompatibility::Unknown,
+            osi_status: crate::licenses::OsiStatus::Unknown,
         }];
 
         let content = generate_notice_content(&test_data);
@@ -1752,6 +1758,7 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
         generate_notice_file(&license_data, path);
@@ -1782,6 +1789,7 @@ mod tests {
             license: Some("Apache-2.0".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
         generate_notice_file(&license_data, path);
@@ -1804,6 +1812,7 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
         generate_third_party_licenses_file(&license_data, path);

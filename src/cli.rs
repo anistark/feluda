@@ -30,6 +30,17 @@ pub enum SbomFormat {
     All,
 }
 
+/// OSI filter options
+#[derive(ValueEnum, Clone, Debug)]
+pub enum OsiFilter {
+    /// Show only OSI approved licenses
+    Approved,
+    /// Show only non-OSI approved licenses
+    NotApproved,
+    /// Show licenses with unknown OSI status
+    Unknown,
+}
+
 /// CLI Commands
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
@@ -147,6 +158,10 @@ pub struct Cli {
     /// Generate SBOM in specified format
     #[arg(long, value_enum)]
     pub sbom: Option<SbomFormat>,
+
+    /// Filter by OSI license approval status
+    #[arg(long, value_enum)]
+    pub osi: Option<OsiFilter>,
 }
 
 impl Cli {
@@ -397,6 +412,7 @@ mod tests {
             project_license: None,
             gist: false,
             sbom: None,
+            osi: None,
         };
 
         assert_eq!(cli.path, "./");
@@ -434,6 +450,7 @@ mod tests {
             project_license: None,
             gist: false,
             sbom: None,
+            osi: None,
         };
 
         let cmd = cli.get_command_args();
@@ -475,6 +492,7 @@ mod tests {
             project_license: None,
             gist: false,
             sbom: None,
+            osi: None,
         };
 
         let cmd = cli.get_command_args();

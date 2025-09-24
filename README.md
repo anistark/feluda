@@ -14,6 +14,7 @@
 - Parse your project to identify dependencies and their licenses.
 - Classify licenses into permissive, restrictive, or unknown categories.
 - Check license compatibility between dependencies and your project's license.
+- Map licenses to OSI (Open Source Initiative) approval status and filter by OSI approval.
 - Flag dependencies with licenses that may restrict personal or commercial use.
 - Flag dependencies with licenses that may be incompatible with your project's license.
 - Generate compliance files (NOTICE and THIRD_PARTY_LICENSES) for legal requirements.
@@ -195,6 +196,11 @@ feluda --path /path/to/project/
 
 # Check with specific language
 feluda --language {rust|node|go|python|c|cpp}
+
+# Filter by OSI approval status
+feluda --osi approved        # Show only OSI approved licenses
+feluda --osi not-approved   # Show only non-OSI approved licenses
+feluda --osi unknown        # Show licenses with unknown OSI status
 ```
 
 ### License File Generation
@@ -345,14 +351,16 @@ Sample Output for a sample cargo.toml file containing `serde` and `tokio` depend
     "version": "1.0.151",
     "license": "MIT",
     "is_restrictive": false,
-    "compatibility": "Compatible"
+    "compatibility": "Compatible",
+    "osi_status": "Approved"
   },
   {
     "name": "tokio",
     "version": "1.0.2",
     "license": "MIT",
     "is_restrictive": false,
-    "compatibility": "Compatible"
+    "compatibility": "Compatible",
+    "osi_status": "Approved"
   }
 ]
 ```
@@ -373,11 +381,13 @@ Sample Output for a sample cargo.toml file containing `serde` and `tokio` depend
   license: MIT
   is_restrictive: false
   compatibility: Compatible
+  osi_status: Approved
 - name: tokio
   version: 1.0.2
   license: MIT
   is_restrictive: false
   compatibility: Compatible
+  osi_status: Approved
 ```
 
 ### Gist Mode
@@ -397,6 +407,37 @@ For detailed information about each dependency:
 ```sh
 feluda --verbose
 ```
+
+The verbose mode displays a table with an additional "OSI Status" column showing whether each license is approved by the Open Source Initiative (OSI).
+
+### OSI Integration
+
+Feluda integrates with the Open Source Initiative (OSI) to provide license approval status information. This feature helps you identify whether the licenses used by your dependencies are officially approved by the OSI.
+
+#### OSI Status Values
+
+- **`approved`**: License is officially approved by the OSI
+- **`unknown`**: License status with OSI is unknown or the license is not OSI approved
+
+#### OSI Filtering
+
+Filter dependencies by their OSI approval status:
+
+```sh
+# Show only OSI approved licenses
+feluda --osi approved --verbose
+
+# Show only non-approved or unknown OSI status licenses
+feluda --osi not-approved --verbose
+
+# Show licenses with unknown OSI status
+feluda --osi unknown --verbose
+
+# Combine with JSON output
+feluda --osi approved --json
+```
+
+**Note**: OSI status information is only displayed in `--verbose` mode, `--gui` mode, or when using structured output formats (JSON/YAML) to keep the default output clean.
 
 ### License Compatibility
 
@@ -443,6 +484,7 @@ Feluda provides several options for CI integration:
 - `--ci-format <github|jenkins>`: Generate output compatible with the specified CI system
 - `--fail-on-restrictive`: Make the CI build fail when restrictive licenses are found
 - `--fail-on-incompatible`: Make the CI build fail when incompatible licenses are found
+- `--osi <approved|not-approved|unknown>`: Filter by OSI license approval status
 - `--output-file <path>`: Write the output to a file instead of stdout
 
 Feluda can be easily integrated into your CI/CD pipelines with built-in support for **GitHub Actions** and **Jenkins**.

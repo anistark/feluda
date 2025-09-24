@@ -1,6 +1,6 @@
-use crate::cli::CiFormat;
+use crate::cli::{CiFormat, OsiFilter};
 use crate::debug::{log, log_debug, log_error, LogLevel};
-use crate::licenses::{LicenseCompatibility, LicenseInfo};
+use crate::licenses::{LicenseCompatibility, LicenseInfo, OsiStatus};
 use colored::*;
 use std::collections::HashMap;
 use std::fs;
@@ -17,6 +17,7 @@ pub struct ReportConfig {
     output_file: Option<String>,
     project_license: Option<String>,
     gist: bool,
+    osi: Option<OsiFilter>,
 }
 
 impl ReportConfig {
@@ -31,6 +32,7 @@ impl ReportConfig {
         output_file: Option<String>,
         project_license: Option<String>,
         gist: bool,
+        osi: Option<OsiFilter>,
     ) -> Self {
         Self {
             json,
@@ -42,6 +44,7 @@ impl ReportConfig {
             output_file,
             project_license,
             gist,
+            osi,
         }
     }
 }
@@ -150,7 +153,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
     }
 
     // Filter data if in strict or/and incompatible mode to show only restrictive or/and incompatible licenses
-    let filtered_data: Vec<LicenseInfo> = if config.strict || config.incompatible {
+    let mut filtered_data: Vec<LicenseInfo> = if config.strict || config.incompatible {
         log(
             LogLevel::Info,
             "Strict or/and incompatible mode enabled, filtering restrictive or/and incompatible licenses only",
@@ -165,6 +168,46 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
     } else {
         data
     };
+
+    // Apply OSI filtering
+    if let Some(osi_filter) = &config.osi {
+        let before_count = filtered_data.len();
+        match osi_filter {
+            OsiFilter::Approved => {
+                filtered_data.retain(|info| info.osi_status == OsiStatus::Approved);
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Applied OSI approved filter: {} of {} dependencies",
+                        filtered_data.len(),
+                        before_count
+                    ),
+                );
+            }
+            OsiFilter::NotApproved => {
+                filtered_data.retain(|info| info.osi_status == OsiStatus::NotApproved);
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Applied OSI not-approved filter: {} of {} dependencies",
+                        filtered_data.len(),
+                        before_count
+                    ),
+                );
+            }
+            OsiFilter::Unknown => {
+                filtered_data.retain(|info| info.osi_status == OsiStatus::Unknown);
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Applied OSI unknown filter: {} of {} dependencies",
+                        filtered_data.len(),
+                        before_count
+                    ),
+                );
+            }
+        }
+    }
 
     log(
         LogLevel::Info,
@@ -251,6 +294,9 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_licen
         headers.push("Compatibility".to_string());
     }
 
+    // Always add OSI status column in verbose mode
+    headers.push("OSI Status".to_string());
+
     let mut formatter = TableFormatter::new(headers);
 
     let rows: Vec<_> = license_info
@@ -267,6 +313,9 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_licen
             if project_license.is_some() {
                 row.push(format!("{:?}", info.compatibility));
             }
+
+            // Always add OSI status in verbose mode
+            row.push(info.osi_status().to_string());
 
             row
         })
@@ -972,6 +1021,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "crate2".to_string(),
@@ -979,6 +1029,7 @@ mod tests {
                 license: Some("GPL-3.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "crate3".to_string(),
@@ -986,6 +1037,7 @@ mod tests {
                 license: Some("Apache-2.0".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "crate4".to_string(),
@@ -993,6 +1045,7 @@ mod tests {
                 license: Some("Unknown".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Unknown,
+                osi_status: crate::licenses::OsiStatus::Unknown,
             },
         ]
     }
@@ -1005,6 +1058,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Unknown,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "crate2".to_string(),
@@ -1012,6 +1066,7 @@ mod tests {
                 license: Some("GPL-3.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Unknown,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ]
     }
@@ -1019,7 +1074,9 @@ mod tests {
     #[test]
     fn test_generate_report_empty_data() {
         let data = vec![];
-        let config = ReportConfig::new(false, false, false, false, false, None, None, None, false);
+        let config = ReportConfig::new(
+            false, false, false, false, false, None, None, None, false, None,
+        );
         let result = generate_report(data, config);
         assert_eq!(result, (false, false)); // No restrictive or incompatible licenses
     }
@@ -1037,6 +1094,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true)); // Has both restrictive and incompatible licenses
@@ -1055,6 +1113,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true)); // In strict mode, still has both restrictive and incompatible
@@ -1073,6 +1132,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true));
@@ -1091,6 +1151,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true));
@@ -1109,6 +1170,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true));
@@ -1117,7 +1179,9 @@ mod tests {
     #[test]
     fn test_generate_report_no_project_license() {
         let data = get_test_data_with_unknown_compatibility();
-        let config = ReportConfig::new(false, false, false, false, false, None, None, None, false);
+        let config = ReportConfig::new(
+            false, false, false, false, false, None, None, None, false, None,
+        );
         let result = generate_report(data, config);
         assert_eq!(result, (true, false)); // Has restrictive but no incompatible since no project license
     }
@@ -1137,6 +1201,7 @@ mod tests {
             Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
             false,
+            None,
         );
 
         let result = generate_report(data, config);
@@ -1170,6 +1235,7 @@ mod tests {
             Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
             false,
+            None,
         );
 
         let result = generate_report(data, config);
@@ -1204,6 +1270,7 @@ mod tests {
             Some(output_path.to_str().unwrap().to_string()),
             None,
             false,
+            None,
         );
 
         let result = generate_report(data, config);
@@ -1311,6 +1378,7 @@ mod tests {
             None,  // output_file
             None,  // project_license
             false, // gist
+            None,  // osi
         );
 
         assert!(!config.json);
@@ -1331,6 +1399,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1338,6 +1407,7 @@ mod tests {
                 license: Some("BSD-3-Clause".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ];
 
@@ -1351,6 +1421,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
@@ -1367,6 +1438,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "bad_package".to_string(),
@@ -1374,6 +1446,7 @@ mod tests {
                 license: Some("GPL-3.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ];
 
@@ -1387,6 +1460,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
@@ -1403,6 +1477,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "restrictive_package".to_string(),
@@ -1410,6 +1485,7 @@ mod tests {
                 license: Some("GPL-3.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ];
 
@@ -1423,6 +1499,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
@@ -1438,9 +1515,12 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
-        let config = ReportConfig::new(true, false, false, false, false, None, None, None, false);
+        let config = ReportConfig::new(
+            true, false, false, false, false, None, None, None, false, None,
+        );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
         assert!(!has_restrictive);
@@ -1455,9 +1535,12 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
-        let config = ReportConfig::new(false, true, false, false, false, None, None, None, false);
+        let config = ReportConfig::new(
+            false, true, false, false, false, None, None, None, false, None,
+        );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
         assert!(!has_restrictive);
@@ -1472,6 +1555,7 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
         let config = ReportConfig::new(
@@ -1484,6 +1568,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
@@ -1499,6 +1584,7 @@ mod tests {
             license: Some("GPL-3.0".to_string()),
             is_restrictive: true,
             compatibility: LicenseCompatibility::Incompatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
         let config = ReportConfig::new(
@@ -1511,6 +1597,7 @@ mod tests {
             None,
             Some("MIT".to_string()),
             false,
+            None,
         );
 
         let (has_restrictive, has_incompatible) = generate_report(data, config);
@@ -1526,6 +1613,7 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
         output_github_format(
@@ -1543,6 +1631,7 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
         output_jenkins_format(
@@ -1561,6 +1650,7 @@ mod tests {
                 license: Some("GPL-3.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "restrictive2".to_string(),
@@ -1568,6 +1658,7 @@ mod tests {
                 license: Some("AGPL-3.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ];
 
@@ -1604,6 +1695,7 @@ mod tests {
             Some("test.txt".to_string()),
             Some("MIT".to_string()),
             false,
+            None,
         );
 
         let debug_str = format!("{config:?}");

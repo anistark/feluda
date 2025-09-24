@@ -36,6 +36,9 @@ struct TableColors {
     compatible_color: Color,
     incompatible_color: Color,
     unknown_color: Color,
+    osi_approved_color: Color,
+    osi_not_approved_color: Color,
+    osi_unknown_color: Color,
 }
 
 impl TableColors {
@@ -54,6 +57,9 @@ impl TableColors {
             compatible_color: tailwind::GREEN.c500,
             incompatible_color: tailwind::RED.c500,
             unknown_color: tailwind::YELLOW.c500,
+            osi_approved_color: tailwind::BLUE.c500,
+            osi_not_approved_color: tailwind::ORANGE.c500,
+            osi_unknown_color: tailwind::GRAY.c500,
         }
     }
 }
@@ -61,7 +67,7 @@ impl TableColors {
 pub struct App {
     state: TableState,
     items: Vec<LicenseInfo>,
-    longest_item_lens: (u16, u16, u16, u16, u16),
+    longest_item_lens: (u16, u16, u16, u16, u16, u16), // Name, Version, License, Restrictive, Compatibility, OSI Status
     scroll_state: ScrollbarState,
     colors: TableColors,
     project_license: Option<String>,
@@ -184,13 +190,20 @@ impl App {
             .add_modifier(Modifier::REVERSED)
             .fg(self.colors.selected_cell_style_fg);
 
-        // Add Compatibility column to header
-        let header = ["Name", "Version", "License", "Restrictive", "Compatibility"]
-            .into_iter()
-            .map(Cell::from)
-            .collect::<Row>()
-            .style(header_style)
-            .height(1);
+        // Add Compatibility and OSI Status columns to header
+        let header = [
+            "Name",
+            "Version",
+            "License",
+            "Restrictive",
+            "Compatibility",
+            "OSI Status",
+        ]
+        .into_iter()
+        .map(Cell::from)
+        .collect::<Row>()
+        .style(header_style)
+        .height(1);
 
         let rows = self.items.iter().enumerate().map(|(i, data)| {
             let color = match i % 2 {
@@ -211,12 +224,27 @@ impl App {
                 }
             };
 
+            // Style OSI status text based on its value
+            let osi_status_text = match data.osi_status {
+                crate::licenses::OsiStatus::Approved => {
+                    Text::from(format!("\n{}\n", "approved")).fg(self.colors.osi_approved_color)
+                }
+                crate::licenses::OsiStatus::NotApproved => {
+                    Text::from(format!("\n{}\n", "not-approved"))
+                        .fg(self.colors.osi_not_approved_color)
+                }
+                crate::licenses::OsiStatus::Unknown => {
+                    Text::from(format!("\n{}\n", "unknown")).fg(self.colors.osi_unknown_color)
+                }
+            };
+
             let row = Row::new([
                 Cell::from(Text::from(format!("\n{}\n", data.name))),
                 Cell::from(Text::from(format!("\n{}\n", data.version))),
                 Cell::from(Text::from(format!("\n{}\n", data.get_license()))),
                 Cell::from(Text::from(format!("\n{}\n", data.is_restrictive()))),
                 Cell::from(compatibility_text),
+                Cell::from(osi_status_text),
             ])
             .style(Style::new().fg(self.colors.row_fg).bg(color))
             .height(4);
@@ -233,7 +261,8 @@ impl App {
                 Constraint::Min(self.longest_item_lens.1 + 1),
                 Constraint::Min(self.longest_item_lens.2),
                 Constraint::Min(self.longest_item_lens.3),
-                Constraint::Min(self.longest_item_lens.4), // Add constraint for Compatibility column
+                Constraint::Min(self.longest_item_lens.4), // Compatibility column
+                Constraint::Min(self.longest_item_lens.5), // OSI Status column
             ],
         )
         .header(header)
@@ -295,7 +324,7 @@ impl App {
     }
 }
 
-fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16, u16) {
+fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16, u16, u16) {
     log(LogLevel::Info, "Calculating column widths for table");
 
     let name_len = items
@@ -321,8 +350,15 @@ fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16, u16)
 
     let restricted_len = "true".width().max("false".width());
 
-    // Calculate width for the new Compatibility column
+    // Calculate width for the Compatibility column
     let compatibility_len = ["Compatible", "Incompatible", "Unknown"]
+        .iter()
+        .map(|s| s.width())
+        .max()
+        .unwrap_or(0);
+
+    // Calculate width for the OSI Status column
+    let osi_status_len = ["approved", "not-approved", "unknown"]
         .iter()
         .map(|s| s.width())
         .max()
@@ -335,6 +371,7 @@ fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16, u16)
         license_len as u16,
         restricted_len as u16,
         compatibility_len as u16,
+        osi_status_len as u16,
     );
 
     log(LogLevel::Info, &format!("Table column widths: {result:?}"));
@@ -353,6 +390,7 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
         let app = App::new(test_data.clone(), Some("MIT".to_string()));
@@ -384,6 +422,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -391,6 +430,7 @@ mod tests {
                 license: Some("Apache-2.0".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "package3".to_string(),
@@ -398,6 +438,7 @@ mod tests {
                 license: Some("GPL-3.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ];
 
@@ -438,6 +479,7 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
         let mut app = App::new(test_data, None);
@@ -474,6 +516,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "short".to_string(),
@@ -481,10 +524,11 @@ mod tests {
                 license: Some("Apache-2.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ];
 
-        let (name_len, version_len, license_len, restricted_len, compatibility_len) =
+        let (name_len, version_len, license_len, restricted_len, compatibility_len, _osi_len) =
             constraint_len_calculator(&test_data);
 
         assert_eq!(
@@ -500,7 +544,7 @@ mod tests {
     #[test]
     fn test_constraint_len_calculator_empty() {
         let test_data = vec![];
-        let (name_len, version_len, license_len, restricted_len, compatibility_len) =
+        let (name_len, version_len, license_len, restricted_len, compatibility_len, _osi_len) =
             constraint_len_calculator(&test_data);
 
         assert_eq!(name_len, 0);
@@ -518,9 +562,10 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
         }];
 
-        let (name_len, _, _, _, _) = constraint_len_calculator(&test_data);
+        let (name_len, _, _, _, _, _) = constraint_len_calculator(&test_data);
 
         assert!(name_len > 0);
     }
@@ -534,6 +579,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "incompatible".to_string(),
@@ -541,6 +587,7 @@ mod tests {
                 license: Some("GPL-3.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "unknown".to_string(),
@@ -548,10 +595,11 @@ mod tests {
                 license: Some("Custom".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Unknown,
+                osi_status: crate::licenses::OsiStatus::Unknown,
             },
         ];
 
-        let (_, _, _, _, compatibility_len) = constraint_len_calculator(&test_data);
+        let (_, _, _, _, compatibility_len, _) = constraint_len_calculator(&test_data);
 
         assert_eq!(compatibility_len, "Incompatible".len() as u16);
     }
@@ -565,6 +613,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: true, // true
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -572,10 +621,11 @@ mod tests {
                 license: Some("Apache".to_string()),
                 is_restrictive: false, // false
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ];
 
-        let (_, _, _, restricted_len, _) = constraint_len_calculator(&test_data);
+        let (_, _, _, restricted_len, _, _) = constraint_len_calculator(&test_data);
 
         assert_eq!(restricted_len, "false".len() as u16);
     }
@@ -603,6 +653,7 @@ mod tests {
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
             LicenseInfo {
                 name: "much_longer_name".to_string(),
@@ -610,6 +661,7 @@ mod tests {
                 license: Some("Apache-2.0".to_string()),
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
             },
         ];
 

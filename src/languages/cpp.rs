@@ -96,9 +96,13 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
             LicenseInfo {
                 name,
                 version,
-                license,
+                license: license.clone(),
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
+                osi_status: match &license {
+                    Some(l) => crate::licenses::get_osi_status(l),
+                    None => crate::licenses::OsiStatus::Unknown,
+                },
             }
         })
         .collect()

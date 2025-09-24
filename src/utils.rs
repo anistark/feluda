@@ -438,6 +438,7 @@ mod tests {
             project_license: None,
             gist: false,
             sbom: None,
+            osi: None,
         };
 
         let result = clone_repository(&args, temp_dir.path());
@@ -491,6 +492,7 @@ mod tests {
             project_license: None,
             gist: false,
             sbom: None,
+            osi: None,
         };
 
         // Enable debug mode for this test
@@ -543,6 +545,7 @@ mod tests {
             project_license: None,
             gist: false,
             sbom: None,
+            osi: None,
         };
 
         let result = clone_repository(&args, temp_dir.path());

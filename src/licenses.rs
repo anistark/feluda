@@ -85,6 +85,32 @@ struct LicenseEntry {
 #[cfg(not(test))]
 static COMPATIBILITY_MATRIX: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
 
+/// OSI license status
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OsiStatus {
+    Approved,
+    NotApproved,
+    Unknown,
+}
+
+impl std::fmt::Display for OsiStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Approved => write!(f, "approved"),
+            Self::NotApproved => write!(f, "not-approved"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+/// OSI license information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OsiLicenseInfo {
+    pub id: String,
+    pub name: String,
+    pub status: OsiStatus,
+}
+
 /// License Info of dependencies
 #[derive(Serialize, Debug, Clone)]
 pub struct LicenseInfo {
@@ -93,6 +119,7 @@ pub struct LicenseInfo {
     pub license: Option<String>, // An optional field that contains the license type (e.g., MIT, Apache 2.0)
     pub is_restrictive: bool,    // A boolean indicating whether the license is restrictive or not
     pub compatibility: LicenseCompatibility, // Compatibility with project license
+    pub osi_status: OsiStatus,   // OSI approval status
 }
 
 impl LicenseInfo {
@@ -117,6 +144,19 @@ impl LicenseInfo {
 
     pub fn compatibility(&self) -> &LicenseCompatibility {
         &self.compatibility
+    }
+
+    pub fn osi_status(&self) -> &OsiStatus {
+        &self.osi_status
+    }
+
+    #[allow(dead_code)]
+    pub fn osi_info(&self) -> Option<OsiLicenseInfo> {
+        self.license.as_ref().map(|license| OsiLicenseInfo {
+            id: license.clone(),
+            name: license.clone(),
+            status: self.osi_status,
+        })
     }
 }
 
@@ -364,6 +404,161 @@ async fn fetch_licenses_concurrent(
     );
 
     licenses_map
+}
+
+/// Static cache for OSI approved licenses
+#[cfg(not(test))]
+static OSI_LICENSES: OnceLock<HashMap<String, OsiStatus>> = OnceLock::new();
+
+/// Fetch OSI approved licenses from official API
+pub fn fetch_osi_licenses() -> FeludaResult<HashMap<String, OsiStatus>> {
+    log(LogLevel::Info, "Fetching OSI approved licenses");
+
+    let osi_map = cli::with_spinner("Fetching OSI approved licenses", |indicator| {
+        // Use tokio runtime for async operations
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(err) => {
+                log_error("Failed to create tokio runtime", &err);
+                return HashMap::new();
+            }
+        };
+
+        rt.block_on(fetch_osi_licenses_async(indicator))
+    });
+
+    Ok(osi_map)
+}
+
+/// Async helper function for fetching OSI licenses
+async fn fetch_osi_licenses_async(
+    indicator: &crate::cli::LoadingIndicator,
+) -> HashMap<String, OsiStatus> {
+    let mut osi_map = HashMap::new();
+
+    // Create async HTTP client
+    let client = match reqwest::Client::builder()
+        .user_agent("feluda-license-checker/1.0")
+        .timeout(Duration::from_secs(30))
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            log_error("Failed to create HTTP client", &err);
+            return osi_map;
+        }
+    };
+
+    indicator.update_progress("fetching OSI licenses");
+
+    let osi_api_url = "https://api.opensource.org/licenses/";
+    let response = match client.get(osi_api_url).send().await {
+        Ok(response) => response,
+        Err(err) => {
+            log_error("Failed to fetch OSI licenses from API", &err);
+            return osi_map;
+        }
+    };
+
+    if !response.status().is_success() {
+        log(
+            LogLevel::Error,
+            &format!("OSI API returned error status: {}", response.status()),
+        );
+        return osi_map;
+    }
+
+    let osi_licenses: Vec<serde_json::Value> = match response.json().await {
+        Ok(licenses) => licenses,
+        Err(err) => {
+            log_error("Failed to parse OSI licenses JSON", &err);
+            return osi_map;
+        }
+    };
+
+    let total_licenses = osi_licenses.len();
+    indicator.update_progress(&format!("found {total_licenses} OSI licenses"));
+
+    for license_data in osi_licenses {
+        if let Some(id) = license_data.get("id").and_then(|id| id.as_str()) {
+            // All licenses from OSI API are approved
+            osi_map.insert(id.to_string(), OsiStatus::Approved);
+        }
+    }
+
+    indicator.update_progress(&format!("processed {total_licenses} OSI licenses"));
+
+    log(
+        LogLevel::Info,
+        &format!("Successfully fetched {total_licenses} OSI approved licenses"),
+    );
+
+    osi_map
+}
+
+/// Get the OSI licenses map, loading it if not already cached
+fn get_osi_licenses() -> &'static HashMap<String, OsiStatus> {
+    #[cfg(not(test))]
+    {
+        OSI_LICENSES.get_or_init(|| {
+            fetch_osi_licenses().unwrap_or_else(|e| {
+                log(LogLevel::Warn, &format!("Failed to load OSI licenses: {e}"));
+                log(LogLevel::Warn, "Continuing without OSI license information");
+                HashMap::new()
+            })
+        })
+    }
+
+    #[cfg(test)]
+    {
+        use std::cell::RefCell;
+        thread_local! {
+            static OSI_MAP: RefCell<Option<HashMap<String, OsiStatus>>> = const { RefCell::new(None) };
+        }
+
+        OSI_MAP.with(|m| {
+            let mut map = m.borrow_mut();
+            if map.is_none() {
+                match fetch_osi_licenses() {
+                    Ok(loaded_map) => {
+                        *map = Some(loaded_map);
+                    }
+                    Err(_) => {
+                        *map = Some(HashMap::new());
+                    }
+                }
+            }
+
+            // Leak the memory to get a static reference (only for tests)
+            let leaked: &'static HashMap<String, OsiStatus> =
+                Box::leak(Box::new(map.as_ref().unwrap().clone()));
+            leaked
+        })
+    }
+}
+
+/// Check OSI approval status for a license
+pub fn get_osi_status(license_id: &str) -> OsiStatus {
+    let normalized_id = normalize_license_id(license_id);
+    let osi_licenses = get_osi_licenses();
+
+    // Check for exact match first
+    if let Some(status) = osi_licenses.get(&normalized_id) {
+        return *status;
+    }
+
+    // Check for original license ID
+    if let Some(status) = osi_licenses.get(license_id) {
+        return *status;
+    }
+
+    // For well-known licenses, we can provide static mappings as fallback
+    match normalized_id.as_str() {
+        "MIT" | "Apache-2.0" | "BSD-3-Clause" | "BSD-2-Clause" | "GPL-3.0" | "GPL-2.0"
+        | "LGPL-3.0" | "LGPL-2.1" | "MPL-2.0" | "ISC" | "0BSD" => OsiStatus::Approved,
+        "No License" => OsiStatus::NotApproved,
+        _ => OsiStatus::Unknown,
+    }
 }
 
 /// Check if a license is considered restrictive based on configuration and known licenses
@@ -970,6 +1165,7 @@ mod tests {
             license: Some("MIT".to_string()),
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
+            osi_status: OsiStatus::Approved,
         };
 
         assert_eq!(info.name(), "test_package");
@@ -987,6 +1183,7 @@ mod tests {
             license: None,
             is_restrictive: true,
             compatibility: LicenseCompatibility::Unknown,
+            osi_status: OsiStatus::Unknown,
         };
 
         assert_eq!(info.get_license(), "No License");
