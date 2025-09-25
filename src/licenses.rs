@@ -651,31 +651,23 @@ pub fn is_license_restrictive(
     false
 }
 
-/// Load license compatibility matrix from external TOML file
-/// Looks for the file in multiple locations in order of preference:
-/// 1. config/license_compatibility.toml (recommended - project-specific config directory)
-/// 2. .feluda/license_compatibility.toml (user-specific config directory)
+/// This is the default configuration
+const EMBEDDED_LICENSE_COMPATIBILITY_TOML: &str = include_str!("../config/license_compatibility.toml");
+
+/// Load license compatibility matrix from external TOML file if available
+/// Looks for the file in the following order:
+/// 1. .feluda/license_compatibility.toml (user-specific config directory)
+/// 2. Embedded configuration
 fn load_compatibility_matrix() -> FeludaResult<HashMap<String, Vec<String>>> {
     log(
         LogLevel::Info,
         "Loading license compatibility matrix from TOML file",
     );
 
-    // Try to find the config relative to the executable or current directory
-    let mut config_paths = vec![
-        Path::new("config/license_compatibility.toml").to_path_buf(),
+    // Only check for user-specific config in .feluda directory
+    let config_paths = vec![
         Path::new(".feluda/license_compatibility.toml").to_path_buf(),
     ];
-
-    // Also try relative to the executable location (for when running from different directories)
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            config_paths.push(exe_dir.join("config/license_compatibility.toml"));
-            config_paths.push(exe_dir.join("../config/license_compatibility.toml")); // for target/debug/deps
-            config_paths.push(exe_dir.join("../../config/license_compatibility.toml"));
-            // for nested paths
-        }
-    }
 
     let mut config_content = None;
     let mut used_path = None;
@@ -703,33 +695,26 @@ fn load_compatibility_matrix() -> FeludaResult<HashMap<String, Vec<String>>> {
         }
     }
 
-    let config_content = config_content.ok_or_else(|| {
-        log(
-            LogLevel::Error,
-            "No license compatibility configuration file found in any of the expected locations:",
-        );
-        log(LogLevel::Error, "  - config/license_compatibility.toml");
-        log(LogLevel::Error, "  - .feluda/license_compatibility.toml");
-        log(
-            LogLevel::Error,
-            "This file should have been included with the application build.",
-        );
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "License compatibility configuration file not found",
-        )
-    })?;
+    // Use embedded configuration as fallback if no external file is found
+    let config_content = match config_content {
+        Some(content) => content,
+        None => {
+            log(
+                LogLevel::Info,
+                "No external license compatibility config found, using embedded configuration",
+            );
+            EMBEDDED_LICENSE_COMPATIBILITY_TOML.to_string()
+        }
+    };
 
     let matrix: LicenseCompatibilityMatrix = toml::from_str(&config_content).map_err(|e| {
+        let source = match &used_path {
+            Some(path) => format!("external config file ({})", path.display()),
+            None => "embedded configuration".to_string(),
+        };
         log(
             LogLevel::Error,
-            &format!(
-                "Failed to parse {}: {}",
-                used_path.map_or("configuration file", |p| p
-                    .to_str()
-                    .unwrap_or("configuration file")),
-                e
-            ),
+            &format!("Failed to parse license compatibility {}: {}", source, e),
         );
         std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
     })?;
