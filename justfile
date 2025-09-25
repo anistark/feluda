@@ -20,8 +20,8 @@ test-release:
 
 # Create a release on GitHub
 gh-release:
-    @echo "📢 Creating GitHub release for version {{VERSION}}"
-    gh release create {{VERSION}}
+    @echo "📢 Creating GitHub release for version v{{VERSION}}"
+    gh release create v{{VERSION}}
 
 # Release the crate to Homebrew
 homebrew-release:

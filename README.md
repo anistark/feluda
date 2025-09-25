@@ -491,7 +491,7 @@ Feluda can be easily integrated into your CI/CD pipelines with built-in support 
 
 ### GitHub Actions
 
-To use Feluda with GitHub Actions, simply use the published action:
+To use Feluda with GitHub Actions, simply use the published action. For detailed documentation, see the [GitHub Action README](./ACTION-README.md).
 
 ```yaml
 name: License Check

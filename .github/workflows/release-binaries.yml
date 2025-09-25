@@ -55,7 +55,6 @@ jobs:
           files: "feluda-*.rpm"
           draft: ${{ contains(github.ref_name, '-') }}
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   build-deb:
@@ -95,6 +94,5 @@ jobs:
           files: "feluda-*.deb"
           draft: ${{ contains(github.ref_name, '-') }}
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

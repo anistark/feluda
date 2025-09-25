@@ -127,6 +127,7 @@ Feluda automatically detects and scans dependencies for:
 - Node.js (package.json, package-lock.json, yarn.lock, pnpm-lock.yaml)
 - Python (requirements.txt, Pipfile, pyproject.toml)
 - Go (go.mod)
+- C/C++ (conanfile.txt, conanfile.py, vcpkg.json, Makefile)
 
 ## License
 
