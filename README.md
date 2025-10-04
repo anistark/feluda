@@ -117,7 +117,7 @@ Feluda is available as a DEB package for Debian-based systems.
 1. Download the latest `.deb` file from [GitHub Releases](https://github.com/anistark/feluda/releases)
 2. Install the package:
 
-```bash
+```sh
 # Install the downloaded DEB package
 sudo dpkg -i feluda_*.deb
 
@@ -136,7 +136,7 @@ Feluda is available as an RPM package for Red Hat-based systems.
 1. Download the latest `.rpm` file from [GitHub Releases](https://github.com/anistark/feluda/releases)
 2. Install the package:
 
-```bash
+```sh
 # Install the downloaded RPM package
 sudo rpm -ivh feluda_*.rpm
 

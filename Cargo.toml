@@ -65,6 +65,15 @@ advanced-debug = ["backtrace"]
 [[bin]]
 name = "feluda"
 
+# Example binaries for testing Feluda with different language ecosystems
+[[example]]
+name = "rust-example"
+path = "examples/rust-example/src/main.rs"
+
+[[example]]
+name = "analyze-rust"
+path = "examples/rust-example/src/main.rs"
+
 [profile.release]
 lto = true
 codegen-units = 1

@@ -78,3 +78,35 @@ check-all: format lint test
 bench:
     @echo "⏱️ Running benchmarks..."
     cargo bench
+
+# Run example projects for testing
+examples:
+    @echo "🧪 Running example projects for testing..."
+    @echo "\n📦 Rust Example:"
+    cargo run --example rust-example
+    @echo "\n📦 Node.js Example:"
+    @echo "Run: feluda --path examples/node-example"
+    @echo "\n📦 Go Example:"
+    @echo "Run: feluda --path examples/go-example"
+    @echo "\n📦 Python Example:"
+    @echo "Run: feluda --path examples/python-example"
+    @echo "\n📦 C Example:"
+    @echo "Run: feluda --path examples/c-example"
+    @echo "\n📦 C++ Example:"
+    @echo "Run: feluda --path examples/cpp-example"
+
+# Test Feluda on all example projects
+test-examples:
+    @echo "🧪 Testing Feluda on all example projects..."
+    @echo "\n📦 Testing Rust Example:"
+    ./target/debug/feluda --path examples/rust-example || cargo run -- --path examples/rust-example
+    @echo "\n📦 Testing Node.js Example:"
+    ./target/debug/feluda --path examples/node-example || cargo run -- --path examples/node-example
+    @echo "\n📦 Testing Go Example:"
+    ./target/debug/feluda --path examples/go-example || cargo run -- --path examples/go-example
+    @echo "\n📦 Testing Python Example:"
+    ./target/debug/feluda --path examples/python-example || cargo run -- --path examples/python-example
+    @echo "\n📦 Testing C Example:"
+    ./target/debug/feluda --path examples/c-example || cargo run -- --path examples/c-example
+    @echo "\n📦 Testing C++ Example:"
+    ./target/debug/feluda --path examples/cpp-example || cargo run -- --path examples/cpp-example
