@@ -30,6 +30,7 @@ feluda/
 │       ├── node.rs          # Node.js/npm support
 │       ├── go.rs            # Go modules support
 │       └── python.rs        # Python package support
+├── examples/                # Example projects for testing
 ├── config/
 │   └── license_compatibility.toml  # License compatibility matrix
 ├── Cargo.toml               # Project metadata
@@ -64,6 +65,63 @@ cargo build
 
 ```sh
 cargo test
+```
+
+### Testing with Example Projects
+
+Feluda includes example projects for all supported languages in the `examples/` directory. These projects are designed to test Feluda's license analysis capabilities with real-world dependencies that have transient (indirect) dependencies.
+
+#### Available Example Projects
+
+1. **Rust Example** (`examples/rust-example/`): Uses serde, tokio, reqwest, and clap
+2. **Node.js Example** (`examples/node-example/`): Uses express, axios, lodash, and moment
+3. **Go Example** (`examples/go-example/`): Uses gin, cobra, testify, and zap
+4. **Python Example** (`examples/python-example/`): Uses flask, requests, numpy, and pytest
+5. **C Example** (`examples/c-example/`): Uses openssl, libcurl, and zlib
+6. **C++ Example** (`examples/cpp-example/`): Uses boost, fmt, nlohmann-json, and spdlog
+
+#### Running Example Projects
+
+Use the `just` command to run and test examples:
+
+```sh
+# Show available example commands
+just examples
+
+# Test Feluda on all example projects
+just test-examples
+
+# Test Feluda on a specific example
+feluda --path examples/rust-example
+feluda --path examples/node-example
+feluda --path examples/go-example
+feluda --path examples/python-example
+feluda --path examples/c-example
+feluda --path examples/cpp-example
+```
+
+#### Using Examples for Development
+
+When developing new features or fixing bugs, use these example projects to:
+
+1. **Test language-specific parsers**: Each example project tests a different language parser
+2. **Verify transient dependency resolution**: All examples include dependencies with indirect dependencies
+3. **Test license detection accuracy**: Examples use common libraries with well-known licenses
+4. **Validate output formats**: Test JSON, YAML, verbose, and TUI modes on examples
+
+Example workflow:
+
+```sh
+# Make your changes to the codebase
+cargo build
+
+# Test on all examples
+just test-examples
+
+# Test specific output formats
+./target/debug/feluda --path examples/rust-example --json
+./target/debug/feluda --path examples/node-example --verbose
+./target/debug/feluda --path examples/go-example --gui
 ```
 
 ### Debug Mode
