@@ -70,10 +70,6 @@ name = "feluda"
 name = "rust-example"
 path = "examples/rust-example/src/main.rs"
 
-[[example]]
-name = "analyze-rust"
-path = "examples/rust-example/src/main.rs"
-
 [profile.release]
 lto = true
 codegen-units = 1

@@ -65,6 +65,8 @@ format:
 
 # Check for lint issues without making changes
 lint:
+    @echo "🧹 Cleaning build artifacts to mimic CI..."
+    cargo clean
     @echo "🔍 Checking code style with rustfmt..."
     cargo fmt --all -- --check
     @echo "🔬 Running clippy lints..."

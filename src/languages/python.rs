@@ -13,16 +13,6 @@ use crate::licenses::{
     fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
 };
 
-/// License Info
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-struct License {
-    title: String,            // The full name of the license
-    spdx_id: String,          // The SPDX identifier for the license
-    permissions: Vec<String>, // A list of permissions granted by the license
-    conditions: Vec<String>,  // A list of conditions that must be met under the license
-    limitations: Vec<String>, // A list of limitations imposed by the license
-}
-
 /// Analyze the licenses of Python dependencies with transitive resolution
 pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
     let mut licenses = Vec::new();
