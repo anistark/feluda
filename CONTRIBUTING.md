@@ -191,6 +191,32 @@ fn my_function() -> FeludaResult<MyType> {
 }
 ```
 
+#### Available Error Types
+
+The `FeludaError` enum provides specific error variants for different error scenarios. Use the most specific error type that matches your situation:
+
+| Error Variant | Use Case | Example |
+|--------------|----------|---------|
+| `Io(std::io::Error)` | File system operations, I/O errors | File read/write failures (auto-converted via `From` trait) |
+| `Http(reqwest::Error)` | Network requests, API calls | HTTP client errors (auto-converted via `From` trait) |
+| `Config(String)` | Configuration loading/validation | Invalid config values, missing required settings |
+| `License(String)` | License analysis, compatibility checks | Invalid license format, compatibility violations |
+| `Parser(String)` | Dependency file parsing | Malformed package.json, invalid Cargo.toml |
+| `RepositoryClone(String)` | Git repository cloning | Clone failures, authentication issues |
+| `TempDir(String)` | Temporary directory operations | Failed to create or access temp directories |
+| `TuiInit(String)` | TUI initialization | Terminal setup failures, color_eyre errors |
+| `TuiRuntime(String)` | TUI runtime operations | Runtime errors during TUI execution |
+| `Serialization(String)` | JSON/YAML serialization | Failed to serialize SBOM documents |
+| `FileWrite(String)` | File write operations | Failed to write SBOM or license files |
+| `InvalidData(String)` | Data validation | Malformed SPDX data, invalid characters |
+| `Unknown(String)` | Fallback for uncategorized errors | Use only when no specific type fits |
+
+**Guidelines:**
+- Prefer specific error types over `Unknown`
+- Include context in error messages: `FeludaError::Parser(format!("Failed to parse {}: {}", file, err))`
+- Use `map_err()` to convert errors: `.map_err(|e| FeludaError::Serialization(format!("Failed to serialize: {e}")))?`
+- `Io` and `Http` errors are auto-converted via the `From` trait, no manual conversion needed
+
 ### Guidelines
 
 - **Code Style**: Follow Rust's standard coding conventions.

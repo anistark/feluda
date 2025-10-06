@@ -306,8 +306,9 @@ pub fn generate_cyclonedx_output(
     let cyclonedx_bom = convert_spdx_to_cyclonedx(spdx_doc);
 
     // Serialize to JSON
-    let json_output = serde_json::to_string_pretty(&cyclonedx_bom)
-        .map_err(|e| FeludaError::Unknown(format!("Failed to serialize CycloneDX BOM: {e}")))?;
+    let json_output = serde_json::to_string_pretty(&cyclonedx_bom).map_err(|e| {
+        FeludaError::Serialization(format!("Failed to serialize CycloneDX BOM: {e}"))
+    })?;
 
     // Output to file or stdout
     if let Some(file_path) = output_file {
@@ -321,7 +322,7 @@ pub fn generate_cyclonedx_output(
         };
 
         std::fs::write(&cyclonedx_file, &json_output)
-            .map_err(|e| FeludaError::Unknown(format!("Failed to write CycloneDX file: {e}")))?;
+            .map_err(|e| FeludaError::FileWrite(format!("Failed to write CycloneDX file: {e}")))?;
 
         println!("🧪 CycloneDX BOM written to: {cyclonedx_file} (EXPERIMENTAL)");
         log(

@@ -122,7 +122,29 @@ pub enum FeludaError {
     #[error("Parser error: {0}")]
     Parser(String),
 
+    #[error("Repository clone error: {0}")]
+    RepositoryClone(String),
+
+    #[error("Temporary directory error: {0}")]
+    TempDir(String),
+
+    #[error("TUI initialization error: {0}")]
+    TuiInit(String),
+
+    #[error("TUI runtime error: {0}")]
+    TuiRuntime(String),
+
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+
+    #[error("File write error: {0}")]
+    FileWrite(String),
+
+    #[error("Invalid data: {0}")]
+    InvalidData(String),
+
     #[error("Unknown error: {0}")]
+    #[allow(dead_code)]
     Unknown(String),
 }
 

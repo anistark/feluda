@@ -585,11 +585,12 @@ pub fn generate_spdx_output(
         );
     }
 
-    let json_output = serde_json::to_string_pretty(&safe_doc)
-        .map_err(|e| FeludaError::Unknown(format!("Failed to serialize SPDX document: {e}")))?;
+    let json_output = serde_json::to_string_pretty(&safe_doc).map_err(|e| {
+        FeludaError::Serialization(format!("Failed to serialize SPDX document: {e}"))
+    })?;
 
     if json_output.contains("\\n") || json_output.contains("\\r") {
-        return Err(FeludaError::Unknown(
+        return Err(FeludaError::InvalidData(
             "SPDX JSON contains invalid escaped characters".to_string(),
         ));
     }
@@ -602,7 +603,7 @@ pub fn generate_spdx_output(
         };
 
         std::fs::write(&spdx_file, &json_output)
-            .map_err(|e| FeludaError::Unknown(format!("Failed to write SPDX file: {e}")))?;
+            .map_err(|e| FeludaError::FileWrite(format!("Failed to write SPDX file: {e}")))?;
 
         println!("SPDX SBOM written to: {spdx_file}");
         log(

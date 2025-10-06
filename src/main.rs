@@ -82,7 +82,7 @@ fn run() -> FeludaResult<()> {
                 &format!("Attempting to clone repository: {repo_url}"),
             );
             let temp_dir = TempDir::new().map_err(|e| {
-                FeludaError::Unknown(format!("Failed to create temporary directory: {e}"))
+                FeludaError::TempDir(format!("Failed to create temporary directory: {e}"))
             })?;
             let repo_path = temp_dir.path();
 
@@ -377,7 +377,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
         // Initialize the terminal
         color_eyre::install()
-            .map_err(|e| FeludaError::Unknown(format!("Failed to initialize color_eyre: {e}")))?;
+            .map_err(|e| FeludaError::TuiInit(format!("Failed to initialize color_eyre: {e}")))?;
 
         let terminal = ratatui::init();
         log(LogLevel::Info, "Terminal initialized for TUI");
@@ -387,7 +387,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
         ratatui::restore();
 
         // Handle any errors from the TUI
-        app_result.map_err(|e| FeludaError::Unknown(format!("TUI error: {e}")))?;
+        app_result.map_err(|e| FeludaError::TuiRuntime(format!("TUI error: {e}")))?;
 
         log(LogLevel::Info, "TUI session completed successfully");
     } else {

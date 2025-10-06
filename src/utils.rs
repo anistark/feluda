@@ -213,7 +213,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                         }
                         Err(e) => {
                             log(LogLevel::Error, &format!("HTTPS clone failed: {e}"));
-                            Err(FeludaError::Unknown(format!(
+                            Err(FeludaError::RepositoryClone(format!(
                                 "Failed to clone repository: {e}"
                             )))
                         }
@@ -221,7 +221,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                 }
             }
             log(LogLevel::Error, &format!("Failed to clone repository: {e}"));
-            Err(FeludaError::Unknown(format!(
+            Err(FeludaError::RepositoryClone(format!(
                 "Failed to clone repository: {e}"
             )))
         }
