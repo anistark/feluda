@@ -2,7 +2,7 @@
 
 use crate::cli;
 use crate::debug::{log, log_debug, FeludaResult, LogLevel};
-use crate::languages::{Language, CPP_PATHS, C_PATHS, PYTHON_PATHS};
+use crate::languages::{Language, CPP_PATHS, C_PATHS, PYTHON_PATHS, R_PATHS};
 use crate::licenses::{
     detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
 };
@@ -147,6 +147,29 @@ fn check_which_python_file_exists(project_path: impl AsRef<Path>) -> Option<Stri
     None
 }
 
+/// Check which R project file exists in the given path
+fn check_which_r_file_exists(project_path: impl AsRef<Path>) -> Option<String> {
+    for &path in R_PATHS.iter() {
+        let full_path = Path::new(project_path.as_ref()).join(path);
+        if full_path.exists() {
+            log(
+                LogLevel::Info,
+                &format!("Found R project file: {}", full_path.display()),
+            );
+            return Some(path.to_string());
+        }
+    }
+
+    log(
+        LogLevel::Warn,
+        &format!(
+            "No R project file found in: {}",
+            project_path.as_ref().display()
+        ),
+    );
+    None
+}
+
 /// Main entry point for parsing project dependencies
 pub fn parse_root(
     root_path: impl AsRef<Path>,
@@ -179,7 +202,7 @@ pub fn parse_root_with_config(
         );
         println!(
             "❌ No supported project files found.\n\
-            Feluda supports: C, C++, Rust, Node.js, Go, Python"
+            Feluda supports: C, C++, Rust, Node.js, Go, Python, R"
         );
         return Ok(Vec::new());
     }
@@ -265,6 +288,7 @@ fn matches_language(project_type: Language, language: &str) -> bool {
             | (Language::Node(_), "node")
             | (Language::Go(_), "go")
             | (Language::Python(_), "python")
+            | (Language::R(_), "r")
     )
 }
 
@@ -435,6 +459,34 @@ fn parse_dependencies(
                 }
                 None => {
                     log(LogLevel::Error, "C++ build file not found");
+                    Vec::new()
+                }
+            },
+            Language::R(_) => match check_which_r_file_exists(project_path) {
+                Some(r_package_file) => {
+                    let project_path = Path::new(project_path).join(&r_package_file);
+                    log(
+                        LogLevel::Info,
+                        &format!("Parsing R project: {}", project_path.display()),
+                    );
+
+                    indicator.update_progress(&format!("analyzing {r_package_file}"));
+
+                    match project_path.to_str() {
+                        Some(path_str) => {
+                            let deps = crate::languages::analyze_r_licenses(path_str, config);
+                            indicator
+                                .update_progress(&format!("found {} dependencies", deps.len()));
+                            deps
+                        }
+                        None => {
+                            log(LogLevel::Error, "Failed to convert R path to string");
+                            Vec::new()
+                        }
+                    }
+                }
+                None => {
+                    log(LogLevel::Error, "R package file not found");
                     Vec::new()
                 }
             },

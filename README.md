@@ -31,6 +31,7 @@
 4. ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 5. ![C](https://img.shields.io/badge/c-%2300599C.svg?style=for-the-badge&logo=c&logoColor=white)
 6. ![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)
+7. ![R](https://img.shields.io/badge/r-%23276DC3.svg?style=for-the-badge&logo=r&logoColor=white)
 
 Feluda supports analyzing dependencies across multiple languages simultaneously.
 
@@ -195,7 +196,7 @@ feluda
 feluda --path /path/to/project/
 
 # Check with specific language
-feluda --language {rust|node|go|python|c|cpp}
+feluda --language {rust|node|go|python|c|cpp|r}
 
 # Filter by OSI approval status
 feluda --osi approved        # Show only OSI approved licenses

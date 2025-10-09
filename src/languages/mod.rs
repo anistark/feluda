@@ -5,6 +5,7 @@ pub mod cpp;
 pub mod go;
 pub mod node;
 pub mod python;
+pub mod r;
 pub mod rust;
 
 // Re-export commonly used types and functions for backward compatibility
@@ -16,6 +17,7 @@ pub use go::{
 };
 pub use node::{analyze_js_licenses, PackageJson};
 pub use python::{analyze_python_licenses, fetch_license_for_python_dependency};
+pub use r::analyze_r_licenses;
 pub use rust::analyze_rust_licenses;
 
 use crate::licenses::LicenseInfo;
@@ -46,6 +48,7 @@ pub enum Language {
     Node(&'static str),
     Go(&'static str),
     Python(&'static [&'static str]),
+    R(&'static [&'static str]),
 }
 
 impl Language {
@@ -65,6 +68,8 @@ impl Language {
             _ => {
                 if PYTHON_PATHS.contains(&file_name) {
                     Some(Language::Python(&PYTHON_PATHS[..]))
+                } else if R_PATHS.contains(&file_name) {
+                    Some(Language::R(&R_PATHS[..]))
                 } else {
                     None
                 }
@@ -92,3 +97,6 @@ pub const PYTHON_PATHS: [&str; 4] = [
     "pip_freeze.txt",
     "pyproject.toml",
 ];
+
+/// R project file patterns
+pub const R_PATHS: [&str; 2] = ["DESCRIPTION", "renv.lock"];

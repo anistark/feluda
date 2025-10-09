@@ -1,0 +1,24 @@
+Package: feludaexample
+Title: Example R Package for Feluda License Analysis
+Version: 0.1.0
+Authors@R:
+    person("Feluda", "Developer", , "dev@example.com", role = c("aut", "cre"))
+Description: A simple example R package demonstrating Feluda's license analysis
+    capabilities for R projects. This package includes common R dependencies
+    with various licenses to test license detection and compatibility checking.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.3
+Depends:
+    R (>= 4.0.0)
+Imports:
+    dplyr (>= 1.0.0),
+    ggplot2 (>= 3.3.0),
+    tidyr (>= 1.2.0),
+    readr (>= 2.0.0)
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr

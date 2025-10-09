@@ -10,6 +10,7 @@ This directory contains example projects for all supported languages in Feluda. 
 4. Python Example (`python-example/`)
 5. C Example (`c-example/`)
 6. C++ Example (`cpp-example/`)
+7. R Example (`r-example/`)
 
 ## Using Just Commands
 
@@ -43,6 +44,9 @@ feluda --path examples/c-example --gist
 
 # License compatibility check
 feluda --path examples/cpp-example --project-license MIT
+
+# R project analysis
+feluda --path examples/r-example --verbose
 ```
 
 ## Contributing

@@ -29,7 +29,8 @@ feluda/
 │       ├── rust.rs          # Rust/Cargo support
 │       ├── node.rs          # Node.js/npm support
 │       ├── go.rs            # Go modules support
-│       └── python.rs        # Python package support
+│       ├── python.rs        # Python package support
+│       └── r.rs             # R package support
 ├── examples/                # Example projects for testing
 ├── config/
 │   └── license_compatibility.toml  # License compatibility matrix
@@ -79,6 +80,7 @@ Feluda includes example projects for all supported languages in the `examples/` 
 4. **Python Example** (`examples/python-example/`): Uses flask, requests, numpy, and pytest
 5. **C Example** (`examples/c-example/`): Uses openssl, libcurl, and zlib
 6. **C++ Example** (`examples/cpp-example/`): Uses boost, fmt, nlohmann-json, and spdlog
+7. **R Example** (`examples/r-example/`): Uses dplyr, ggplot2, and tidyr
 
 #### Running Example Projects
 
@@ -98,6 +100,7 @@ feluda --path examples/go-example
 feluda --path examples/python-example
 feluda --path examples/c-example
 feluda --path examples/cpp-example
+feluda --path examples/r-example
 ```
 
 #### Using Examples for Development
@@ -451,21 +454,27 @@ fn fetch_license_for_dependency(name: &str, version: &str) -> Option<String> {
    - Handle API rate limits and failures gracefully
    - Cache results when appropriate
 
-#### C/C++ Language Implementation Example
+#### Language Implementation Examples
 
-The C and C++ modules (`src/languages/c.rs` and `src/languages/cpp.rs`) demonstrate handling different ecosystem approaches:
+Different language ecosystems require different approaches. Here are some examples:
 
-**C Module Features:**
+**C Module Features** (`src/languages/c.rs`):
 - Autotools support (`configure.ac`, `configure.in`)
 - Makefile parsing
 - pkg-config integration
 - System package resolution
 
-**C++ Module Features:**
+**C++ Module Features** (`src/languages/cpp.rs`):
 - Modern package managers (vcpkg, Conan)
 - Build system integration (CMake, Bazel)
 - Package manager API queries
 - Transitive dependency resolution
+
+**R Module Features** (`src/languages/r.rs`):
+- DESCRIPTION file parsing (DCF format)
+- renv.lock support (JSON format)
+- R-universe API integration for license fetching
+- Handles Imports, Depends, Suggests, and LinkingTo fields
 
 #### Updating Language Detection
 
