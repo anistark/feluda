@@ -32,7 +32,7 @@ struct CheckConfig {
     json: bool,
     yaml: bool,
     verbose: bool,
-    strict: bool,
+    restrictive: bool,
     gui: bool,
     language: Option<String>,
     ci_format: Option<cli::CiFormat>,
@@ -129,7 +129,7 @@ fn run() -> FeludaResult<()> {
             json: args.json,
             yaml: args.yaml,
             verbose: args.verbose,
-            strict: args.strict,
+            restrictive: args.restrictive,
             gui: args.gui,
             language: args.language,
             ci_format: args.ci_format,
@@ -264,14 +264,14 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
         let original_count = analyzed_data.len();
 
         // Filter for restrictive and incompatible
-        if config.strict || config.incompatible {
+        if config.restrictive || config.incompatible {
             if project_license.is_some() {
                 log(
                 LogLevel::Info,
-                "Strict and incompatible mode enabled, filtering for restrictive and incompatible licenses",
+                "Restrictive and incompatible mode enabled, filtering for restrictive and incompatible licenses",
             );
                 analyzed_data.retain(|info| {
-                    (config.strict && *info.is_restrictive())
+                    (config.restrictive && *info.is_restrictive())
                         || (config.incompatible
                             && info.compatibility == LicenseCompatibility::Incompatible)
                 });
@@ -290,11 +290,11 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
                 "Incompatible mode enabled but no project license specified, cannot filter for incompatible licenses",
             );
             }
-        } else if config.strict {
+        } else if config.restrictive {
             // Filter for restrictive
             log(
                 LogLevel::Info,
-                "Strict mode enabled, filtering for restrictive licenses",
+                "Restrictive mode enabled, filtering for restrictive licenses",
             );
             analyzed_data.retain(|info| *info.is_restrictive());
 
@@ -398,7 +398,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             config.json,
             config.yaml,
             config.verbose,
-            config.strict,
+            config.restrictive,
             config.incompatible,
             config.ci_format,
             config.output_file,

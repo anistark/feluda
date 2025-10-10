@@ -19,7 +19,7 @@
 - Flag dependencies with licenses that may be incompatible with your project's license.
 - Generate compliance files (NOTICE and THIRD_PARTY_LICENSES) for legal requirements.
 - Generate Software Bill of Materials (SBOM) in SPDX format for security and compliance.
-- Output results in plain text, JSON or TUI formats. There's also a gist format which is available in strict mode to output a single line only.
+- Output results in plain text, JSON or TUI formats. There's also a gist format which is available in restrictive mode to output a single line only.
 - CI/CD support for Github Actions and Jenkins.
 - Verbose mode gives an enhanced view of all licenses.
 
@@ -460,12 +460,12 @@ And fail CI builds if incompatible licenses are found:
 feluda --fail-on-incompatible
 ```
 
-### Strict Mode
+### Restrictive Mode
 
-In case you strictly need only the restrictive dependencies:
+In case you need to see only the restrictive dependencies:
 
 ```sh
-feluda --strict
+feluda --restrictive
 ```
 
 ### Terminal User Interface (TUI) Mode

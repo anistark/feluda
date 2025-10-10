@@ -11,7 +11,7 @@ pub struct ReportConfig {
     json: bool,
     yaml: bool,
     verbose: bool,
-    strict: bool,
+    restrictive: bool,
     incompatible: bool,
     ci_format: Option<CiFormat>,
     output_file: Option<String>,
@@ -26,7 +26,7 @@ impl ReportConfig {
         json: bool,
         yaml: bool,
         verbose: bool,
-        strict: bool,
+        restrictive: bool,
         incompatible: bool,
         ci_format: Option<CiFormat>,
         output_file: Option<String>,
@@ -38,7 +38,7 @@ impl ReportConfig {
             json,
             yaml,
             verbose,
-            strict,
+            restrictive,
             incompatible,
             ci_format,
             output_file,
@@ -152,15 +152,15 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         return (has_restrictive, has_incompatible);
     }
 
-    // Filter data if in strict or/and incompatible mode to show only restrictive or/and incompatible licenses
-    let mut filtered_data: Vec<LicenseInfo> = if config.strict || config.incompatible {
+    // Filter data if in restrictive or/and incompatible mode to show only restrictive or/and incompatible licenses
+    let mut filtered_data: Vec<LicenseInfo> = if config.restrictive || config.incompatible {
         log(
             LogLevel::Info,
-            "Strict or/and incompatible mode enabled, filtering restrictive or/and incompatible licenses only",
+            "Restrictive or/and incompatible mode enabled, filtering restrictive or/and incompatible licenses only",
         );
         data.into_iter()
             .filter(|info| {
-                (config.strict && *info.is_restrictive())
+                (config.restrictive && *info.is_restrictive())
                     || (config.incompatible
                         && (info.compatibility == LicenseCompatibility::Incompatible))
             })
@@ -262,7 +262,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         log(LogLevel::Info, "Generating verbose table");
         print_verbose_table(
             &filtered_data,
-            config.strict,
+            config.restrictive,
             config.project_license.as_deref(),
         );
     } else {
@@ -270,7 +270,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         print_summary_table(
             &filtered_data,
             total_packages,
-            config.strict,
+            config.restrictive,
             config.incompatible,
             config.project_license.as_deref(),
         );
@@ -279,7 +279,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
     (has_restrictive, has_incompatible)
 }
 
-fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_license: Option<&str>) {
+fn print_verbose_table(license_info: &[LicenseInfo], restrictive: bool, project_license: Option<&str>) {
     log(LogLevel::Info, "Printing verbose table");
 
     let mut headers = vec![
@@ -342,7 +342,7 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_licen
 
     println!("{}\n", formatter.render_footer());
 
-    if !strict {
+    if !restrictive {
         print_summary_footer(license_info, project_license);
     }
 }
@@ -350,7 +350,7 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_licen
 fn print_summary_table(
     license_info: &[LicenseInfo],
     total_packages: usize,
-    strict: bool,
+    restrictive: bool,
     incompatible: bool,
     project_license: Option<&str>,
 ) {
@@ -405,11 +405,11 @@ fn print_summary_table(
         ),
     );
 
-    if strict || incompatible {
-        if strict && !restrictive_licenses.is_empty() {
+    if restrictive || incompatible {
+        if restrictive && !restrictive_licenses.is_empty() {
             log(
                 LogLevel::Info,
-                "Strict mode enabled, showing only restrictive licenses",
+                "Restrictive mode enabled, showing only restrictive licenses",
             );
             print_restrictive_licenses_table(&restrictive_licenses);
         }
@@ -1384,7 +1384,7 @@ mod tests {
         assert!(!config.json);
         assert!(!config.yaml);
         assert!(!config.verbose);
-        assert!(!config.strict);
+        assert!(!config.restrictive);
         assert!(config.ci_format.is_none());
         assert!(config.output_file.is_none());
         assert!(config.project_license.is_none());

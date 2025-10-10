@@ -115,9 +115,9 @@ pub struct Cli {
     #[arg(long)]
     pub verbose: bool,
 
-    /// Show only restrictive dependencies in strict mode
+    /// Show only restrictive dependencies
     #[arg(long, short)]
-    pub strict: bool,
+    pub restrictive: bool,
 
     /// Enable TUI table
     #[arg(long, short)]
@@ -401,7 +401,7 @@ mod tests {
             json: false,
             yaml: false,
             verbose: false,
-            strict: false,
+            restrictive: false,
             gui: false,
             language: None,
             ci_format: None,
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(cli.path, "./");
         assert!(!cli.debug);
         assert!(!cli.json);
-        assert!(!cli.strict);
+        assert!(!cli.restrictive);
         assert!(cli.is_default_command());
     }
 
@@ -439,7 +439,7 @@ mod tests {
             json: false,
             yaml: false,
             verbose: false,
-            strict: false,
+            restrictive: false,
             gui: false,
             language: None,
             ci_format: None,
@@ -481,7 +481,7 @@ mod tests {
             json: false,
             yaml: false,
             verbose: false,
-            strict: false,
+            restrictive: false,
             gui: false,
             language: None,
             ci_format: None,
