@@ -1329,7 +1329,7 @@ pub fn handle_generate_command(
     }
 
     // Parse and analyze dependencies
-    let mut analyzed_data = match parse_root(&path, language.as_deref()) {
+    let mut analyzed_data = match parse_root(&path, language.as_deref(), false) {
         Ok(data) => data,
         Err(e) => {
             println!("{} Failed to parse dependencies: {}", "❌".red().bold(), e);
@@ -1352,7 +1352,7 @@ pub fn handle_generate_command(
 
         for info in &mut analyzed_data {
             if let Some(ref dep_license) = info.license {
-                info.compatibility = is_license_compatible(dep_license, proj_license);
+                info.compatibility = is_license_compatible(dep_license, proj_license, false);
             } else {
                 info.compatibility = LicenseCompatibility::Unknown;
             }
