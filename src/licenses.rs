@@ -565,10 +565,11 @@ pub fn get_osi_status(license_id: &str) -> OsiStatus {
 pub fn is_license_restrictive(
     license: &Option<String>,
     known_licenses: &HashMap<String, License>,
+    strict: bool,
 ) -> bool {
     log(
         LogLevel::Info,
-        &format!("Checking if license is restrictive: {license:?}"),
+        &format!("Checking if license is restrictive: {license:?} (strict={strict})"),
     );
 
     let config = match config::load_config() {
@@ -600,8 +601,18 @@ pub fn is_license_restrictive(
         if let Some(license_data) = known_licenses.get(license_str) {
             log_debug("Found license data", license_data);
 
-            const CONDITIONS: [&str; 2] = ["source-disclosure", "network-use-disclosure"];
-            let is_restrictive = CONDITIONS
+            let conditions = if strict {
+                vec![
+                    "source-disclosure",
+                    "network-use-disclosure",
+                    "disclose-source",
+                    "same-license",
+                ]
+            } else {
+                vec!["source-disclosure", "network-use-disclosure"]
+            };
+
+            let is_restrictive = conditions
                 .iter()
                 .any(|&condition| license_data.conditions.contains(&condition.to_string()));
 
@@ -619,12 +630,6 @@ pub fn is_license_restrictive(
 
             return is_restrictive;
         } else {
-            // Check against user-configured restrictive licenses
-            log_debug(
-                "Checking against configured restrictive licenses",
-                &config.licenses.restrictive,
-            );
-
             let is_restrictive = config
                 .licenses
                 .restrictive
@@ -636,6 +641,12 @@ pub fn is_license_restrictive(
                     LogLevel::Warn,
                     &format!("License {license_str} matches restrictive pattern in config"),
                 );
+            } else if strict && license_str.contains("Unknown") {
+                log(
+                    LogLevel::Warn,
+                    &format!("License {license_str} is unknown in strict mode, considering restrictive"),
+                );
+                return true;
             } else {
                 log(
                     LogLevel::Info,
@@ -645,6 +656,11 @@ pub fn is_license_restrictive(
 
             return is_restrictive;
         }
+    }
+
+    if strict {
+        log(LogLevel::Warn, "No license information available in strict mode, considering restrictive");
+        return true;
     }
 
     log(LogLevel::Warn, "No license information available");
@@ -802,18 +818,16 @@ fn get_compatibility_matrix() -> &'static HashMap<String, Vec<String>> {
 pub fn is_license_compatible(
     dependency_license: &str,
     project_license: &str,
+    strict: bool,
 ) -> LicenseCompatibility {
     log(
         LogLevel::Info,
         &format!(
-            "Checking if dependency license {dependency_license} is compatible with project license {project_license}"
+            "Checking if dependency license {dependency_license} is compatible with project license {project_license} (strict={strict})"
         ),
     );
 
-    // Get the compatibility matrix (loaded from external file or fallback)
     let compatibility_matrix = get_compatibility_matrix();
-
-    // Normalize license identifiers
     let norm_dependency_license = normalize_license_id(dependency_license);
     let norm_project_license = normalize_license_id(project_license);
 
@@ -824,7 +838,6 @@ pub fn is_license_compatible(
         ),
     );
 
-    // Check compatibility based on the matrix
     match compatibility_matrix.get(&norm_project_license) {
         Some(compatible_licenses) => {
             if compatible_licenses.contains(&norm_dependency_license) {
@@ -846,11 +859,19 @@ pub fn is_license_compatible(
             }
         }
         None => {
-            log(
-                LogLevel::Warn,
-                &format!("Unknown compatibility for project license {norm_project_license}"),
-            );
-            LicenseCompatibility::Unknown
+            if strict {
+                log(
+                    LogLevel::Warn,
+                    &format!("Unknown compatibility for project license {norm_project_license} in strict mode, marking as incompatible"),
+                );
+                LicenseCompatibility::Incompatible
+            } else {
+                log(
+                    LogLevel::Warn,
+                    &format!("Unknown compatibility for project license {norm_project_license}"),
+                );
+                LicenseCompatibility::Unknown
+            }
         }
     }
 }
@@ -1193,19 +1214,19 @@ mod tests {
     #[ignore] // Skip this test due to static initialization issues in test runner
     fn test_is_license_compatible_mit_project() {
         assert_eq!(
-            is_license_compatible("MIT", "MIT"),
+            is_license_compatible("MIT", "MIT", false),
             LicenseCompatibility::Compatible
         );
         assert_eq!(
-            is_license_compatible("BSD-2-Clause", "MIT"),
+            is_license_compatible("BSD-2-Clause", "MIT", false),
             LicenseCompatibility::Compatible
         );
         assert_eq!(
-            is_license_compatible("BSD-3-Clause", "MIT"),
+            is_license_compatible("BSD-3-Clause", "MIT", false),
             LicenseCompatibility::Compatible
         );
         assert_eq!(
-            is_license_compatible("Apache-2.0", "MIT"),
+            is_license_compatible("Apache-2.0", "MIT", false),
             LicenseCompatibility::Compatible
         );
         assert_eq!(

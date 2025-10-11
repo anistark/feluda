@@ -75,7 +75,7 @@ pub fn analyze_go_licenses(go_mod_path: &str, config: &FeludaConfig) -> Vec<Lice
 
         let license_result = fetch_license_for_go_dependency(name.as_str(), version.as_str());
         let license = Some(license_result);
-        let is_restrictive = is_license_restrictive(&license, &known_licenses);
+        let is_restrictive = is_license_restrictive(&license, &known_licenses, config.strict);
 
         if is_restrictive {
             log(

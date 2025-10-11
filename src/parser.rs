@@ -174,8 +174,10 @@ fn check_which_r_file_exists(project_path: impl AsRef<Path>) -> Option<String> {
 pub fn parse_root(
     root_path: impl AsRef<Path>,
     language: Option<&str>,
+    strict: bool,
 ) -> FeludaResult<Vec<LicenseInfo>> {
-    let config = crate::config::load_config()?;
+    let mut config = crate::config::load_config()?;
+    config.strict = strict;
     parse_root_with_config(root_path, language, &config)
 }
 
@@ -271,7 +273,7 @@ fn set_license_compatibility(licenses: &mut [LicenseInfo], project_license: &Opt
     for license in licenses {
         license.compatibility = match (project_license, &license.license) {
             (Some(proj_license), Some(dep_license)) => {
-                is_license_compatible(dep_license, proj_license)
+                is_license_compatible(dep_license, proj_license, false)
             }
             _ => LicenseCompatibility::Unknown,
         };
@@ -592,35 +594,35 @@ mod tests {
         std::fs::write(root_path.join("requirements.txt"), "# No dependencies").unwrap();
 
         // Test filtering by node
-        let result = parse_root(root_path, Some("node"));
+        let result = parse_root(root_path, Some("node"), false);
         assert!(result.is_ok());
 
         // Test filtering by go
-        let result = parse_root(root_path, Some("go"));
+        let result = parse_root(root_path, Some("go"), false);
         assert!(result.is_ok());
 
         // Test filtering by python
-        let result = parse_root(root_path, Some("python"));
+        let result = parse_root(root_path, Some("python"), false);
         assert!(result.is_ok());
 
         // Test filtering by non-existent language
-        let result = parse_root(root_path, Some("java"));
+        let result = parse_root(root_path, Some("java"), false);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());
 
         // Test case-insensitive filtering
-        let result = parse_root(root_path, Some("NODE"));
+        let result = parse_root(root_path, Some("NODE"), false);
         assert!(result.is_ok());
 
-        let result = parse_root(root_path, Some("Python"));
+        let result = parse_root(root_path, Some("Python"), false);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_parse_root_no_projects() {
         let temp_dir = tempfile::TempDir::new().unwrap();
-        let result = parse_root(temp_dir.path(), None).unwrap();
+        let result = parse_root(temp_dir.path(), None, false).unwrap();
         assert!(result.is_empty());
     }
 
@@ -643,7 +645,7 @@ mod tests {
         std::fs::write(root_path.join("go.mod"), "module test\n\ngo 1.19").unwrap();
         std::fs::write(root_path.join("requirements.txt"), "# No dependencies").unwrap();
 
-        let result = parse_root(root_path, None);
+        let result = parse_root(root_path, None, false);
         assert!(result.is_ok());
     }
 
@@ -749,7 +751,7 @@ mod tests {
 
     #[test]
     fn test_parse_root_invalid_path() {
-        let result = parse_root("/definitely/nonexistent/path", None);
+        let result = parse_root("/definitely/nonexistent/path", None, false);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());

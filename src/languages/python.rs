@@ -96,7 +96,7 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                                     fetch_license_for_python_dependency(&name, &version);
                                 let license = Some(license_result);
                                 let is_restrictive =
-                                    is_license_restrictive(&license, &known_licenses);
+                                    is_license_restrictive(&license, &known_licenses, config.strict);
 
                                 if is_restrictive {
                                     log(
@@ -196,7 +196,7 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
 
                     let license_result = fetch_license_for_python_dependency(&name, &version);
                     let license = Some(license_result);
-                    let is_restrictive = is_license_restrictive(&license, &known_licenses);
+                    let is_restrictive = is_license_restrictive(&license, &known_licenses, config.strict);
 
                     if is_restrictive {
                         log(
