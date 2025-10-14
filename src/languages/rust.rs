@@ -13,7 +13,10 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
     analyze_rust_licenses_with_config(packages, &config)
 }
 
-pub fn analyze_rust_licenses_with_config(packages: Vec<Package>, config: &crate::config::FeludaConfig) -> Vec<LicenseInfo> {
+pub fn analyze_rust_licenses_with_config(
+    packages: Vec<Package>,
+    config: &crate::config::FeludaConfig,
+) -> Vec<LicenseInfo> {
     if packages.is_empty() {
         log(
             LogLevel::Warn,
@@ -49,7 +52,8 @@ pub fn analyze_rust_licenses_with_config(packages: Vec<Package>, config: &crate:
                 &format!("Analyzing package: {} ({})", package.name, package.version),
             );
 
-            let is_restrictive = is_license_restrictive(&package.license, &known_licenses, config.strict);
+            let is_restrictive =
+                is_license_restrictive(&package.license, &known_licenses, config.strict);
 
             if is_restrictive {
                 log(

@@ -558,7 +558,8 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
 
     #[test]
     fn test_config_serialization() {
-        let config = FeludaConfig { strict: false,
+        let config = FeludaConfig {
+            strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
             },

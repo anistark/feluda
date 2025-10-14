@@ -83,7 +83,8 @@ fn parse_renv_lock(
 
                         let license_result = fetch_license_for_r_dependency(name, &version);
                         let license = Some(license_result);
-                        let is_restrictive = is_license_restrictive(&license, known_licenses, config.strict);
+                        let is_restrictive =
+                            is_license_restrictive(&license, known_licenses, config.strict);
 
                         if is_restrictive {
                             log(
@@ -155,7 +156,8 @@ fn parse_description_file(
 
                 let license_result = fetch_license_for_r_dependency(&name, &version);
                 let license = Some(license_result);
-                let is_restrictive = is_license_restrictive(&license, known_licenses, config.strict);
+                let is_restrictive =
+                    is_license_restrictive(&license, known_licenses, config.strict);
 
                 if is_restrictive {
                     log(

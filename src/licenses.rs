@@ -644,7 +644,9 @@ pub fn is_license_restrictive(
             } else if strict && license_str.contains("Unknown") {
                 log(
                     LogLevel::Warn,
-                    &format!("License {license_str} is unknown in strict mode, considering restrictive"),
+                    &format!(
+                        "License {license_str} is unknown in strict mode, considering restrictive"
+                    ),
                 );
                 return true;
             } else {
@@ -659,7 +661,10 @@ pub fn is_license_restrictive(
     }
 
     if strict {
-        log(LogLevel::Warn, "No license information available in strict mode, considering restrictive");
+        log(
+            LogLevel::Warn,
+            "No license information available in strict mode, considering restrictive",
+        );
         return true;
     }
 
@@ -1230,15 +1235,15 @@ mod tests {
             LicenseCompatibility::Compatible
         );
         assert_eq!(
-            is_license_compatible("LGPL-3.0", "MIT"),
+            is_license_compatible("LGPL-3.0", "MIT", false),
             LicenseCompatibility::Incompatible
         );
         assert_eq!(
-            is_license_compatible("MPL-2.0", "MIT"),
+            is_license_compatible("MPL-2.0", "MIT", false),
             LicenseCompatibility::Incompatible
         );
         assert_eq!(
-            is_license_compatible("GPL-3.0", "MIT"),
+            is_license_compatible("GPL-3.0", "MIT", false),
             LicenseCompatibility::Incompatible
         );
     }

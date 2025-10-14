@@ -228,7 +228,8 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
         for info in &mut analyzed_data {
             if let Some(ref dep_license) = info.license {
-                info.compatibility = is_license_compatible(dep_license, proj_license, config.strict);
+                info.compatibility =
+                    is_license_compatible(dep_license, proj_license, config.strict);
 
                 log(
                     LogLevel::Info,
@@ -249,7 +250,11 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
                     &format!(
                         "License compatibility for {} {} (no license info)",
                         info.name,
-                        if config.strict { "incompatible" } else { "unknown" }
+                        if config.strict {
+                            "incompatible"
+                        } else {
+                            "unknown"
+                        }
                     ),
                 );
             }
