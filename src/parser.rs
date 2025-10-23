@@ -3,6 +3,11 @@
 use crate::cli;
 use crate::debug::{log, log_debug, FeludaResult, LogLevel};
 use crate::languages::{Language, CPP_PATHS, C_PATHS, PYTHON_PATHS, R_PATHS};
+use crate::languages::{
+    c::analyze_c_licenses, cpp::analyze_cpp_licenses, go::analyze_go_licenses,
+    node::analyze_js_licenses, python::analyze_python_licenses, r::analyze_r_licenses,
+    rust::analyze_rust_licenses,
+};
 use crate::licenses::{
     detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
 };
@@ -325,7 +330,7 @@ fn parse_dependencies(
                             metadata.packages.len()
                         ));
 
-                        crate::languages::analyze_rust_licenses(metadata.packages)
+                        analyze_rust_licenses(metadata.packages)
                     }
                     Err(err) => {
                         log(
@@ -347,7 +352,7 @@ fn parse_dependencies(
 
                 match project_path.to_str() {
                     Some(path_str) => {
-                        let deps = crate::languages::analyze_js_licenses(path_str);
+                        let deps = analyze_js_licenses(path_str);
                         indicator.update_progress(&format!("found {} dependencies", deps.len()));
                         deps
                     }
@@ -368,7 +373,7 @@ fn parse_dependencies(
 
                 match project_path.to_str() {
                     Some(path_str) => {
-                        let deps = crate::languages::analyze_go_licenses(path_str, config);
+                        let deps = analyze_go_licenses(path_str, config);
                         indicator.update_progress(&format!("found {} dependencies", deps.len()));
                         deps
                     }
@@ -390,7 +395,7 @@ fn parse_dependencies(
 
                     match project_path.to_str() {
                         Some(path_str) => {
-                            let deps = crate::languages::analyze_python_licenses(path_str, config);
+                            let deps = analyze_python_licenses(path_str, config);
                             indicator
                                 .update_progress(&format!("found {} dependencies", deps.len()));
                             deps
@@ -418,7 +423,7 @@ fn parse_dependencies(
 
                     match project_path.to_str() {
                         Some(path_str) => {
-                            let deps = crate::languages::analyze_c_licenses(path_str, config);
+                            let deps = analyze_c_licenses(path_str, config);
                             indicator
                                 .update_progress(&format!("found {} dependencies", deps.len()));
                             deps
@@ -446,7 +451,7 @@ fn parse_dependencies(
 
                     match project_path.to_str() {
                         Some(path_str) => {
-                            let deps = crate::languages::analyze_cpp_licenses(path_str, config);
+                            let deps = analyze_cpp_licenses(path_str, config);
                             indicator
                                 .update_progress(&format!("found {} dependencies", deps.len()));
                             deps
@@ -474,7 +479,7 @@ fn parse_dependencies(
 
                     match project_path.to_str() {
                         Some(path_str) => {
-                            let deps = crate::languages::analyze_r_licenses(path_str, config);
+                            let deps = analyze_r_licenses(path_str, config);
                             indicator
                                 .update_progress(&format!("found {} dependencies", deps.len()));
                             deps

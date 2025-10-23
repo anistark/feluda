@@ -16,14 +16,6 @@ use crate::cli;
 use crate::config;
 use crate::debug::{log, log_debug, log_error, FeludaResult, LogLevel};
 
-// Re-export language-specific functions for backward compatibility
-// TODO: Remove when 1.8.5 is no longer supported
-#[allow(unused_imports)]
-pub use crate::languages::{
-    analyze_go_licenses, analyze_js_licenses, analyze_python_licenses, analyze_rust_licenses,
-    fetch_license_for_go_dependency, fetch_license_for_python_dependency, get_go_dependencies,
-    GoPackages, PackageJson,
-};
 
 /// License compatibility enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

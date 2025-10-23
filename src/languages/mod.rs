@@ -8,17 +8,6 @@ pub mod python;
 pub mod r;
 pub mod rust;
 
-// Re-export commonly used types and functions for backward compatibility
-// TODO: Remove when 1.8.5 is no longer supported
-pub use c::analyze_c_licenses;
-pub use cpp::analyze_cpp_licenses;
-pub use go::{
-    analyze_go_licenses, fetch_license_for_go_dependency, get_go_dependencies, GoPackages,
-};
-pub use node::{analyze_js_licenses, PackageJson};
-pub use python::{analyze_python_licenses, fetch_license_for_python_dependency};
-pub use r::analyze_r_licenses;
-pub use rust::analyze_rust_licenses;
 
 use crate::licenses::LicenseInfo;
 use std::path::Path;
