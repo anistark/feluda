@@ -2,12 +2,12 @@
 
 use crate::cli;
 use crate::debug::{log, log_debug, FeludaResult, LogLevel};
-use crate::languages::{Language, CPP_PATHS, C_PATHS, PYTHON_PATHS, R_PATHS};
 use crate::languages::{
     c::analyze_c_licenses, cpp::analyze_cpp_licenses, go::analyze_go_licenses,
     node::analyze_js_licenses, python::analyze_python_licenses, r::analyze_r_licenses,
     rust::analyze_rust_licenses,
 };
+use crate::languages::{Language, CPP_PATHS, C_PATHS, PYTHON_PATHS, R_PATHS};
 use crate::licenses::{
     detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
 };

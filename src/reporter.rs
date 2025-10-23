@@ -279,7 +279,11 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
     (has_restrictive, has_incompatible)
 }
 
-fn print_verbose_table(license_info: &[LicenseInfo], restrictive: bool, project_license: Option<&str>) {
+fn print_verbose_table(
+    license_info: &[LicenseInfo],
+    restrictive: bool,
+    project_license: Option<&str>,
+) {
     log(LogLevel::Info, "Printing verbose table");
 
     let mut headers = vec![

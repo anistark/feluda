@@ -16,7 +16,6 @@ use crate::cli;
 use crate::config;
 use crate::debug::{log, log_debug, log_error, FeludaResult, LogLevel};
 
-
 /// License compatibility enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LicenseCompatibility {

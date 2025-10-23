@@ -8,7 +8,6 @@ pub mod python;
 pub mod r;
 pub mod rust;
 
-
 use crate::licenses::LicenseInfo;
 use std::path::Path;
 
