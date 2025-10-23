@@ -43,6 +43,7 @@ struct CheckConfig {
     project_license: Option<String>,
     gist: bool,
     osi: Option<cli::OsiFilter>,
+    strict: bool,
 }
 
 fn main() {
@@ -140,6 +141,7 @@ fn run() -> FeludaResult<()> {
             project_license: args.project_license,
             gist: args.gist,
             osi: args.osi,
+            strict: args.strict,
         };
         handle_check_command(config)
     } else {
@@ -207,7 +209,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     }
 
     // Parse and analyze dependencies
-    let mut analyzed_data = parse_root(&config.path, config.language.as_deref())
+    let mut analyzed_data = parse_root(&config.path, config.language.as_deref(), config.strict)
         .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?;
 
     log_debug("Analyzed dependencies", &analyzed_data);
@@ -226,7 +228,8 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
         for info in &mut analyzed_data {
             if let Some(ref dep_license) = info.license {
-                info.compatibility = is_license_compatible(dep_license, proj_license);
+                info.compatibility =
+                    is_license_compatible(dep_license, proj_license, config.strict);
 
                 log(
                     LogLevel::Info,
@@ -236,13 +239,22 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
                     ),
                 );
             } else {
-                info.compatibility = LicenseCompatibility::Unknown;
+                info.compatibility = if config.strict {
+                    LicenseCompatibility::Incompatible
+                } else {
+                    LicenseCompatibility::Unknown
+                };
 
                 log(
                     LogLevel::Info,
                     &format!(
-                        "License compatibility for {} unknown (no license info)",
-                        info.name
+                        "License compatibility for {} {} (no license info)",
+                        info.name,
+                        if config.strict {
+                            "incompatible"
+                        } else {
+                            "unknown"
+                        }
                     ),
                 );
             }

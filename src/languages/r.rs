@@ -30,13 +30,14 @@ pub fn analyze_r_licenses(package_file_path: &str, config: &FeludaConfig) -> Vec
     };
 
     if package_file_path.ends_with("renv.lock") {
-        licenses.extend(parse_renv_lock(package_file_path, &known_licenses));
+        licenses.extend(parse_renv_lock(package_file_path, &known_licenses, config));
     } else if package_file_path.ends_with("DESCRIPTION") {
         let max_depth = config.dependencies.max_depth;
         licenses.extend(parse_description_file(
             package_file_path,
             max_depth,
             &known_licenses,
+            config,
         ));
     } else {
         log(
@@ -55,6 +56,7 @@ pub fn analyze_r_licenses(package_file_path: &str, config: &FeludaConfig) -> Vec
 fn parse_renv_lock(
     lock_file_path: &str,
     known_licenses: &HashMap<String, License>,
+    config: &FeludaConfig,
 ) -> Vec<LicenseInfo> {
     let mut licenses = Vec::new();
 
@@ -81,7 +83,8 @@ fn parse_renv_lock(
 
                         let license_result = fetch_license_for_r_dependency(name, &version);
                         let license = Some(license_result);
-                        let is_restrictive = is_license_restrictive(&license, known_licenses);
+                        let is_restrictive =
+                            is_license_restrictive(&license, known_licenses, config.strict);
 
                         if is_restrictive {
                             log(
@@ -122,6 +125,7 @@ fn parse_description_file(
     desc_file_path: &str,
     _max_depth: u32,
     known_licenses: &HashMap<String, License>,
+    config: &FeludaConfig,
 ) -> Vec<LicenseInfo> {
     let mut licenses = Vec::new();
 
@@ -152,7 +156,8 @@ fn parse_description_file(
 
                 let license_result = fetch_license_for_r_dependency(&name, &version);
                 let license = Some(license_result);
-                let is_restrictive = is_license_restrictive(&license, known_licenses);
+                let is_restrictive =
+                    is_license_restrictive(&license, known_licenses, config.strict);
 
                 if is_restrictive {
                     log(
@@ -391,7 +396,8 @@ Suggests:
         fs::write(&lock_path, lock_content).unwrap();
 
         let known_licenses = HashMap::new();
-        let result = parse_renv_lock(lock_path.to_str().unwrap(), &known_licenses);
+        let config = FeludaConfig::default();
+        let result = parse_renv_lock(lock_path.to_str().unwrap(), &known_licenses, &config);
 
         assert_eq!(result.len(), 2);
         assert!(result.iter().any(|info| info.name == "dplyr"));

@@ -38,12 +38,14 @@ use std::path::Path;
 use crate::debug::{log, log_debug, log_error, FeludaError, FeludaResult, LogLevel};
 
 /// Main configuration structure for Feluda
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct FeludaConfig {
     #[serde(default)]
     pub licenses: LicenseConfig,
     #[serde(default)]
     pub dependencies: DependencyConfig,
+    #[serde(default)]
+    pub strict: bool,
 }
 
 impl FeludaConfig {
@@ -67,7 +69,7 @@ impl FeludaConfig {
 /// - EPL-2.0
 ///
 /// This can be overridden via `.feluda.toml` or environment variables.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LicenseConfig {
     #[serde(default = "default_restrictive_licenses")]
     pub restrictive: Vec<String>,
@@ -152,7 +154,7 @@ impl LicenseConfig {
 }
 
 /// Configuration for dependency-related settings
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DependencyConfig {
     /// Maximum depth for transitive dependency resolution
     /// Default is 10 levels deep
@@ -557,6 +559,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
     #[test]
     fn test_config_serialization() {
         let config = FeludaConfig {
+            strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
             },
@@ -789,6 +792,7 @@ restrictive = [
     #[test]
     fn test_feluda_config_validation_success() {
         let config = FeludaConfig {
+            strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string(), "GPL-3.0".to_string()],
             },
@@ -800,6 +804,7 @@ restrictive = [
     #[test]
     fn test_feluda_config_validation_license_failure() {
         let config = FeludaConfig {
+            strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["".to_string()], // Invalid empty license
             },
@@ -816,6 +821,7 @@ restrictive = [
     #[test]
     fn test_feluda_config_validation_dependency_failure() {
         let config = FeludaConfig {
+            strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string()],
             },

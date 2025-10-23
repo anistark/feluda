@@ -162,6 +162,10 @@ pub struct Cli {
     /// Filter by OSI license approval status
     #[arg(long, value_enum)]
     pub osi: Option<OsiFilter>,
+
+    /// Enable strict mode for license parser
+    #[arg(long)]
+    pub strict: bool,
 }
 
 impl Cli {
@@ -413,12 +417,14 @@ mod tests {
             gist: false,
             sbom: None,
             osi: None,
+            strict: false,
         };
 
         assert_eq!(cli.path, "./");
         assert!(!cli.debug);
         assert!(!cli.json);
         assert!(!cli.restrictive);
+        assert!(!cli.strict);
         assert!(cli.is_default_command());
     }
 
@@ -451,6 +457,7 @@ mod tests {
             gist: false,
             sbom: None,
             osi: None,
+            strict: false,
         };
 
         let cmd = cli.get_command_args();
@@ -493,6 +500,7 @@ mod tests {
             gist: false,
             sbom: None,
             osi: None,
+            strict: false,
         };
 
         let cmd = cli.get_command_args();

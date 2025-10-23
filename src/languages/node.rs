@@ -249,6 +249,14 @@ impl DependencyResolver {
 }
 
 pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
+    let config = crate::config::load_config().unwrap_or_default();
+    analyze_js_licenses_with_config(package_json_path, &config)
+}
+
+pub fn analyze_js_licenses_with_config(
+    package_json_path: &str,
+    config: &crate::config::FeludaConfig,
+) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
         &format!("Analyzing JavaScript dependencies from: {package_json_path}"),
@@ -305,7 +313,8 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
         .par_iter()
         .map(|(name, version)| {
             let license = get_license_for_package(project_root, name, version);
-            let is_restrictive = is_license_restrictive(&Some(license.clone()), &known_licenses);
+            let is_restrictive =
+                is_license_restrictive(&Some(license.clone()), &known_licenses, config.strict);
 
             if is_restrictive {
                 log(

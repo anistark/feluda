@@ -9,6 +9,14 @@ use crate::licenses::{
 
 /// Analyze the licenses of Rust dependencies from Cargo packages
 pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
+    let config = crate::config::load_config().unwrap_or_default();
+    analyze_rust_licenses_with_config(packages, &config)
+}
+
+pub fn analyze_rust_licenses_with_config(
+    packages: Vec<Package>,
+    config: &crate::config::FeludaConfig,
+) -> Vec<LicenseInfo> {
     if packages.is_empty() {
         log(
             LogLevel::Warn,
@@ -44,7 +52,8 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
                 &format!("Analyzing package: {} ({})", package.name, package.version),
             );
 
-            let is_restrictive = is_license_restrictive(&package.license, &known_licenses);
+            let is_restrictive =
+                is_license_restrictive(&package.license, &known_licenses, config.strict);
 
             if is_restrictive {
                 log(
@@ -95,11 +104,13 @@ mod tests {
             let known_licenses = HashMap::new();
             assert!(is_license_restrictive(
                 &Some("GPL-3.0".to_string()),
-                &known_licenses
+                &known_licenses,
+                false
             ));
             assert!(!is_license_restrictive(
                 &Some("MIT".to_string()),
-                &known_licenses
+                &known_licenses,
+                false
             ));
         });
     }
@@ -113,7 +124,8 @@ mod tests {
             let known_licenses = HashMap::new();
             assert!(is_license_restrictive(
                 &Some("No License".to_string()),
-                &known_licenses
+                &known_licenses,
+                false
             ));
         });
     }
