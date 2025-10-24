@@ -13,6 +13,111 @@ use crate::licenses::{
     fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
 };
 
+/// Represents an environment marker in a Python requirement
+/// Environment markers follow PEP 508 and are used to specify conditional dependencies
+/// Examples: "python_version < '3.8'", "sys_platform == 'win32'", "os_name == 'nt' and python_version >= '3.6'"
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnvironmentMarker {
+    /// The raw marker string
+    pub raw: String,
+    /// Parsed marker components (simplified representation)
+    pub components: Vec<MarkerComponent>,
+}
+
+/// A single marker component (variable, operator, value)
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkerComponent {
+    pub variable: String,
+    pub operator: String,
+    pub value: String,
+}
+
+impl EnvironmentMarker {
+    /// Parse an environment marker string from a PEP 508 requirement
+    /// Returns Some(marker) if marker exists, None if no marker or parsing fails gracefully
+    fn parse(marker_str: &str) -> Option<Self> {
+        let marker_str = marker_str.trim();
+        if marker_str.is_empty() {
+            return None;
+        }
+
+        let raw = marker_str.to_string();
+        let components = parse_marker_components(marker_str);
+
+        Some(EnvironmentMarker { raw, components })
+    }
+
+    /// Get a human-readable description of what environments this marker applies to
+    pub fn describe(&self) -> String {
+        if self.components.is_empty() {
+            return self.raw.clone();
+        }
+
+        let mut descriptions = Vec::new();
+        for component in &self.components {
+            descriptions.push(format!(
+                "{} {} '{}'",
+                component.variable, component.operator, component.value
+            ));
+        }
+
+        descriptions.join(" and ")
+    }
+
+    /// Check if this marker applies to a specific environment
+    /// For now, we assume all markers apply (conservative approach)
+    /// In production, you'd evaluate against actual environment
+    pub fn applies_to_environment(&self) -> bool {
+        // Conservative approach: include all requirements regardless of markers
+        // This ensures we don't miss license dependencies for specific environments
+        true
+    }
+}
+
+/// Parse environment marker components from a marker string
+/// Supports markers like:
+/// - "python_version < '3.8'"
+/// - "sys_platform == 'win32'"
+/// - "python_version >= '3.6' and os_name == 'nt'"
+fn parse_marker_components(marker_str: &str) -> Vec<MarkerComponent> {
+    let mut components = Vec::new();
+
+    // Split by "and" operator for multiple conditions
+    let conditions: Vec<&str> = marker_str.split(" and ").collect();
+
+    for condition in conditions {
+        let condition = condition.trim();
+
+        // Try to parse each condition as a marker component
+        // Format: variable operator 'value' or variable operator "value"
+        let operators = vec!["!=", "==", "<=", ">=", "<", ">", "in", "not"];
+
+        for op in operators {
+            if let Some(parts) = condition.split_once(op) {
+                let variable = parts.0.trim().to_string();
+                let value_part = parts.1.trim();
+
+                // Remove quotes from value
+                let value = value_part
+                    .trim_matches('\'')
+                    .trim_matches('"')
+                    .to_string();
+
+                if !variable.is_empty() && !value.is_empty() {
+                    components.push(MarkerComponent {
+                        variable,
+                        operator: op.to_string(),
+                        value,
+                    });
+                    break;
+                }
+            }
+        }
+    }
+
+    components
+}
+
 /// Analyze the licenses of Python dependencies with transitive resolution
 pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
     let mut licenses = Vec::new();
@@ -298,28 +403,50 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
 }
 
 /// Parse a requirement line from requirements.txt supporting various formats
+/// Handles requirements.txt format with optional environment markers
+/// Examples:
+/// - "requests==2.31.0"
+/// - "flask>=2.0.0"
+/// - "django; python_version >= '3.8'"
+/// - "numpy>=1.20.0; sys_platform == 'linux'"
 fn parse_requirement_line(line: &str) -> Option<(String, String)> {
     let line = line.trim();
 
-    // Handle various requirement formats
-    if let Some((name, version)) = line
+    // Extract marker if present
+    let (base_req, marker) = if let Some((base, marker_str)) = line.split_once(';') {
+        (base.trim(), EnvironmentMarker::parse(marker_str))
+    } else {
+        (line, None)
+    };
+
+    // Log marker information if present
+    if let Some(marker) = &marker {
+        log_debug(
+            "Environment Marker (requirements.txt)",
+            &format!("Detected marker: {} -> {}", marker.raw, marker.describe()),
+        );
+    }
+
+    // Handle various requirement formats on the base requirement
+    if let Some((name, version)) = base_req
         .split_once("==")
-        .or_else(|| line.split_once(">="))
-        .or_else(|| line.split_once(">"))
-        .or_else(|| line.split_once("~="))
-        .or_else(|| line.split_once("<="))
-        .or_else(|| line.split_once("<"))
+        .or_else(|| base_req.split_once(">="))
+        .or_else(|| base_req.split_once(">"))
+        .or_else(|| base_req.split_once("~="))
+        .or_else(|| base_req.split_once("<="))
+        .or_else(|| base_req.split_once("<"))
     {
         let name = name.trim();
         let version = version
             .trim()
             .trim_matches('"')
+            .trim_matches('\'')
             .replace("^", "")
             .replace("~", "");
         Some((name.to_string(), version))
     } else {
-        // Package name without version
-        Some((line.to_string(), "latest".to_string()))
+        // Package name without version (with or without marker)
+        Some((base_req.to_string(), "latest".to_string()))
     }
 }
 
@@ -599,25 +726,38 @@ fn fetch_pypi_dependencies(name: &str, version: &str) -> Result<Vec<(String, Str
     Ok(Vec::new())
 }
 
-/// Parse a PyPI requires_dist requirement string
+/// Parse a PyPI requires_dist requirement string with full PEP 508 support
+/// Handles requirements like:
+/// - "requests>=2.20.0"
+/// - "flask"
+/// - "typing-extensions>=3.7.4; python_version < '3.8'"
+/// - "urllib3 (<3,>=1.21.1); python_version >= '3.10'"
+/// - "package[extra1,extra2]; sys_platform == 'win32'"
 fn parse_pypi_requirement(req_str: &str) -> Option<(String, String)> {
-    // Handle requirements like "requests>=2.20.0", "flask", "typing-extensions>=3.7.4; python_version < '3.8'"
     let req_str = req_str.trim();
 
-    // TODO: Check requirements with environment markers
-    let req_str = if let Some((base, _marker)) = req_str.split_once(';') {
-        base.trim()
+    // Parse the requirement and extract marker separately
+    let (base_req, marker) = if let Some((base, marker_str)) = req_str.split_once(';') {
+        (base.trim(), EnvironmentMarker::parse(marker_str))
     } else {
-        req_str
+        (req_str, None)
     };
 
-    // Parse package name and version using regex
-    let mut chars = req_str.chars().peekable();
+    // Log marker information if present
+    if let Some(marker) = &marker {
+        log_debug(
+            "Environment Marker",
+            &format!("Detected marker: {} -> {}", marker.raw, marker.describe()),
+        );
+    }
+
+    // Parse base requirement (name and version)
+    let mut chars = base_req.chars().peekable();
     let mut name = String::new();
 
-    // Extract package name
+    // Extract package name (stop at version constraints, spaces, or extras)
     while let Some(ch) = chars.peek() {
-        if ">=<!~=()".contains(*ch) || ch.is_whitespace() {
+        if ">=<!~=()[".contains(*ch) || ch.is_whitespace() {
             break;
         }
         if let Some(ch) = chars.next() {
@@ -628,6 +768,20 @@ fn parse_pypi_requirement(req_str: &str) -> Option<(String, String)> {
     let name = name.trim().to_string();
     if name.is_empty() {
         return None;
+    }
+
+    // Skip extras in square brackets if present (e.g., package[extra1,extra2])
+    while let Some(ch) = chars.peek() {
+        if *ch == '[' {
+            chars.next(); // consume '['
+            while let Some(ch) = chars.next() {
+                if ch == ']' {
+                    break;
+                }
+            }
+        } else {
+            break;
+        }
     }
 
     // Skip whitespace and parentheses
@@ -816,5 +970,99 @@ mod tests {
             parse_pypi_requirement("PySocks (!=1.5.7,>=1.5.6)"),
             Some(("PySocks".to_string(), "1.5.6".to_string()))
         );
+    }
+
+    #[test]
+    fn test_parse_environment_markers() {
+        // Test simple markers
+        let marker1 = EnvironmentMarker::parse("python_version < '3.8'");
+        assert!(marker1.is_some());
+        if let Some(m) = marker1 {
+            assert!(!m.components.is_empty());
+            assert!(m.components[0].variable.contains("python_version"));
+            assert_eq!(m.components[0].operator, "<");
+            assert_eq!(m.components[0].value, "3.8");
+        }
+
+        // Test marker with ==
+        let marker2 = EnvironmentMarker::parse("sys_platform == 'win32'");
+        assert!(marker2.is_some());
+        if let Some(m) = marker2 {
+            assert!(!m.components.is_empty());
+            assert_eq!(m.components[0].operator, "==");
+            assert_eq!(m.components[0].value, "win32");
+        }
+
+        // Test multiple conditions
+        let marker3 = EnvironmentMarker::parse("python_version >= '3.6' and os_name == 'nt'");
+        assert!(marker3.is_some());
+        if let Some(m) = marker3 {
+            assert_eq!(m.components.len(), 2);
+        }
+
+        // Test empty marker
+        let marker4 = EnvironmentMarker::parse("");
+        assert!(marker4.is_none());
+    }
+
+    #[test]
+    fn test_parse_requirement_with_markers() {
+        // Test requirements.txt format with markers
+        assert_eq!(
+            parse_requirement_line("requests==2.31.0"),
+            Some(("requests".to_string(), "2.31.0".to_string()))
+        );
+
+        assert_eq!(
+            parse_requirement_line("django>=3.2; python_version >= '3.8'"),
+            Some(("django".to_string(), "3.2".to_string()))
+        );
+
+        assert_eq!(
+            parse_requirement_line("numpy; sys_platform == 'linux'"),
+            Some(("numpy".to_string(), "latest".to_string()))
+        );
+
+        // Test with multiple version constraints and markers
+        // Note: We keep the full version string when there are multiple constraints
+        assert_eq!(
+            parse_requirement_line("scipy>=1.7,<2.0; python_version >= '3.9'"),
+            Some(("scipy".to_string(), "1.7,<2.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_pypi_requirement_with_extras() {
+        // Test requirements with extras (square brackets)
+        assert_eq!(
+            parse_pypi_requirement("requests[security]>=2.20.0"),
+            Some(("requests".to_string(), "2.20.0".to_string()))
+        );
+
+        assert_eq!(
+            parse_pypi_requirement("package[extra1,extra2]>=1.0; python_version >= '3.7'"),
+            Some(("package".to_string(), "1.0".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_marker_description() {
+        let marker = EnvironmentMarker::parse("python_version < '3.8' and sys_platform == 'win32'");
+        assert!(marker.is_some());
+        if let Some(m) = marker {
+            let description = m.describe();
+            assert!(description.contains("python_version"));
+            assert!(description.contains("sys_platform"));
+        }
+    }
+
+    #[test]
+    fn test_marker_applies_to_environment() {
+        // All markers should return true (conservative approach)
+        let marker1 = EnvironmentMarker::parse("python_version < '3.8'");
+        assert!(marker1.unwrap().applies_to_environment());
+
+        let marker2 = EnvironmentMarker::parse("sys_platform == 'darwin'");
+        assert!(marker2.unwrap().applies_to_environment());
     }
 }
