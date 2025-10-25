@@ -67,6 +67,7 @@ impl EnvironmentMarker {
     /// Check if this marker applies to a specific environment
     /// For now, we assume all markers apply (conservative approach)
     /// In production, you'd evaluate against actual environment
+    #[allow(dead_code)]
     pub fn applies_to_environment(&self) -> bool {
         // Conservative approach: include all requirements regardless of markers
         // This ensures we don't miss license dependencies for specific environments
@@ -98,10 +99,7 @@ fn parse_marker_components(marker_str: &str) -> Vec<MarkerComponent> {
                 let value_part = parts.1.trim();
 
                 // Remove quotes from value
-                let value = value_part
-                    .trim_matches('\'')
-                    .trim_matches('"')
-                    .to_string();
+                let value = value_part.trim_matches('\'').trim_matches('"').to_string();
 
                 if !variable.is_empty() && !value.is_empty() {
                     components.push(MarkerComponent {
@@ -774,7 +772,7 @@ fn parse_pypi_requirement(req_str: &str) -> Option<(String, String)> {
     while let Some(ch) = chars.peek() {
         if *ch == '[' {
             chars.next(); // consume '['
-            while let Some(ch) = chars.next() {
+            for ch in chars.by_ref() {
                 if ch == ']' {
                     break;
                 }
