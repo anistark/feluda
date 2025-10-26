@@ -112,3 +112,17 @@ test-examples:
     ./target/debug/feluda --path examples/c-example || cargo run -- --path examples/c-example
     @echo "\n📦 Testing C++ Example:"
     ./target/debug/feluda --path examples/cpp-example || cargo run -- --path examples/cpp-example
+
+# Mimic CI checks exactly as they run on GitHub Actions
+test-ci:
+    @echo "🔍 Running CI checks locally (format, lint, test)..."
+    @echo "\n📋 1️⃣ Format check..."
+    cargo fmt --all -- --check
+    @echo "\n✅ Format check passed!"
+    @echo "\n🔬 2️⃣ Clippy linting (with warnings as errors)..."
+    cargo clippy --all-targets --all-features -- -D warnings
+    @echo "\n✅ Clippy check passed!"
+    @echo "\n🧪 3️⃣ Running all tests..."
+    cargo test
+    @echo "\n✅ All tests passed!"
+    @echo "\n🎉 All CI checks passed! Ready for submission."
