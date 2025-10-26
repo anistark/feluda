@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: test-ci
+        name: Run CI checks (format, lint, test)
+        entry: just test-ci
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]

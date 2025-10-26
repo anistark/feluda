@@ -1,0 +1,3 @@
+# Ensure hook scripts are executable
+.githooks/** linguist-language=Shell
+.githooks/pre-commit text eol=lf diff=sh

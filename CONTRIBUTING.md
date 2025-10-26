@@ -56,17 +56,75 @@ cd feluda
 cargo build
 ```
 
-3. Run locally
+3. Configure git hooks (recommended for automatic checks on commit):
+
+```sh
+# Setup development environment with pre-commit hooks
+just setup
+```
+
+This will:
+- Make hook scripts executable
+- Configure git to use `.githooks` directory
+- Enable automatic pre-commit checks
+
+4. Run locally
 
 ```sh
 ./target/debug/feluda --help
 ```
 
-4. Run tests to ensure everything is working:
+5. Run tests to ensure everything is working:
 
 ```sh
 cargo test
 ```
+
+### Pre-commit Hooks
+
+The repository includes automated pre-commit hooks that run:
+- Format checks (`cargo fmt --all -- --check`)
+- Linting (`cargo clippy --all-targets --all-features -- -D warnings`)
+- All tests (`cargo test`)
+
+**Setup options:**
+
+**Option A: Git hooks (automatic)** ⭐ Recommended
+
+```sh
+# After cloning, run once:
+just setup
+
+# Now CI checks will run automatically on every commit
+git commit -m "your message"
+```
+
+If you prefer manual setup:
+```sh
+git config core.hooksPath .githooks
+chmod +x .githooks/*
+```
+
+**Option B: Using pre-commit framework**
+
+```sh
+# Install pre-commit if you don't have it
+pip install pre-commit
+
+# Install the hooks
+pre-commit install
+
+# CI checks will run automatically on every commit
+git commit -m "your message"
+```
+
+**Option C: Run CI checks manually**
+
+```sh
+just test-ci
+```
+
+This runs all checks exactly as the GitHub Actions CI does, without committing.
 
 ### Testing with Example Projects
 

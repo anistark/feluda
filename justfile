@@ -3,6 +3,25 @@ CRATE_NAME := "feluda"
 VERSION := `cargo pkgid | cut -d# -f2 | cut -d: -f2`
 GITHUB_REPO := "anistark/feluda"
 
+# Setup development environment
+setup:
+    @echo "🔧 Setting up development environment..."
+    @echo ""
+    @echo "📝 Making hooks executable..."
+    chmod +x .githooks/*
+    @echo "✅ Hooks are now executable"
+    @echo ""
+    @echo "⚙️  Configuring git hooks path..."
+    git config core.hooksPath .githooks
+    @echo "✅ Git configured to use .githooks"
+    @echo ""
+    @echo "🎉 Setup complete!"
+    @echo ""
+    @echo "You can now:"
+    @echo "  • Commit code (pre-commit checks will run automatically)"
+    @echo "  • Run 'just test-ci' anytime to check before committing"
+    @echo ""
+
 # Build the crate
 build: format lint test
     @echo "🚀 Building release version..."

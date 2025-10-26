@@ -1,0 +1,14 @@
+#!/bin/bash
+# Pre-commit hook to run CI checks before committing
+
+set -e
+
+echo "🔍 Running pre-commit checks..."
+just test-ci
+
+if [ $? -eq 0 ]; then
+    echo "✅ Pre-commit checks passed! Proceeding with commit..."
+else
+    echo "❌ Pre-commit checks failed! Fix the issues before committing."
+    exit 1
+fi
