@@ -113,15 +113,6 @@ fn run() -> FeludaResult<()> {
         &format!("Analysing project at: {}", analysis_path.display()),
     );
 
-    // Handle SBOM generation if requested
-    if let Some(sbom_format) = &args.sbom {
-        return handle_sbom_command(
-            analysis_path.to_string_lossy().to_string(),
-            sbom_format,
-            args.output_file.clone(),
-        );
-    }
-
     // Handle the command based on whether a subcommand was provided
     if args.is_default_command() {
         // Default behavior: license analysis
@@ -155,6 +146,45 @@ fn run() -> FeludaResult<()> {
             } => {
                 handle_generate_command(path, language, project_license);
                 Ok(())
+            }
+            Commands::Sbom {
+                path,
+                format,
+                output,
+            } => {
+                // Determine which format to use
+                let sbom_format = match format {
+                    Some(cli::SbomCommand::Spdx {
+                        path: fmt_path,
+                        output: fmt_output,
+                    }) => {
+                        // Use the subcommand path/output if provided, otherwise use the parent command's
+                        let final_path = if fmt_path != "./" {
+                            fmt_path
+                        } else {
+                            path.clone()
+                        };
+                        let final_output = fmt_output.or(output.clone());
+                        (cli::SbomFormat::Spdx, final_path, final_output)
+                    }
+                    Some(cli::SbomCommand::Cyclonedx {
+                        path: fmt_path,
+                        output: fmt_output,
+                    }) => {
+                        let final_path = if fmt_path != "./" {
+                            fmt_path
+                        } else {
+                            path.clone()
+                        };
+                        let final_output = fmt_output.or(output.clone());
+                        (cli::SbomFormat::Cyclonedx, final_path, final_output)
+                    }
+                    None => {
+                        // Default: generate both formats
+                        (cli::SbomFormat::All, path, output)
+                    }
+                };
+                handle_sbom_command(sbom_format.1, &sbom_format.0, sbom_format.2)
             }
         }
     }

@@ -226,19 +226,28 @@ feluda generate --path /path/to/project/
 Generate Software Bill of Materials (SBOM) for your project:
 
 ```sh
-# Generate SPDX format SBOM to console
-feluda --sbom spdx
+# Generate all supported SBOM formats (SPDX + CycloneDX)
+feluda sbom
 
-# Generate SPDX SBOM to file
-feluda --sbom spdx --output-file project-name-sbom.json
+# Generate SPDX format SBOM only
+feluda sbom spdx
 
-# Generate all supported formats (currently only SPDX is implemented)
-feluda --sbom all --output-file project-name-sbom
+# Generate SPDX format SBOM to file
+feluda sbom spdx --output sbom.json
+
+# Generate CycloneDX format SBOM only
+feluda sbom cyclonedx
+
+# Generate CycloneDX format SBOM to file
+feluda sbom cyclonedx --output sbom.json
+
+# Generate all formats with custom output
+feluda sbom --output sbom-output
 ```
 
 **Supported SBOM Formats:**
 - **SPDX 2.3** - Software Package Data Exchange format (JSON)
-- **CycloneDX** - [Coming soon](https://github.com/anistark/feluda/issues/73)
+- **CycloneDX** - CycloneDX v1.5 format (JSON)
 
 **What's Included in SBOM:**
 - Package names and versions

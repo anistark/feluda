@@ -437,7 +437,6 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
-            sbom: None,
             osi: None,
             strict: false,
         };
@@ -492,7 +491,6 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
-            sbom: None,
             osi: None,
             strict: false,
         };
@@ -546,7 +544,6 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
-            sbom: None,
             osi: None,
             strict: false,
         };

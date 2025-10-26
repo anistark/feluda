@@ -20,7 +20,7 @@ pub enum CiFormat {
 }
 
 /// SBOM format options
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
 pub enum SbomFormat {
     /// SPDX format
     Spdx,
@@ -41,6 +41,31 @@ pub enum OsiFilter {
     Unknown,
 }
 
+/// SBOM Subcommands
+#[derive(Subcommand, Debug, Clone)]
+pub enum SbomCommand {
+    /// Generate SPDX format SBOM
+    Spdx {
+        /// Path to the local project directory
+        #[arg(short, long, default_value = "./")]
+        path: String,
+
+        /// Path to write the SBOM file
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Generate CycloneDX format SBOM
+    Cyclonedx {
+        /// Path to the local project directory
+        #[arg(short, long, default_value = "./")]
+        path: String,
+
+        /// Path to write the SBOM file
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+}
+
 /// CLI Commands
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
@@ -57,6 +82,20 @@ pub enum Commands {
         /// Specify the project license explicitly
         #[arg(long)]
         project_license: Option<String>,
+    },
+    /// Generate Software Bill of Materials (SBOM)
+    Sbom {
+        /// Path to the local project directory
+        #[arg(short, long, default_value = "./")]
+        path: String,
+
+        /// Path to write the SBOM files
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// SBOM format subcommand
+        #[command(subcommand)]
+        format: Option<SbomCommand>,
     },
 }
 
@@ -154,10 +193,6 @@ pub struct Cli {
     // Show a concise gist summary
     #[arg(long, group = "output")]
     pub gist: bool,
-
-    /// Generate SBOM in specified format
-    #[arg(long, value_enum)]
-    pub sbom: Option<SbomFormat>,
 
     /// Filter by OSI license approval status
     #[arg(long, value_enum)]
@@ -415,7 +450,6 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
-            sbom: None,
             osi: None,
             strict: false,
         };
@@ -455,7 +489,6 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
-            sbom: None,
             osi: None,
             strict: false,
         };
@@ -470,6 +503,9 @@ mod tests {
                 assert_eq!(path, "/test/path");
                 assert_eq!(language, Some("rust".to_string()));
                 assert_eq!(project_license, Some("MIT".to_string()));
+            }
+            Commands::Sbom { .. } => {
+                panic!("Expected Generate command");
             }
         }
         assert!(!cli.is_default_command());
@@ -498,7 +534,6 @@ mod tests {
             fail_on_incompatible: false,
             project_license: None,
             gist: false,
-            sbom: None,
             osi: None,
             strict: false,
         };
@@ -513,6 +548,9 @@ mod tests {
                 assert_eq!(path, "");
                 assert_eq!(language, None);
                 assert_eq!(project_license, None);
+            }
+            Commands::Sbom { .. } => {
+                panic!("Expected Generate command");
             }
         }
     }
@@ -612,6 +650,9 @@ mod tests {
                 assert_eq!(l1, l2);
                 assert_eq!(pl1, pl2);
             }
+            _ => {
+                panic!("Expected both commands to be Generate");
+            }
         }
     }
 
@@ -624,6 +665,92 @@ mod tests {
             let progress = indicator.progress.lock().unwrap();
             assert_eq!(*progress, Some(format!("step {i}")));
             drop(progress);
+        }
+    }
+
+    #[test]
+    fn test_sbom_command_default_all() {
+        let sbom_cmd = Commands::Sbom {
+            path: "./".to_string(),
+            format: None,
+            output: None,
+        };
+
+        match sbom_cmd {
+            Commands::Sbom {
+                path,
+                format,
+                output,
+            } => {
+                assert_eq!(path, "./");
+                assert!(format.is_none());
+                assert!(output.is_none());
+            }
+            _ => panic!("Expected Sbom command"),
+        }
+    }
+
+    #[test]
+    fn test_sbom_command_spdx() {
+        let sbom_cmd = Commands::Sbom {
+            path: "/project".to_string(),
+            format: Some(SbomCommand::Spdx {
+                path: "/project".to_string(),
+                output: Some("sbom.json".to_string()),
+            }),
+            output: None,
+        };
+
+        match sbom_cmd {
+            Commands::Sbom {
+                path,
+                format,
+                output,
+            } => {
+                assert_eq!(path, "/project");
+                assert!(format.is_some());
+                assert!(output.is_none());
+                match format.unwrap() {
+                    SbomCommand::Spdx { path: p, output: o } => {
+                        assert_eq!(p, "/project");
+                        assert_eq!(o, Some("sbom.json".to_string()));
+                    }
+                    _ => panic!("Expected Spdx subcommand"),
+                }
+            }
+            _ => panic!("Expected Sbom command"),
+        }
+    }
+
+    #[test]
+    fn test_sbom_command_cyclonedx() {
+        let sbom_cmd = Commands::Sbom {
+            path: "/project".to_string(),
+            format: Some(SbomCommand::Cyclonedx {
+                path: "/project".to_string(),
+                output: Some("sbom.xml".to_string()),
+            }),
+            output: None,
+        };
+
+        match sbom_cmd {
+            Commands::Sbom {
+                path,
+                format,
+                output,
+            } => {
+                assert_eq!(path, "/project");
+                assert!(format.is_some());
+                assert!(output.is_none());
+                match format.unwrap() {
+                    SbomCommand::Cyclonedx { path: p, output: o } => {
+                        assert_eq!(p, "/project");
+                        assert_eq!(o, Some("sbom.xml".to_string()));
+                    }
+                    _ => panic!("Expected Cyclonedx subcommand"),
+                }
+            }
+            _ => panic!("Expected Sbom command"),
         }
     }
 }

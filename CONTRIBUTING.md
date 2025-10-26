@@ -101,6 +101,11 @@ feluda --path examples/python-example
 feluda --path examples/c-example
 feluda --path examples/cpp-example
 feluda --path examples/r-example
+
+# Test SBOM generation on an example project
+feluda sbom --path examples/rust-example
+feluda sbom spdx --path examples/rust-example
+feluda sbom cyclonedx --path examples/rust-example
 ```
 
 #### Using Examples for Development
@@ -125,6 +130,11 @@ just test-examples
 ./target/debug/feluda --path examples/rust-example --json
 ./target/debug/feluda --path examples/node-example --verbose
 ./target/debug/feluda --path examples/go-example --gui
+
+# Test SBOM generation
+./target/debug/feluda sbom --path examples/rust-example
+./target/debug/feluda sbom spdx --path examples/rust-example
+./target/debug/feluda sbom cyclonedx --path examples/node-example
 ```
 
 ### Debug Mode
