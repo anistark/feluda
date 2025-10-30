@@ -143,6 +143,9 @@ pub enum FeludaError {
     #[error("Invalid data: {0}")]
     InvalidData(String),
 
+    #[error("Validation error: {0}")]
+    Validation(String),
+
     #[error("Unknown error: {0}")]
     #[allow(dead_code)]
     Unknown(String),

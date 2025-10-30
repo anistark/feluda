@@ -64,6 +64,20 @@ pub enum SbomCommand {
         #[arg(short, long)]
         output: Option<String>,
     },
+    /// Validate SBOM file (JSON format)
+    Validate {
+        /// Path to the SBOM file to validate
+        #[arg(value_name = "FILE")]
+        sbom_file: String,
+
+        /// Path to write the validation report
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Output validation report in JSON format
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// CLI Commands

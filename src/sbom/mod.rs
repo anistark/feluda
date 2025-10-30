@@ -1,5 +1,6 @@
 pub mod cyclonedx;
 pub mod spdx;
+pub mod validate;
 
 use crate::cli::SbomFormat;
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};

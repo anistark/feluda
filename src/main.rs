@@ -18,6 +18,7 @@ use licenses::{detect_project_license, is_license_compatible, LicenseCompatibili
 use parser::parse_root;
 use reporter::{generate_report, ReportConfig};
 use sbom::handle_sbom_command;
+use sbom::validate::handle_sbom_validate_command;
 use std::env;
 use std::path::Path;
 use std::process;
@@ -153,7 +154,7 @@ fn run() -> FeludaResult<()> {
                 output,
             } => {
                 // Determine which format to use
-                let sbom_format = match format {
+                match format {
                     Some(cli::SbomCommand::Spdx {
                         path: fmt_path,
                         output: fmt_output,
@@ -165,7 +166,7 @@ fn run() -> FeludaResult<()> {
                             path.clone()
                         };
                         let final_output = fmt_output.or(output.clone());
-                        (cli::SbomFormat::Spdx, final_path, final_output)
+                        handle_sbom_command(final_path, &cli::SbomFormat::Spdx, final_output)
                     }
                     Some(cli::SbomCommand::Cyclonedx {
                         path: fmt_path,
@@ -177,14 +178,18 @@ fn run() -> FeludaResult<()> {
                             path.clone()
                         };
                         let final_output = fmt_output.or(output.clone());
-                        (cli::SbomFormat::Cyclonedx, final_path, final_output)
+                        handle_sbom_command(final_path, &cli::SbomFormat::Cyclonedx, final_output)
                     }
+                    Some(cli::SbomCommand::Validate {
+                        sbom_file,
+                        output: validation_output,
+                        json,
+                    }) => handle_sbom_validate_command(sbom_file, validation_output, json),
                     None => {
                         // Default: generate both formats
-                        (cli::SbomFormat::All, path, output)
+                        handle_sbom_command(path, &cli::SbomFormat::All, output)
                     }
-                };
-                handle_sbom_command(sbom_format.1, &sbom_format.0, sbom_format.2)
+                }
             }
         }
     }
