@@ -262,6 +262,24 @@ feluda sbom --output sbom-output
 - 🏢 **Enterprise requirements** - Meet organizational SBOM mandates
 - 🔍 **Audit preparation** - Provide comprehensive dependency documentation
 
+### SBOM Validation
+
+Validate SBOM files to ensure they conform to the SPDX or CycloneDX specifications:
+
+```sh
+# Validate an SBOM file
+feluda sbom validate spdx.json
+
+# Validate and save the report to a file
+feluda sbom validate spdx.json --output validation-report.txt
+
+# Validate and output report in JSON format
+feluda sbom validate spdx.json --json
+
+# Validate and save JSON report to file
+feluda sbom validate spdx.json --json --output validation-report.json
+```
+
 ### Run feluda on a github repo directly
 
 ```sh
@@ -542,7 +560,14 @@ jobs:
           echo "2" | feluda generate  # Auto-select THIRD_PARTY_LICENSES file
 
       - name: Generate SBOM
-        run: feluda --sbom spdx --output-file sbom.spdx.json
+        run: |
+          feluda sbom spdx --output sbom.spdx.json
+          feluda sbom cyclonedx --output sbom.cyclonedx.json
+
+      - name: Validate SBOM files
+        run: |
+          feluda sbom validate sbom.spdx.json --output sbom-spdx-validation.txt
+          feluda sbom validate sbom.cyclonedx.json --output sbom-cyclonedx-validation.txt
 
       - name: Upload compliance artifacts
         uses: actions/upload-artifact@v4
@@ -552,6 +577,9 @@ jobs:
             NOTICE
             THIRD_PARTY_LICENSES.md
             sbom.spdx.json
+            sbom.cyclonedx.json
+            sbom-spdx-validation.txt
+            sbom-cyclonedx-validation.txt
 ```
 
 Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.
