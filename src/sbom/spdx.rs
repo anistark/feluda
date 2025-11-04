@@ -4,6 +4,57 @@ use uuid::Uuid;
 
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
 
+/// Character validation for SPDX compliance
+///
+/// This module enforces SPDX 2.3 specification character requirements across all fields.
+/// See: https://spdx.github.io/spdx-spec/v2.3/
+///
+/// SPDX imposes strict character restrictions to ensure:
+/// 1. JSON serialization safety - prevents JSON injection
+/// 2. Cross-platform compatibility - ensures data portability
+/// 3. Standard compliance - follows SPDX specification requirements
+mod spdx_charset {
+    /// Characters forbidden in ALL SPDX fields for safety
+    /// These characters could break JSON serialization or violate SPDX spec
+    pub const GLOBALLY_FORBIDDEN: &[char] = &['"', '\\', '\n', '\r', '\t'];
+
+    /// Valid characters for license expressions per SPDX spec
+    /// Includes: alphanumeric, dot, hyphen, plus, parentheses, spaces
+    #[allow(dead_code)]
+    pub const LICENSE_VALID_CHARS: &str =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-+() ";
+
+    /// Valid characters for SPDX identifiers (after SPDXRef- prefix)
+    /// Per SPDX spec: Letters, numbers, hyphens, underscores only
+    pub const SPDXID_VALID_CHARS: &str =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.";
+
+    /// Characters that are problematic for various reasons
+    /// - Shell metacharacters: & | [ ] < > $ ( ) * ? ~ ` ! #
+    /// - JSON-adjacent: { } = (could interfere with templates)
+    /// - Special purposes: @ % ^ (reserved for future use in SPDX)
+    pub const PROBLEMATIC_CHARS: &[char] = &[
+        '&', '|', '[', ']', '<', '>', '=', '*', '?', '^', '$', '%', '#', '@', '!', '~', '`', '{',
+        '}',
+    ];
+
+    /// Validates a string for presence of globally forbidden characters
+    pub fn contains_forbidden_chars(s: &str) -> bool {
+        s.chars().any(|c| GLOBALLY_FORBIDDEN.contains(&c))
+    }
+
+    /// Validates a string contains only ASCII characters
+    #[allow(dead_code)]
+    pub fn is_valid_ascii(s: &str) -> bool {
+        s.is_ascii()
+    }
+
+    /// Checks if string contains any problematic characters (more lenient)
+    pub fn contains_problematic_chars(s: &str) -> bool {
+        s.chars().any(|c| PROBLEMATIC_CHARS.contains(&c))
+    }
+}
+
 /// Validate if a string looks like a valid SPDX license identifier or expression
 fn is_valid_spdx_license_format(license: &str) -> bool {
     // SPDX license identifiers can only contain:
@@ -64,34 +115,50 @@ pub fn convert_to_spdx_license_expression(license: &str) -> String {
 
     let result = trimmed.replace(" / ", " OR ").replace("/", " OR ");
 
-    // TODO: Revise characters that could be problematic for every spdx spec
-    if result.contains("{}")
-        || result.contains("${")
-        || result.contains('"')
-        || result.contains('\\')
-        || result.contains('\n')
-        || result.contains('\r')
-        || result.contains('\t')
-        || result.contains('&')
-        || result.contains('|')
-        || result.contains('[')
-        || result.contains(']')
-        || result.contains('{')
-        || result.contains('}')
-        || result.contains('<')
-        || result.contains('>')
-        || result.contains('=')
-        || result.contains('*')
-        || result.contains('?')
-        || result.contains('^')
-        || result.contains('$')
-        || result.contains('%')
-        || result.contains('#')
-        || result.contains('@')
-        || result.contains('!')
-        || result.contains('~')
-        || result.contains('`')
-        || result.len() > 100
+    // SPDX 2.3 License Expression Character Validation
+    // Per SPDX specification, license expressions must only contain:
+    // - SPDX license identifiers (alphanumeric, dots, hyphens, plus signs)
+    // - Logical operators (AND, OR, WITH as keywords)
+    // - Parentheses for grouping
+    // - Spaces for separation
+    //
+    // Forbidden characters (security & compliance):
+    // - Double quotes and backslashes (JSON safety)
+    // - Template characters (${}, {}) (prevent injection)
+    // - Operators as symbols (&, |) instead of keywords (SPDX compliance)
+    // - Brackets, angle brackets, braces (shell/SPDX reserved)
+    // - Math operators (=, *, ?, ^) (avoid ambiguity)
+    // - Special chars (@, %, #, !, ~, `) (reserved/problematic)
+
+    // Check for globally forbidden characters
+    if spdx_charset::contains_forbidden_chars(&result) {
+        log(
+            LogLevel::Trace,
+            &format!("License '{license}' contains forbidden characters -> NOASSERTION"),
+        );
+        return "NOASSERTION".to_string();
+    }
+
+    // Check for template/injection patterns
+    if result.contains("{}") || result.contains("${") {
+        log(
+            LogLevel::Trace,
+            &format!("License '{license}' contains template patterns -> NOASSERTION"),
+        );
+        return "NOASSERTION".to_string();
+    }
+
+    // Check for problematic characters
+    if spdx_charset::contains_problematic_chars(&result) {
+        log(
+            LogLevel::Trace,
+            &format!("License '{license}' contains problematic characters -> NOASSERTION"),
+        );
+        return "NOASSERTION".to_string();
+    }
+
+    // Check structural constraints
+    if result.len() > 100
         || !is_valid_spdx_license_format(&result)
         || result.is_empty()
         || result.trim() != result
@@ -99,7 +166,9 @@ pub fn convert_to_spdx_license_expression(license: &str) -> String {
     {
         log(
             LogLevel::Trace,
-            &format!("License '{license}' failed validation -> '{result}' -> NOASSERTION"),
+            &format!(
+                "License '{license}' failed structural validation -> '{result}' -> NOASSERTION"
+            ),
         );
         return "NOASSERTION".to_string();
     }
@@ -123,7 +192,51 @@ pub fn convert_to_spdx_license_expression(license: &str) -> String {
     result
 }
 
+/// Validates SPDX identifier format compliance
+///
+/// SPDX 2.3 identifiers must:
+/// 1. Start with "SPDXRef-" prefix
+/// 2. Contain only ASCII alphanumeric, hyphens, underscores, and dots
+/// 3. Not exceed 200 characters total
+/// 4. Not contain forbidden characters (quotes, backslashes, control chars)
+/// 5. Not contain non-ASCII characters
+fn is_valid_spdx_id_format(spdx_id: &str) -> bool {
+    if !spdx_id.starts_with("SPDXRef-") {
+        return false;
+    }
+
+    if spdx_id.len() > 200 {
+        return false;
+    }
+
+    // Check for forbidden characters
+    if spdx_charset::contains_forbidden_chars(spdx_id) {
+        return false;
+    }
+
+    // Check for ASCII requirement
+    if !spdx_id.is_ascii() {
+        return false;
+    }
+
+    // Validate characters after SPDXRef- prefix
+    let suffix = &spdx_id[8..]; // Skip "SPDXRef-"
+
+    // Suffix must not be empty
+    if suffix.is_empty() {
+        return false;
+    }
+
+    suffix
+        .chars()
+        .all(|c| spdx_charset::SPDXID_VALID_CHARS.contains(c))
+}
+
 /// Sanitize string for use in SPDX identifiers
+///
+/// This function converts arbitrary strings into valid SPDX identifiers
+/// by replacing non-alphanumeric characters with underscores.
+/// If the result is empty, falls back to hash-based generation.
 fn sanitize_spdx_identifier(input: &str) -> String {
     if input.trim().is_empty() {
         return String::new();
@@ -332,6 +445,7 @@ impl SpdxDocument {
 }
 
 impl SpdxPackage {
+    #[allow(dead_code)]
     pub fn new(name: String, _document_namespace: &str) -> Self {
         let sanitized_name = sanitize_spdx_identifier(&name);
 
@@ -396,35 +510,139 @@ impl SpdxPackage {
         self
     }
 
-    // TODO: Implement enhanced SPDX package metadata for future features
-    // These methods provide additional package information capabilities
+    /// Sets the download location with SPDX validation
+    ///
+    /// Per SPDX 2.3 spec, download location must be:
+    /// - A valid URL (http://, https://, ftp://, etc.)
+    /// - A VCS location (git+https://, svn://, etc.)
+    /// - The literal string "NOASSERTION" if location is unknown
+    /// - The literal string "NONE" if no download location is available
+    ///
+    /// Special characters and non-ASCII characters are not allowed in URLs.
     #[allow(dead_code)]
     pub fn with_download_location(mut self, location: String) -> Self {
-        self.download_location = location;
+        // Validate download location
+        let validated = if location.trim().is_empty()
+            || location.eq_ignore_ascii_case("noassertion")
+            || location.eq_ignore_ascii_case("none")
+        {
+            location
+        } else if spdx_charset::contains_forbidden_chars(&location) || !location.is_ascii() {
+            log(
+                LogLevel::Warn,
+                &format!(
+                    "Download location '{location}' contains invalid characters, using NOASSERTION"
+                ),
+            );
+            "NOASSERTION".to_string()
+        } else {
+            location
+        };
+
+        self.download_location = validated;
         self
     }
 
+    /// Sets the copyright text with SPDX validation
+    ///
+    /// Copyright text should be in the format:
+    /// "(C) Year Name" or "Copyright Year Name"
+    /// Or the literal string "NOASSERTION" if not available
+    ///
+    /// Per SPDX spec: "This field may contain multiple copyrights separated by newlines"
+    /// However, we enforce single-line format for JSON safety.
     #[allow(dead_code)]
     pub fn with_copyright(mut self, copyright: String) -> Self {
-        self.copyright_text = Some(copyright);
+        // Validate copyright text
+        let validated = if copyright.trim().is_empty() {
+            "NOASSERTION".to_string()
+        } else if spdx_charset::contains_forbidden_chars(&copyright) || !copyright.is_ascii() {
+            log(
+                LogLevel::Warn,
+                "Copyright text contains invalid characters, using NOASSERTION",
+            );
+            "NOASSERTION".to_string()
+        } else if copyright.len() > 1000 {
+            log(
+                LogLevel::Warn,
+                "Copyright text exceeds 1000 character limit",
+            );
+            "NOASSERTION".to_string()
+        } else {
+            copyright
+        };
+
+        self.copyright_text = Some(validated);
         self
     }
 
+    /// Sets a comment with SPDX validation
+    ///
+    /// Comments can provide additional information about the package
+    /// but must conform to SPDX character restrictions.
     #[allow(dead_code)]
     pub fn with_comment(mut self, comment: String) -> Self {
-        self.comment = Some(comment);
+        // Validate comment
+        let validated = if comment.trim().is_empty() {
+            None
+        } else if spdx_charset::contains_forbidden_chars(&comment) || !comment.is_ascii() {
+            log(
+                LogLevel::Warn,
+                "Comment contains invalid characters, skipping",
+            );
+            None
+        } else if comment.len() > 500 {
+            // Comments have reasonable length limit
+            log(LogLevel::Warn, "Comment exceeds 500 character limit");
+            None
+        } else {
+            Some(comment)
+        };
+
+        self.comment = validated;
         self
     }
 
+    /// Adds an external reference for package metadata
+    ///
+    /// External references link a package to external sources of information.
+    /// Per SPDX 2.3 spec, common reference categories include:
+    /// - "SECURITY_OTHER" for security-related references
+    /// - "PACKAGE_MANAGER" for package manager records
+    /// - "OTHER" for miscellaneous references
+    ///
+    /// Example:
+    /// ```ignore
+    /// package.add_external_ref(
+    ///     "PACKAGE_MANAGER".to_string(),
+    ///     "npm".to_string(),
+    ///     "lodash@4.17.21".to_string()
+    /// );
+    /// ```
     #[allow(dead_code)]
     pub fn add_external_ref(mut self, category: String, ref_type: String, locator: String) -> Self {
-        let external_ref = ExternalReference {
-            reference_category: category,
-            reference_type: ref_type,
-            reference_locator: locator,
-            comment: None,
-        };
-        self.external_refs.push(external_ref);
+        // Validate external reference fields
+        let is_valid = !spdx_charset::contains_forbidden_chars(&category)
+            && category.is_ascii()
+            && !spdx_charset::contains_forbidden_chars(&ref_type)
+            && ref_type.is_ascii()
+            && !spdx_charset::contains_forbidden_chars(&locator)
+            && locator.is_ascii();
+
+        if is_valid && category.len() <= 100 && ref_type.len() <= 100 && locator.len() <= 500 {
+            let external_ref = ExternalReference {
+                reference_category: category,
+                reference_type: ref_type,
+                reference_locator: locator,
+                comment: None,
+            };
+            self.external_refs.push(external_ref);
+        } else {
+            log(
+                LogLevel::Warn,
+                "External reference validation failed, skipping",
+            );
+        }
         self
     }
 }
@@ -438,15 +656,14 @@ impl Default for SpdxDocument {
 fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
     let mut needs_fix = false;
 
-    if package.spdx_id.is_empty()
-        || !package.spdx_id.starts_with("SPDXRef-")
-        || package.spdx_id.contains('"')
-        || package.spdx_id.contains('\\')
-        || package.spdx_id.contains('\n')
-        || package.spdx_id.contains('\r')
-        || !package.spdx_id.is_ascii()
-        || package.spdx_id.len() > 200
-    {
+    // SPDX Identifier Validation
+    // ===========================
+    // Validates the SPDX ID conforms to SPDX 2.3 specification:
+    // - Must start with "SPDXRef-" prefix (required by spec)
+    // - Must be 200 characters or less
+    // - Must contain only ASCII alphanumeric, hyphens, underscores, dots
+    // - Must not contain forbidden characters (quotes, backslashes, newlines, etc.)
+    if !is_valid_spdx_id_format(&package.spdx_id) {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
@@ -457,35 +674,60 @@ fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
         }
         let hash = hasher.finish();
 
+        let old_id = package.spdx_id.clone();
         package.spdx_id = format!("SPDXRef-Package-pkg{hash:016x}");
+
+        log(
+            LogLevel::Trace,
+            &format!(
+                "Regenerated invalid SPDX ID '{}' → '{}'",
+                old_id, package.spdx_id
+            ),
+        );
         needs_fix = true;
     }
 
+    // Package Name Validation
+    // =======================
+    // SPDX 2.3 spec requires package names to be:
+    // - Non-empty (required field)
+    // - ASCII characters only (for portability)
+    // - No control characters or special characters
+    // - Maximum 500 characters (reasonable limit)
     if package.name.is_empty()
-        || package.name.contains('"')
-        || package.name.contains('\\')
-        || package.name.contains('\n')
-        || package.name.contains('\r')
+        || spdx_charset::contains_forbidden_chars(&package.name)
         || !package.name.is_ascii()
         || package.name.len() > 500
     {
+        let old_name = package.name.clone();
         package.name = package
             .name
             .chars()
-            .filter(|&c| c.is_ascii_graphic() && c != '"' && c != '\\')
+            .filter(|&c| c.is_ascii_graphic() && !spdx_charset::GLOBALLY_FORBIDDEN.contains(&c))
             .take(500)
             .collect();
 
         if package.name.is_empty() {
             package.name = "unknown-package".to_string();
         }
+
+        log(
+            LogLevel::Trace,
+            &format!("Sanitized package name '{}' → '{}'", old_name, package.name),
+        );
         needs_fix = true;
     }
 
-    if package.download_location.contains('"')
-        || package.download_location.contains('\\')
-        || package.download_location.contains('\n')
-        || package.download_location.contains('\r')
+    // Download Location Validation
+    // =============================
+    // SPDX 2.3 spec allows:
+    // - Valid URLs (http://, https://, ftp://, etc.)
+    // - VCS locations (git+https://, svn://, etc.)
+    // - Literal "NOASSERTION" (if location is unknown)
+    // - Literal "NONE" (if no download location exists)
+    //
+    // Must be ASCII-only and not exceed 1000 characters
+    if spdx_charset::contains_forbidden_chars(&package.download_location)
         || !package.download_location.is_ascii()
         || package.download_location.len() > 1000
     {
@@ -493,34 +735,54 @@ fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
         needs_fix = true;
     }
 
+    // Package Version Validation
+    // ==========================
+    // Version strings should follow semantic versioning convention
+    // (e.g., "1.0.0", "2.5.3-alpha", etc.)
+    //
+    // Must be ASCII-only and not exceed 200 characters
     if let Some(ref mut version) = package.version_info {
-        if version.contains('"')
-            || version.contains('\\')
-            || version.contains('\n')
-            || version.contains('\r')
+        if spdx_charset::contains_forbidden_chars(version)
             || !version.is_ascii()
             || version.len() > 200
         {
+            let old_version = version.clone();
             *version = version
                 .chars()
-                .filter(|&c| c.is_ascii_graphic() && c != '"' && c != '\\')
+                .filter(|&c| c.is_ascii_graphic() && !spdx_charset::GLOBALLY_FORBIDDEN.contains(&c))
                 .take(200)
                 .collect();
 
             if version.is_empty() {
+                log(
+                    LogLevel::Trace,
+                    &format!(
+                        "Removed invalid version '{old_version}' (became empty after sanitization)"
+                    ),
+                );
                 package.version_info = None;
+            } else {
+                log(
+                    LogLevel::Trace,
+                    &format!("Sanitized version '{old_version}' → '{version}'"),
+                );
             }
             needs_fix = true;
         }
     }
 
+    // License Field Validation
+    // ========================
+    // Both licenseConcluded and licenseDeclared must conform to SPDX spec:
+    // - Either a valid SPDX license expression (e.g., "MIT", "Apache-2.0 OR MIT")
+    // - Or the literal string "NOASSERTION"
+    // - Or the literal string "NONE" (rarely used)
+    //
+    // Must be ASCII-only and not exceed 200 characters
     let validate_license = |license_opt: &mut Option<String>, _field_name: &str| -> bool {
         if let Some(ref mut license) = license_opt {
             if license.trim().is_empty()
-                || license.contains('"')
-                || license.contains('\\')
-                || license.contains('\n')
-                || license.contains('\r')
+                || spdx_charset::contains_forbidden_chars(license)
                 || license.len() > 200
                 || !license.is_ascii()
                 || !is_valid_spdx_license_format(license)
@@ -544,11 +806,17 @@ fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
         needs_fix = true;
     }
 
+    // Copyright Text Validation
+    // ==========================
+    // Copyright information should follow format:
+    // "(C) Year Name" or "Copyright Year Name"
+    //
+    // However, SPDX spec allows flexibility here. The key requirement is:
+    // - ASCII-only characters
+    // - Maximum 1000 characters
+    // - Not empty (required field per SPDX spec)
     if let Some(ref mut copyright) = package.copyright_text {
-        if copyright.contains('"')
-            || copyright.contains('\\')
-            || copyright.contains('\n')
-            || copyright.contains('\r')
+        if spdx_charset::contains_forbidden_chars(copyright)
             || !copyright.is_ascii()
             || copyright.len() > 1000
         {
@@ -556,6 +824,7 @@ fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
             needs_fix = true;
         }
     } else {
+        // Copyright is a required field in SPDX 2.3
         package.copyright_text = Some("NOASSERTION".to_string());
         needs_fix = true;
     }
@@ -1177,5 +1446,201 @@ mod tests {
         assert_eq!(doc.packages.len(), 1);
         assert!(doc.packages[0].license_declared.is_some());
         assert!(doc.packages[0].license_concluded.is_some());
+    }
+
+    #[test]
+    fn test_spdx_id_format_validation() {
+        // Test valid SPDX IDs
+        assert!(super::is_valid_spdx_id_format("SPDXRef-DOCUMENT"));
+        assert!(super::is_valid_spdx_id_format("SPDXRef-Package-123"));
+        assert!(super::is_valid_spdx_id_format("SPDXRef-File-src.main.rs"));
+        assert!(super::is_valid_spdx_id_format(
+            "SPDXRef-Package-pkg0123456789abcdef"
+        ));
+
+        // Test invalid SPDX IDs
+        assert!(!super::is_valid_spdx_id_format("")); // Empty
+        assert!(!super::is_valid_spdx_id_format("SPDX-DOCUMENT")); // Missing "Ref-" part
+        assert!(!super::is_valid_spdx_id_format("SPDXRef-")); // No suffix
+        assert!(!super::is_valid_spdx_id_format("SPDXRef-Package\"quoted")); // Contains quote
+        assert!(!super::is_valid_spdx_id_format(
+            "SPDXRef-Package\\backslash"
+        )); // Contains backslash
+        assert!(!super::is_valid_spdx_id_format(
+            "SPDXRef-Package\nwithNewline"
+        )); // Contains newline
+
+        // Test length limits
+        let valid_long = format!("SPDXRef-{}", "a".repeat(192)); // 8 + 192 = 200 chars
+        assert!(super::is_valid_spdx_id_format(&valid_long));
+
+        let invalid_long = format!("SPDXRef-{}", "a".repeat(193)); // 8 + 193 = 201 chars
+        assert!(!super::is_valid_spdx_id_format(&invalid_long));
+    }
+
+    #[test]
+    fn test_package_metadata_validation() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
+        // Test package with valid metadata
+        let package = SpdxPackage::new("valid-package".to_string(), "https://example.com/test")
+            .with_version("1.0.0".to_string())
+            .with_license("MIT".to_string())
+            .with_copyright("(C) 2024 Example Corp".to_string())
+            .with_download_location("https://github.com/example/repo".to_string())
+            .with_comment("A valid test package".to_string());
+
+        assert!(!package.name.is_empty());
+        assert_eq!(package.version_info, Some("1.0.0".to_string()));
+        assert_eq!(package.license_concluded, Some("MIT".to_string()));
+        assert!(package.copyright_text.is_some());
+
+        // Test package sanitization of invalid metadata
+        let mut package_with_issues =
+            SpdxPackage::new("test".to_string(), "https://example.com/test")
+                .with_version("1.0.0".to_string())
+                .with_license("MIT".to_string());
+
+        // Manually set invalid values that should be caught by validation
+        package_with_issues.name = "package\"with-quote".to_string();
+        package_with_issues.download_location = "https://example.com\nmalicious".to_string();
+
+        // Run validation
+        assert!(super::validate_and_sanitize_spdx_package(
+            &mut package_with_issues
+        ));
+
+        // Verify problematic content was removed/fixed
+        assert!(!package_with_issues.name.contains('"'));
+        assert_eq!(package_with_issues.download_location, "NOASSERTION");
+    }
+
+    #[test]
+    fn test_download_location_validation() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
+        // Test valid download locations
+        let package1 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .with_download_location("https://github.com/example/repo".to_string());
+        assert_eq!(
+            package1.download_location,
+            "https://github.com/example/repo"
+        );
+
+        let package2 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .with_download_location("NOASSERTION".to_string());
+        assert_eq!(package2.download_location, "NOASSERTION");
+
+        // Test invalid location (non-ASCII)
+        let package3 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .with_download_location("https://example.com/文件".to_string());
+        assert_eq!(package3.download_location, "NOASSERTION");
+
+        // Test invalid location (too long) - Note: direct field mutation bypasses validation
+        // For validation during generation, use validate_and_sanitize_spdx_package
+        let mut package4 = SpdxPackage::new("test".to_string(), "https://example.com/test");
+        package4.download_location = format!("https://example.com/{}", "a".repeat(2000));
+
+        // Validate should catch the long location
+        assert!(super::validate_and_sanitize_spdx_package(&mut package4));
+        assert_eq!(package4.download_location, "NOASSERTION");
+    }
+
+    #[test]
+    fn test_copyright_validation() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
+        // Test valid copyright
+        let package1 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .with_copyright("(C) 2024 Example Corp".to_string());
+        assert_eq!(
+            package1.copyright_text,
+            Some("(C) 2024 Example Corp".to_string())
+        );
+
+        // Test empty copyright (should convert to NOASSERTION)
+        let package2 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .with_copyright("".to_string());
+        assert_eq!(package2.copyright_text, Some("NOASSERTION".to_string()));
+
+        // Test copyright with forbidden characters
+        let package3 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .with_copyright("(C) 2024 Corp\"with-quotes".to_string());
+        assert_eq!(package3.copyright_text, Some("NOASSERTION".to_string()));
+    }
+
+    #[test]
+    fn test_external_ref_validation() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
+        // Test valid external reference
+        let package = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .add_external_ref(
+                "PACKAGE_MANAGER".to_string(),
+                "npm".to_string(),
+                "lodash@4.17.21".to_string(),
+            );
+
+        assert_eq!(package.external_refs.len(), 1);
+        assert_eq!(
+            package.external_refs[0].reference_category,
+            "PACKAGE_MANAGER"
+        );
+        assert_eq!(package.external_refs[0].reference_type, "npm");
+        assert_eq!(package.external_refs[0].reference_locator, "lodash@4.17.21");
+
+        // Test invalid external reference (forbidden characters)
+        let package2 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .add_external_ref(
+                "SECURITY_OTHER".to_string(),
+                "cpe23".to_string(),
+                "cpe:2.3:a:vendor:product:1.0\"malicious".to_string(),
+            );
+
+        // Should be skipped due to invalid characters
+        assert_eq!(package2.external_refs.len(), 0);
+    }
+
+    #[test]
+    fn test_comment_validation() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
+        // Test valid comment
+        let package1 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .with_comment("This is a valid comment".to_string());
+        assert_eq!(
+            package1.comment,
+            Some("This is a valid comment".to_string())
+        );
+
+        // Test empty comment (should be skipped)
+        let package2 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .with_comment("".to_string());
+        assert_eq!(package2.comment, None);
+
+        // Test comment with forbidden characters
+        let package3 = SpdxPackage::new("test".to_string(), "https://example.com/test")
+            .with_comment("Comment with\nnewline".to_string());
+        assert_eq!(package3.comment, None);
+    }
+
+    #[test]
+    fn test_charset_validation_helpers() {
+        // Test globally forbidden characters
+        assert!(spdx_charset::contains_forbidden_chars("test\"quote"));
+        assert!(spdx_charset::contains_forbidden_chars("test\\backslash"));
+        assert!(spdx_charset::contains_forbidden_chars("test\nnewline"));
+        assert!(!spdx_charset::contains_forbidden_chars("test-string"));
+
+        // Test ASCII validation
+        assert!(spdx_charset::is_valid_ascii("test"));
+        assert!(!spdx_charset::is_valid_ascii("test™"));
+        assert!(!spdx_charset::is_valid_ascii("test©"));
+
+        // Test problematic characters
+        assert!(spdx_charset::contains_problematic_chars("test&symbol"));
+        assert!(spdx_charset::contains_problematic_chars("test|pipe"));
+        assert!(spdx_charset::contains_problematic_chars("test[bracket]"));
+        assert!(!spdx_charset::contains_problematic_chars("test-string"));
     }
 }
