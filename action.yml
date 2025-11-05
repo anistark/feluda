@@ -29,6 +29,9 @@ inputs:
     description: 'Path to README file for badge updates'
     required: false
     default: 'README.md'
+  language:
+    description: 'Programming language to scan (e.g., rust, python, node, go, cpp, c, r)'
+    required: false
 
 outputs:
   license-check:
@@ -77,6 +80,10 @@ runs:
 
         if [[ "${{ inputs.fail-on-incompatible }}" == "true" ]]; then
           CMD="$CMD --fail-on-incompatible"
+        fi
+
+        if [[ "${{ inputs.language }}" != "" ]]; then
+          CMD="$CMD --language ${{ inputs.language }}"
         fi
 
         # Run Feluda
