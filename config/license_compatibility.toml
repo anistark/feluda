@@ -21,6 +21,7 @@ compatible_with = [
     "Zlib",
     "Unlicense",
     "WTFPL",
+    "CC0-1.0",
 ]
 
 [Apache-2_0]
@@ -34,6 +35,7 @@ compatible_with = [
     "Zlib",
     "Unlicense",
     "WTFPL",
+    "CC0-1.0",
 ]
 
 [GPL-3_0]
@@ -51,6 +53,7 @@ compatible_with = [
     "Zlib",
     "Unlicense",
     "WTFPL",
+    "CC0-1.0",
 ]
 
 [GPL-2_0]
@@ -65,6 +68,7 @@ compatible_with = [
     "Zlib",
     "Unlicense",
     "WTFPL",
+    "CC0-1.0",
 ]
 
 [AGPL-3_0]
@@ -83,6 +87,7 @@ compatible_with = [
     "Zlib",
     "Unlicense",
     "WTFPL",
+    "CC0-1.0",
 ]
 
 [LGPL-3_0]
@@ -95,6 +100,7 @@ compatible_with = [
     "LGPL-3.0",
     "ISC",
     "0BSD",
+    "CC0-1.0",
 ]
 
 [LGPL-2_1]
@@ -105,6 +111,7 @@ compatible_with = [
     "LGPL-2.1",
     "ISC",
     "0BSD",
+    "CC0-1.0",
 ]
 
 [MPL-2_0]
@@ -115,6 +122,7 @@ compatible_with = [
     "MPL-2.0",
     "ISC",
     "0BSD",
+    "CC0-1.0",
 ]
 
 [BSD-3-Clause]
@@ -124,6 +132,7 @@ compatible_with = [
     "BSD-3-Clause",
     "ISC",
     "0BSD",
+    "CC0-1.0",
 ]
 
 [BSD-2-Clause]
@@ -132,6 +141,7 @@ compatible_with = [
     "BSD-2-Clause",
     "ISC",
     "0BSD",
+    "CC0-1.0",
 ]
 
 [ISC]
@@ -139,17 +149,20 @@ compatible_with = [
     "MIT",
     "ISC",
     "0BSD",
+    "CC0-1.0",
 ]
 
 [_0BSD]
 compatible_with = [
     "0BSD",
+    "CC0-1.0",
 ]
 
 [Unlicense]
 compatible_with = [
     "Unlicense",
     "0BSD",
+    "CC0-1.0",
 ]
 
 [WTFPL]
@@ -157,4 +170,5 @@ compatible_with = [
     "WTFPL",
     "0BSD",
     "Unlicense",
+    "CC0-1.0",
 ]

@@ -884,6 +884,7 @@ fn normalize_license_id(license_id: &str) -> String {
         "UNLICENSE" | "THE UNLICENSE" => "Unlicense".to_string(),
         "WTFPL" | "DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE" => "WTFPL".to_string(),
         "ZLIB" | "ZLIB LICENSE" => "Zlib".to_string(),
+        "CC0" | "CC0-1.0" | "CC0 1.0" | "CREATIVE COMMONS ZERO" => "CC0-1.0".to_string(),
 
         id if id.contains("APACHE") && (id.contains("2.0") || id.contains("2")) => {
             "Apache-2.0".to_string()
