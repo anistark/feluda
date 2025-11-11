@@ -14,6 +14,10 @@ use crate::licenses::{
     fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
 };
 
+/// Go module names to exclude from dependency analysis
+/// These are special Go directives and built-in modules, not actual dependencies
+const EXCLUDED_GO_MODULES: &[&str] = &["go", "toolchain"];
+
 /// Go package information
 #[derive(Debug)]
 pub struct GoPackages {
@@ -144,6 +148,15 @@ pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
         for dep_cap in re_dependency.captures_iter(dependency_block) {
             let name = dep_cap[1].to_string();
             let version = dep_cap[2].to_string();
+
+            // Skip excluded Go modules
+            if is_excluded_go_module(&name) {
+                log(
+                    LogLevel::Info,
+                    &format!("Skipping excluded Go module: {name} ({version})"),
+                );
+                continue;
+            }
 
             log(
                 LogLevel::Info,
@@ -373,16 +386,34 @@ fn parse_go_mod_graph_output(output: &str, max_depth: u32) -> Vec<(String, Strin
     filtered_deps
 }
 
+/// Check if a module name should be excluded from dependency analysis
+fn is_excluded_go_module(module_name: &str) -> bool {
+    EXCLUDED_GO_MODULES.contains(&module_name)
+}
+
 /// Parse Go module string to extract name and version
 fn parse_go_module_version(module_str: &str) -> Option<(String, String)> {
     // Handle formats like: github.com/user/repo@v1.2.3 or github.com/user/repo@v1.2.3-0.20210101000000-abcdef123456
     if let Some(at_pos) = module_str.rfind('@') {
         let name = module_str[..at_pos].to_string();
         let version = module_str[at_pos + 1..].to_string();
+
+        // Filter out excluded Go modules
+        if is_excluded_go_module(&name) {
+            return None;
+        }
+
         Some((name, version))
     } else {
         // Handle cases without version
-        Some((module_str.to_string(), "unknown".to_string()))
+        let module_name = module_str.to_string();
+
+        // Filter out excluded Go modules
+        if is_excluded_go_module(&module_name) {
+            return None;
+        }
+
+        Some((module_name, "unknown".to_string()))
     }
 }
 
@@ -738,5 +769,48 @@ github.com/level2@v1.0.0 github.com/level3@v1.0.0"#;
             result[1],
             ("github.com/test/pkg2".to_string(), "v2.0.0".to_string())
         );
+    }
+
+    #[test]
+    fn test_is_excluded_go_module() {
+        // Test that standard Go modules are excluded
+        assert!(is_excluded_go_module("go"));
+        assert!(is_excluded_go_module("toolchain"));
+
+        // Test that regular packages are not excluded
+        assert!(!is_excluded_go_module("github.com/user/repo"));
+        assert!(!is_excluded_go_module("go.uber.org/zap"));
+    }
+
+    #[test]
+    fn test_get_go_dependencies_excludes_toolchain() {
+        let content = r#"require (
+            github.com/gin-gonic/gin v1.9.1
+            go v1.21
+            github.com/spf13/cobra v1.8.0
+            toolchain go1.24
+        )"#;
+
+        let deps = get_go_dependencies(content.to_string());
+        // Should only have 2 real dependencies, go and toolchain should be filtered out
+        assert_eq!(deps.len(), 2);
+        assert_eq!(deps[0].name, "github.com/gin-gonic/gin");
+        assert_eq!(deps[1].name, "github.com/spf13/cobra");
+    }
+
+    #[test]
+    fn test_parse_go_module_version_excludes_toolchain() {
+        // Test that go module is filtered out
+        assert!(parse_go_module_version("go@1.21").is_none());
+
+        // Test that toolchain module is filtered out
+        assert!(parse_go_module_version("toolchain@go1.24").is_none());
+
+        // Test that regular modules are parsed correctly
+        let result = parse_go_module_version("github.com/user/repo@v1.2.3");
+        assert!(result.is_some());
+        let (name, version) = result.unwrap();
+        assert_eq!(name, "github.com/user/repo");
+        assert_eq!(version, "v1.2.3");
     }
 }
