@@ -15,14 +15,85 @@ use ratatui::{
 use style::palette::tailwind;
 use unicode_width::UnicodeWidthStr;
 
-const INFO_TEXT: [&str; 2] = [
-    "(Esc) quit | (↑↓) move | (←→) columns | (s) sort mode",
+const INFO_TEXT: [&str; 3] = [
+    "(Esc) quit | (↑) move up | (↓) move down | (←) move left | (→) move right",
+    "(r) restrictive | (i) incompatible | (c) compatible | (a) osi-approved | (n) osi-not-approved | (u) osi-unknown | (x) clear filters | (s) sort mode",
     "(In sort mode: ←→ select column, Enter toggle sort, Esc/q exit sort)",
 ];
 
 const ITEM_HEIGHT: usize = 4;
 
 const TABLE_COLOUR: tailwind::Palette = tailwind::RED;
+
+#[derive(Debug, Clone, Default)]
+struct FilterState {
+    show_restrictive_only: bool,
+    show_incompatible_only: bool,
+    show_compatible_only: bool,
+    show_osi_approved_only: bool,
+    show_osi_not_approved_only: bool,
+    show_osi_unknown_only: bool,
+}
+
+impl FilterState {
+    fn is_any_active(&self) -> bool {
+        self.show_restrictive_only
+            || self.show_incompatible_only
+            || self.show_compatible_only
+            || self.show_osi_approved_only
+            || self.show_osi_not_approved_only
+            || self.show_osi_unknown_only
+    }
+
+    fn clear_all(&mut self) {
+        self.show_restrictive_only = false;
+        self.show_incompatible_only = false;
+        self.show_compatible_only = false;
+        self.show_osi_approved_only = false;
+        self.show_osi_not_approved_only = false;
+        self.show_osi_unknown_only = false;
+    }
+
+    fn matches(&self, item: &LicenseInfo) -> bool {
+        if !self.is_any_active() {
+            return true;
+        }
+
+        let mut matches = true;
+
+        // If any restrictive filter is active, check it
+        if self.show_restrictive_only && !item.is_restrictive {
+            matches = false;
+        }
+
+        if self.show_incompatible_only || self.show_compatible_only {
+            let compat_match = match item.compatibility {
+                LicenseCompatibility::Incompatible => self.show_incompatible_only,
+                LicenseCompatibility::Compatible => self.show_compatible_only,
+                LicenseCompatibility::Unknown => false,
+            };
+            if !compat_match {
+                matches = false;
+            }
+        }
+
+        if self.show_osi_approved_only
+            || self.show_osi_not_approved_only
+            || self.show_osi_unknown_only
+        {
+            let osi_match = match item.osi_status {
+                crate::licenses::OsiStatus::Approved => self.show_osi_approved_only,
+                crate::licenses::OsiStatus::NotApproved => self.show_osi_not_approved_only,
+                crate::licenses::OsiStatus::Unknown => self.show_osi_unknown_only,
+            };
+            if !osi_match {
+                matches = false;
+            }
+        }
+
+        matches
+    }
+}
 
 struct TableColors {
     buffer_bg: Color,
@@ -124,6 +195,7 @@ pub struct App {
     scroll_state: ScrollbarState,
     colors: TableColors,
     project_license: Option<String>,
+    filters: FilterState,
     sort_column: Option<SortColumn>,
     sort_direction: SortDirection,
     mode: AppMode,
@@ -147,6 +219,7 @@ impl App {
             colors: TableColors::new(&TABLE_COLOUR),
             items: data_vec,
             project_license,
+            filters: FilterState::default(),
             sort_column: None,
             sort_direction: SortDirection::Ascending,
             mode: AppMode::Normal,
@@ -154,10 +227,23 @@ impl App {
         }
     }
 
+    fn get_filtered_items(&self) -> Vec<&LicenseInfo> {
+        self.items
+            .iter()
+            .filter(|item| self.filters.matches(item))
+            .collect()
+    }
+
+    fn update_scroll_state(&mut self) {
+        let filtered_count = self.get_filtered_items().len();
+        self.scroll_state = ScrollbarState::new((filtered_count.saturating_sub(1)) * ITEM_HEIGHT);
+    }
+
     pub fn next_row(&mut self) {
+        let filtered_count = self.get_filtered_items().len();
         let i = match self.state.selected() {
             Some(i) => {
-                if i >= self.items.len().saturating_sub(1) {
+                if i >= filtered_count.saturating_sub(1) {
                     0
                 } else {
                     i + 1
@@ -171,10 +257,11 @@ impl App {
     }
 
     pub fn previous_row(&mut self) {
+        let filtered_count = self.get_filtered_items().len();
         let i = match self.state.selected() {
             Some(i) => {
                 if i == 0 {
-                    self.items.len().saturating_sub(1)
+                    filtered_count.saturating_sub(1)
                 } else {
                     i - 1
                 }
@@ -194,6 +281,82 @@ impl App {
     pub fn previous_column(&mut self) {
         self.state.select_previous_column();
         log(LogLevel::Info, "Selected previous column");
+    }
+
+    pub fn toggle_restrictive_filter(&mut self) {
+        self.filters.show_restrictive_only = !self.filters.show_restrictive_only;
+        log(
+            LogLevel::Info,
+            &format!("Restrictive filter: {}", self.filters.show_restrictive_only),
+        );
+        self.update_scroll_state();
+        self.state.select(Some(0));
+    }
+
+    pub fn toggle_incompatible_filter(&mut self) {
+        self.filters.show_incompatible_only = !self.filters.show_incompatible_only;
+        log(
+            LogLevel::Info,
+            &format!(
+                "Incompatible filter: {}",
+                self.filters.show_incompatible_only
+            ),
+        );
+        self.update_scroll_state();
+        self.state.select(Some(0));
+    }
+
+    pub fn toggle_compatible_filter(&mut self) {
+        self.filters.show_compatible_only = !self.filters.show_compatible_only;
+        log(
+            LogLevel::Info,
+            &format!("Compatible filter: {}", self.filters.show_compatible_only),
+        );
+        self.update_scroll_state();
+        self.state.select(Some(0));
+    }
+
+    pub fn toggle_osi_approved_filter(&mut self) {
+        self.filters.show_osi_approved_only = !self.filters.show_osi_approved_only;
+        log(
+            LogLevel::Info,
+            &format!(
+                "OSI Approved filter: {}",
+                self.filters.show_osi_approved_only
+            ),
+        );
+        self.update_scroll_state();
+        self.state.select(Some(0));
+    }
+
+    pub fn toggle_osi_not_approved_filter(&mut self) {
+        self.filters.show_osi_not_approved_only = !self.filters.show_osi_not_approved_only;
+        log(
+            LogLevel::Info,
+            &format!(
+                "OSI Not Approved filter: {}",
+                self.filters.show_osi_not_approved_only
+            ),
+        );
+        self.update_scroll_state();
+        self.state.select(Some(0));
+    }
+
+    pub fn toggle_osi_unknown_filter(&mut self) {
+        self.filters.show_osi_unknown_only = !self.filters.show_osi_unknown_only;
+        log(
+            LogLevel::Info,
+            &format!("OSI Unknown filter: {}", self.filters.show_osi_unknown_only),
+        );
+        self.update_scroll_state();
+        self.state.select(Some(0));
+    }
+
+    pub fn clear_filters(&mut self) {
+        self.filters.clear_all();
+        log(LogLevel::Info, "All filters cleared");
+        self.update_scroll_state();
+        self.state.select(Some(0));
     }
 
     /// Enter sort mode
@@ -393,6 +556,13 @@ impl App {
                             KeyCode::Char('k') | KeyCode::Up => self.previous_row(),
                             KeyCode::Char('l') | KeyCode::Right => self.next_column(),
                             KeyCode::Char('h') | KeyCode::Left => self.previous_column(),
+                            KeyCode::Char('r') => self.toggle_restrictive_filter(),
+                            KeyCode::Char('i') => self.toggle_incompatible_filter(),
+                            KeyCode::Char('c') => self.toggle_compatible_filter(),
+                            KeyCode::Char('a') => self.toggle_osi_approved_filter(),
+                            KeyCode::Char('n') => self.toggle_osi_not_approved_filter(),
+                            KeyCode::Char('u') => self.toggle_osi_unknown_filter(),
+                            KeyCode::Char('x') => self.clear_filters(),
                             KeyCode::Char('s') => self.enter_sort_mode(),
                             _ => {}
                         },
@@ -412,14 +582,30 @@ impl App {
     }
 
     fn draw(&mut self, frame: &mut Frame) {
-        let vertical = &Layout::vertical([Constraint::Min(5), Constraint::Length(4)]);
+        // Add space for filter bar if filters are active
+        let vertical = if self.filters.is_any_active() {
+            Layout::vertical([
+                Constraint::Length(3),
+                Constraint::Min(5),
+                Constraint::Length(5),
+            ])
+        } else {
+            Layout::vertical([
+                Constraint::Length(0),
+                Constraint::Min(5),
+                Constraint::Length(5),
+            ])
+        };
         let rects = vertical.split(frame.area());
 
         self.set_colors();
 
-        self.render_table(frame, rects[0]);
-        self.render_scrollbar(frame, rects[0]);
-        self.render_footer(frame, rects[1]);
+        if self.filters.is_any_active() {
+            self.render_filter_bar(frame, rects[0]);
+        }
+        self.render_table(frame, rects[1]);
+        self.render_scrollbar(frame, rects[1]);
+        self.render_footer(frame, rects[2]);
     }
 
     fn render_table(&mut self, frame: &mut Frame, area: Rect) {
@@ -460,7 +646,12 @@ impl App {
             .style(header_style)
             .height(1);
 
-        let rows = self.items.iter().enumerate().map(|(i, data)| {
+        // Use filtered items instead of all items
+        let filtered_items = self.get_filtered_items();
+        let filtered_count = filtered_items.len();
+        let total_count = self.items.len();
+
+        let rows = filtered_items.iter().enumerate().map(|(i, data)| {
             let color = match i % 2 {
                 0 => self.colors.normal_row_color,
                 _ => self.colors.alt_row_color,
@@ -537,8 +728,58 @@ impl App {
 
         log(
             LogLevel::Info,
-            &format!("Table rendered with {} rows", self.items.len()),
+            &format!(
+                "Table rendered with {} rows (filtered from {} total)",
+                filtered_count, total_count
+            ),
         );
+    }
+
+    fn render_filter_bar(&self, frame: &mut Frame, area: Rect) {
+        let mut filter_tags = Vec::new();
+
+        if self.filters.show_restrictive_only {
+            filter_tags.push("Restrictive");
+        }
+        if self.filters.show_incompatible_only {
+            filter_tags.push("Incompatible");
+        }
+        if self.filters.show_compatible_only {
+            filter_tags.push("Compatible");
+        }
+        if self.filters.show_osi_approved_only {
+            filter_tags.push("OSI-Approved");
+        }
+        if self.filters.show_osi_not_approved_only {
+            filter_tags.push("OSI-NotApproved");
+        }
+        if self.filters.show_osi_unknown_only {
+            filter_tags.push("OSI-Unknown");
+        }
+
+        let filter_text = format!("Active Filters: {}", filter_tags.join(", "));
+        let filtered_count = self.get_filtered_items().len();
+        let filter_info = format!(
+            "{} | Showing {} of {} licenses",
+            filter_text,
+            filtered_count,
+            self.items.len()
+        );
+
+        let filter_paragraph = Paragraph::new(Text::from(filter_info))
+            .style(
+                Style::new()
+                    .fg(self.colors.footer_border_color)
+                    .bg(self.colors.buffer_bg)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .centered()
+            .block(
+                Block::bordered()
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::new().fg(self.colors.footer_border_color)),
+            );
+        frame.render_widget(filter_paragraph, area);
     }
 
     fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {
@@ -613,7 +854,7 @@ impl App {
             };
 
             let footer_text = format!("{license_text} | {}{sort_indicator}", INFO_TEXT[0]);
-            let help_text = format!("\n{}", INFO_TEXT[1]);
+            let help_text = format!("\n{}\n{}", INFO_TEXT[1], INFO_TEXT[2]);
 
             let info_footer = Paragraph::new(Text::from(format!("{footer_text}{help_text}")))
                 .style(
@@ -945,12 +1186,17 @@ mod tests {
 
     #[test]
     fn test_info_text_constant() {
-        assert_eq!(INFO_TEXT.len(), 2);
+        assert_eq!(INFO_TEXT.len(), 3);
         assert!(INFO_TEXT[0].contains("Esc"));
         assert!(INFO_TEXT[0].contains("quit"));
-        assert!(INFO_TEXT[0].contains("sort mode"));
+        assert!(INFO_TEXT[0].contains("move up"));
+        assert!(INFO_TEXT[0].contains("move down"));
+        assert!(INFO_TEXT[1].contains("restrictive"));
+        assert!(INFO_TEXT[1].contains("incompatible"));
+        assert!(INFO_TEXT[1].contains("compatible"));
         assert!(INFO_TEXT[1].contains("sort mode"));
-        assert!(INFO_TEXT[1].contains("Enter"));
+        assert!(INFO_TEXT[2].contains("sort mode"));
+        assert!(INFO_TEXT[2].contains("Enter"));
     }
 
     #[test]
