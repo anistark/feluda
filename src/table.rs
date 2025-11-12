@@ -23,6 +23,67 @@ const INFO_TEXT: [&str; 3] = [
 
 const ITEM_HEIGHT: usize = 4;
 
+// ============================================================================
+// KEY BINDINGS CONFIGURATION
+// ============================================================================
+// All GUI key bindings for normal and sorting modes are centrally defined here.
+// This makes it easy to view, manage, and modify keybindings in one place.
+
+/// Normal mode key bindings
+#[allow(dead_code)]
+pub mod keybindings_normal {
+    use ratatui::crossterm::event::KeyCode;
+
+    /// Quit the application
+    pub const QUIT: &[KeyCode] = &[KeyCode::Esc];
+    pub const QUIT_CHAR: char = 'q';
+
+    /// Navigation keys
+    pub const MOVE_DOWN: &[KeyCode] = &[KeyCode::Down];
+    pub const MOVE_DOWN_CHAR: char = 'j';
+
+    pub const MOVE_UP: &[KeyCode] = &[KeyCode::Up];
+    pub const MOVE_UP_CHAR: char = 'k';
+
+    pub const MOVE_RIGHT: &[KeyCode] = &[KeyCode::Right];
+    pub const MOVE_RIGHT_CHAR: char = 'l';
+
+    pub const MOVE_LEFT: &[KeyCode] = &[KeyCode::Left];
+    pub const MOVE_LEFT_CHAR: char = 'h';
+
+    /// Filter keys
+    pub const FILTER_RESTRICTIVE: char = 'r';
+    pub const FILTER_INCOMPATIBLE: char = 'i';
+    pub const FILTER_COMPATIBLE: char = 'c';
+    pub const FILTER_OSI_APPROVED: char = 'a';
+    pub const FILTER_OSI_NOT_APPROVED: char = 'n';
+    pub const FILTER_OSI_UNKNOWN: char = 'u';
+    pub const FILTER_CLEAR_ALL: char = 'x';
+
+    /// Sort mode
+    pub const ENTER_SORT_MODE: char = 's';
+}
+
+/// Sort mode key bindings
+#[allow(dead_code)]
+pub mod keybindings_sort {
+    use ratatui::crossterm::event::KeyCode;
+
+    /// Navigate between columns
+    pub const SELECT_PREV_COLUMN: &[KeyCode] = &[KeyCode::Left];
+    pub const SELECT_PREV_COLUMN_CHAR: char = 'h';
+
+    pub const SELECT_NEXT_COLUMN: &[KeyCode] = &[KeyCode::Right];
+    pub const SELECT_NEXT_COLUMN_CHAR: char = 'l';
+
+    /// Apply sort
+    pub const APPLY_SORT: KeyCode = KeyCode::Enter;
+
+    /// Exit sort mode
+    pub const EXIT_SORT_MODE: &[KeyCode] = &[KeyCode::Esc];
+    pub const EXIT_SORT_MODE_CHAR: char = 'q';
+}
+
 const TABLE_COLOUR: tailwind::Palette = tailwind::RED;
 
 #[derive(Debug, Clone, Default)]
@@ -548,31 +609,79 @@ impl App {
                 if key.kind == KeyEventKind::Press {
                     match self.mode {
                         AppMode::Normal => match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => {
+                            // Quit
+                            KeyCode::Esc => {
                                 log(LogLevel::Info, "Quitting TUI application");
                                 return Ok(());
                             }
-                            KeyCode::Char('j') | KeyCode::Down => self.next_row(),
-                            KeyCode::Char('k') | KeyCode::Up => self.previous_row(),
-                            KeyCode::Char('l') | KeyCode::Right => self.next_column(),
-                            KeyCode::Char('h') | KeyCode::Left => self.previous_column(),
-                            KeyCode::Char('r') => self.toggle_restrictive_filter(),
-                            KeyCode::Char('i') => self.toggle_incompatible_filter(),
-                            KeyCode::Char('c') => self.toggle_compatible_filter(),
-                            KeyCode::Char('a') => self.toggle_osi_approved_filter(),
-                            KeyCode::Char('n') => self.toggle_osi_not_approved_filter(),
-                            KeyCode::Char('u') => self.toggle_osi_unknown_filter(),
-                            KeyCode::Char('x') => self.clear_filters(),
-                            KeyCode::Char('s') => self.enter_sort_mode(),
+                            KeyCode::Char(c) if c == keybindings_normal::QUIT_CHAR => {
+                                log(LogLevel::Info, "Quitting TUI application");
+                                return Ok(());
+                            }
+                            // Navigation
+                            KeyCode::Down => self.next_row(),
+                            KeyCode::Char(c) if c == keybindings_normal::MOVE_DOWN_CHAR => {
+                                self.next_row()
+                            }
+                            KeyCode::Up => self.previous_row(),
+                            KeyCode::Char(c) if c == keybindings_normal::MOVE_UP_CHAR => {
+                                self.previous_row()
+                            }
+                            KeyCode::Right => self.next_column(),
+                            KeyCode::Char(c) if c == keybindings_normal::MOVE_RIGHT_CHAR => {
+                                self.next_column()
+                            }
+                            KeyCode::Left => self.previous_column(),
+                            KeyCode::Char(c) if c == keybindings_normal::MOVE_LEFT_CHAR => {
+                                self.previous_column()
+                            }
+                            // Filters
+                            KeyCode::Char(c) if c == keybindings_normal::FILTER_RESTRICTIVE => {
+                                self.toggle_restrictive_filter()
+                            }
+                            KeyCode::Char(c) if c == keybindings_normal::FILTER_INCOMPATIBLE => {
+                                self.toggle_incompatible_filter()
+                            }
+                            KeyCode::Char(c) if c == keybindings_normal::FILTER_COMPATIBLE => {
+                                self.toggle_compatible_filter()
+                            }
+                            KeyCode::Char(c) if c == keybindings_normal::FILTER_OSI_APPROVED => {
+                                self.toggle_osi_approved_filter()
+                            }
+                            KeyCode::Char(c)
+                                if c == keybindings_normal::FILTER_OSI_NOT_APPROVED =>
+                            {
+                                self.toggle_osi_not_approved_filter()
+                            }
+                            KeyCode::Char(c) if c == keybindings_normal::FILTER_OSI_UNKNOWN => {
+                                self.toggle_osi_unknown_filter()
+                            }
+                            KeyCode::Char(c) if c == keybindings_normal::FILTER_CLEAR_ALL => {
+                                self.clear_filters()
+                            }
+                            // Sort mode
+                            KeyCode::Char(c) if c == keybindings_normal::ENTER_SORT_MODE => {
+                                self.enter_sort_mode()
+                            }
                             _ => {}
                         },
                         AppMode::Sorting => match key.code {
+                            // Navigate columns
                             KeyCode::Left => self.previous_sort_column(),
+                            KeyCode::Char(c) if c == keybindings_sort::SELECT_PREV_COLUMN_CHAR => {
+                                self.previous_sort_column()
+                            }
                             KeyCode::Right => self.next_sort_column(),
-                            KeyCode::Char('h') => self.previous_sort_column(),
-                            KeyCode::Char('l') => self.next_sort_column(),
+                            KeyCode::Char(c) if c == keybindings_sort::SELECT_NEXT_COLUMN_CHAR => {
+                                self.next_sort_column()
+                            }
+                            // Apply sort
                             KeyCode::Enter => self.apply_current_sort(),
-                            KeyCode::Char('q') | KeyCode::Esc => self.exit_sort_mode(),
+                            // Exit sort mode
+                            KeyCode::Esc => self.exit_sort_mode(),
+                            KeyCode::Char(c) if c == keybindings_sort::EXIT_SORT_MODE_CHAR => {
+                                self.exit_sort_mode()
+                            }
                             _ => {}
                         },
                     }
@@ -729,8 +838,7 @@ impl App {
         log(
             LogLevel::Info,
             &format!(
-                "Table rendered with {} rows (filtered from {} total)",
-                filtered_count, total_count
+                "Table rendered with {filtered_count} rows (filtered from {total_count} total)"
             ),
         );
     }
