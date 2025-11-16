@@ -1,4 +1,4 @@
-# .github/workflows/feluda.yml
+# Example: .github/workflows/license-check.yml
 name: License Check
 
 permissions:

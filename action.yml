@@ -3,7 +3,7 @@ description: 'Scan project dependencies for restrictive and incompatible license
 author: 'anistark'
 branding:
   icon: 'shield'
-  color: 'red'
+  color: 'green'
 
 inputs:
   path:

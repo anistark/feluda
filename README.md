@@ -582,6 +582,15 @@ jobs:
             sbom-cyclonedx-validation.txt
 ```
 
+### Jenkins
+
+To use Feluda with Jenkins, see the [CI examples](./examples/ci/) directory for a sample Jenkinsfile that demonstrates:
+- Installing Feluda via Cargo
+- Running license checks with Jenkins-compatible output format (JUnit XML)
+- Publishing results as JUnit test reports
+
+For more CI/CD integration examples, visit the [examples/ci](./examples/ci/) directory.
+
 Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.
 
 > Currently, using [choosealicense](https://choosealicense.com/) license directory for source of truth.
