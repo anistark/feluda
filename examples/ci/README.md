@@ -12,16 +12,26 @@ See the [GitHub Action README](../../ACTION-README.md) for complete documentatio
 
 ### Option 2: Standalone Workflow
 
-If you prefer a standalone workflow without using the published action, see [`feluda-workflow.yml`](./feluda-workflow.yml) for an example that:
+If you prefer a standalone workflow without using the published action, see [`license-check.yml`](./license-check.yml) for an example that:
 - Installs Feluda directly via Cargo
 - Runs license checks with GitHub-compatible output format
 - Updates README badge with results
 - Supports manual workflow dispatch
 
-To use this example:
-1. Copy the contents of `feluda-workflow.yml`
-2. Create `.github/workflows/license-check.yml` in your repository
+To use this example, choose one of the following methods:
+
+**Option A: Copy the file manually**
+1. Copy the contents of [`license-check.yml`](./license-check.yml)
+2. Create `.github/workflows/license-check.yml` in your repository and paste the contents
 3. Adjust the configuration as needed for your project
+
+**Option B: Download with wget**
+1. Run the following command in your repository root:
+   ```sh
+   mkdir -p .github/workflows
+   wget https://raw.githubusercontent.com/anistark/feluda/main/examples/ci/license-check.yml -O .github/workflows/license-check.yml
+   ```
+2. Adjust the configuration as needed for your project
 
 ## Jenkins
 

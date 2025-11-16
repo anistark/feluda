@@ -1,4 +1,5 @@
-# Example: .github/workflows/license-check.yml
+# License Check Workflow
+# Save this as .github/workflows/license-check.yml in your repository
 name: License Check
 
 permissions:
