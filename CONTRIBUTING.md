@@ -656,7 +656,10 @@ The release process is split into two steps:
 **Step 1: Publish to crates.io and push tag**
 
 ```sh
-just publish
+just publish                # Stable release (v1.0.0)
+just publish alpha          # Alpha release (v1.0.0-alpha)
+just publish beta           # Beta release (v1.0.0-beta)
+just publish rc-1           # Release candidate (v1.0.0-rc-1)
 ```
 
 This will:
@@ -664,7 +667,7 @@ This will:
 2. Test the release build
 3. Create and validate the package
 4. Publish to crates.io
-5. Create and push the version tag to GitHub
+5. Create and push the version tag to GitHub (with optional pre-release suffix)
 
 **Step 2: Create GitHub release manually**
 
