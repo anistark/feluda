@@ -59,7 +59,8 @@ debian-release:
 # Publish the crate to crates.io
 publish: build test-release package
     cargo publish
-    just gh-release
+    git tag v{{VERSION}}
+    git push origin v{{VERSION}}
 
 # Clean up the build artifacts
 clean:
