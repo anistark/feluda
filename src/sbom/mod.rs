@@ -18,7 +18,7 @@ pub fn handle_sbom_command(
     log(LogLevel::Info, &format!("Generating SBOM for path: {path}"));
 
     // Parse project dependencies using existing parser
-    let analyzed_data = parse_root(&path, None, false)
+    let analyzed_data = parse_root(&path, None, false, false)
         .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?;
 
     log(

@@ -198,11 +198,22 @@ feluda --path /path/to/project/
 # Check with specific language
 feluda --language {rust|node|go|python|c|cpp|r}
 
+# Skip local file checks and force network lookup only
+feluda --no-local
+
 # Filter by OSI approval status
 feluda --osi approved        # Show only OSI approved licenses
 feluda --osi not-approved   # Show only non-OSI approved licenses
 feluda --osi unknown        # Show licenses with unknown OSI status
 ```
+
+### Local License Detection
+
+By default, Feluda checks local files first for license information before making network requests:
+- **Node.js**: Checks `LICENSE` files in local `node_modules` (npm, pnpm, yarn, bun)
+- **Rust**: Checks `Cargo.toml` manifests for license field
+
+Use `--no-local` to skip local checks and force network-only license lookup.
 
 ### License File Generation
 

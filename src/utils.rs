@@ -439,6 +439,7 @@ mod tests {
             gist: false,
             osi: None,
             strict: false,
+            no_local: false,
         };
 
         let result = clone_repository(&args, temp_dir.path());
@@ -493,6 +494,7 @@ mod tests {
             gist: false,
             osi: None,
             strict: false,
+            no_local: false,
         };
 
         // Enable debug mode for this test
@@ -546,6 +548,7 @@ mod tests {
             gist: false,
             osi: None,
             strict: false,
+            no_local: false,
         };
 
         let result = clone_repository(&args, temp_dir.path());

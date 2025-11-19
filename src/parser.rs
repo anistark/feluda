@@ -4,8 +4,8 @@ use crate::cli;
 use crate::debug::{log, log_debug, FeludaResult, LogLevel};
 use crate::languages::{
     c::analyze_c_licenses, cpp::analyze_cpp_licenses, go::analyze_go_licenses,
-    node::analyze_js_licenses, python::analyze_python_licenses, r::analyze_r_licenses,
-    rust::analyze_rust_licenses,
+    node::analyze_js_licenses_with_no_local, python::analyze_python_licenses,
+    r::analyze_r_licenses, rust::analyze_rust_licenses_with_no_local,
 };
 use crate::languages::{Language, CPP_PATHS, C_PATHS, PYTHON_PATHS, R_PATHS};
 use crate::licenses::{
@@ -180,10 +180,11 @@ pub fn parse_root(
     root_path: impl AsRef<Path>,
     language: Option<&str>,
     strict: bool,
+    no_local: bool,
 ) -> FeludaResult<Vec<LicenseInfo>> {
     let mut config = crate::config::load_config()?;
     config.strict = strict;
-    parse_root_with_config(root_path, language, &config)
+    parse_root_with_config(root_path, language, &config, no_local)
 }
 
 /// Main entry point for parsing project dependencies
@@ -191,6 +192,7 @@ pub fn parse_root_with_config(
     root_path: impl AsRef<Path>,
     language: Option<&str>,
     config: &crate::config::FeludaConfig,
+    no_local: bool,
 ) -> FeludaResult<Vec<LicenseInfo>> {
     log(
         LogLevel::Info,
@@ -230,7 +232,7 @@ pub fn parse_root_with_config(
                 }
             }
 
-            match parse_dependencies(&root, config) {
+            match parse_dependencies(&root, config, no_local) {
                 Ok(deps) => {
                     log(
                         LogLevel::Info,
@@ -303,6 +305,7 @@ fn matches_language(project_type: Language, language: &str) -> bool {
 fn parse_dependencies(
     root: &ProjectRoot,
     config: &crate::config::FeludaConfig,
+    no_local: bool,
 ) -> FeludaResult<Vec<LicenseInfo>> {
     let project_path = &root.path;
     let project_type = root.project_type;
@@ -332,7 +335,7 @@ fn parse_dependencies(
                             metadata.packages.len()
                         ));
 
-                        analyze_rust_licenses(metadata.packages)
+                        analyze_rust_licenses_with_no_local(metadata.packages, no_local)
                     }
                     Err(err) => {
                         log(
@@ -354,7 +357,7 @@ fn parse_dependencies(
 
                 match project_path.to_str() {
                     Some(path_str) => {
-                        let deps = analyze_js_licenses(path_str);
+                        let deps = analyze_js_licenses_with_no_local(path_str, no_local);
                         indicator.update_progress(&format!("found {} dependencies", deps.len()));
                         deps
                     }
@@ -599,35 +602,35 @@ mod tests {
         std::fs::write(root_path.join("requirements.txt"), "# No dependencies").unwrap();
 
         // Test filtering by node
-        let result = parse_root(root_path, Some("node"), false);
+        let result = parse_root(root_path, Some("node"), false, false);
         assert!(result.is_ok());
 
         // Test filtering by go
-        let result = parse_root(root_path, Some("go"), false);
+        let result = parse_root(root_path, Some("go"), false, false);
         assert!(result.is_ok());
 
         // Test filtering by python
-        let result = parse_root(root_path, Some("python"), false);
+        let result = parse_root(root_path, Some("python"), false, false);
         assert!(result.is_ok());
 
         // Test filtering by non-existent language
-        let result = parse_root(root_path, Some("java"), false);
+        let result = parse_root(root_path, Some("java"), false, false);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());
 
         // Test case-insensitive filtering
-        let result = parse_root(root_path, Some("NODE"), false);
+        let result = parse_root(root_path, Some("NODE"), false, false);
         assert!(result.is_ok());
 
-        let result = parse_root(root_path, Some("Python"), false);
+        let result = parse_root(root_path, Some("Python"), false, false);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_parse_root_no_projects() {
         let temp_dir = tempfile::TempDir::new().unwrap();
-        let result = parse_root(temp_dir.path(), None, false).unwrap();
+        let result = parse_root(temp_dir.path(), None, false, false).unwrap();
         assert!(result.is_empty());
     }
 
@@ -650,7 +653,7 @@ mod tests {
         std::fs::write(root_path.join("go.mod"), "module test\n\ngo 1.19").unwrap();
         std::fs::write(root_path.join("requirements.txt"), "# No dependencies").unwrap();
 
-        let result = parse_root(root_path, None, false);
+        let result = parse_root(root_path, None, false, false);
         assert!(result.is_ok());
     }
 
@@ -710,7 +713,7 @@ mod tests {
         .unwrap();
 
         let config = crate::config::FeludaConfig::default();
-        let result = parse_dependencies(&rust_project_root, &config);
+        let result = parse_dependencies(&rust_project_root, &config, false);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());
@@ -729,7 +732,7 @@ mod tests {
         std::fs::write(temp_dir.path().join("package.json"), "invalid json content").unwrap();
 
         let config = crate::config::FeludaConfig::default();
-        let result = parse_dependencies(&node_project_root, &config);
+        let result = parse_dependencies(&node_project_root, &config, false);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());
@@ -748,7 +751,7 @@ mod tests {
         std::fs::write(temp_dir.path().join("requirements.txt"), "").unwrap();
 
         let config = crate::config::FeludaConfig::default();
-        let result = parse_dependencies(&python_project_root, &config);
+        let result = parse_dependencies(&python_project_root, &config, false);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());
@@ -756,7 +759,7 @@ mod tests {
 
     #[test]
     fn test_parse_root_invalid_path() {
-        let result = parse_root("/definitely/nonexistent/path", None, false);
+        let result = parse_root("/definitely/nonexistent/path", None, false, false);
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());

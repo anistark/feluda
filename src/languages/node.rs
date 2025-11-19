@@ -248,14 +248,24 @@ impl DependencyResolver {
     }
 }
 
+#[allow(dead_code)]
 pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     let config = crate::config::load_config().unwrap_or_default();
-    analyze_js_licenses_with_config(package_json_path, &config)
+    analyze_js_licenses_with_config(package_json_path, &config, false)
+}
+
+pub fn analyze_js_licenses_with_no_local(
+    package_json_path: &str,
+    no_local: bool,
+) -> Vec<LicenseInfo> {
+    let config = crate::config::load_config().unwrap_or_default();
+    analyze_js_licenses_with_config(package_json_path, &config, no_local)
 }
 
 pub fn analyze_js_licenses_with_config(
     package_json_path: &str,
     config: &crate::config::FeludaConfig,
+    no_local: bool,
 ) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
@@ -312,7 +322,7 @@ pub fn analyze_js_licenses_with_config(
     all_dependencies
         .par_iter()
         .map(|(name, version)| {
-            let license = get_license_for_package(project_root, name, version);
+            let license = get_license_for_package(project_root, name, version, no_local);
             let is_restrictive =
                 is_license_restrictive(&Some(license.clone()), &known_licenses, config.strict);
 
@@ -1287,16 +1297,27 @@ fn read_package_version_from_path(path: &str) -> Option<String> {
 // LICENSE DETECTION
 // =============================================================================
 
-fn get_license_for_package(project_root: &Path, name: &str, version: &str) -> String {
+fn get_license_for_package(
+    project_root: &Path,
+    name: &str,
+    version: &str,
+    no_local: bool,
+) -> String {
     #[cfg(windows)]
     const NPM: &str = "npm.cmd";
     #[cfg(not(windows))]
     const NPM: &str = "npm";
 
-    get_license_from_package_json(project_root, name, version)
+    let mut result = get_license_from_package_json(project_root, name, version);
+
+    if result.is_none() && !no_local {
+        result = get_license_from_local_license_file(project_root, name);
+    }
+
+    result
+        .or_else(|| get_license_from_pnpm_metadata(project_root, name, version))
         .or_else(|| get_license_from_npm_view(NPM, name, version))
         .or_else(|| get_license_from_npm_registry_api(name, version))
-        .or_else(|| get_license_from_pnpm_metadata(project_root, name, version))
         .unwrap_or_else(|| "Unknown (failed to retrieve)".to_string())
 }
 
@@ -1515,6 +1536,91 @@ fn get_license_from_pnpm_metadata(
                     break;
                 }
             }
+        }
+    }
+
+    None
+}
+
+fn get_license_from_local_license_file(project_root: &Path, package_name: &str) -> Option<String> {
+    let package_dirs = if package_name.starts_with('@') {
+        let parts: Vec<&str> = package_name.splitn(2, '/').collect();
+        if parts.len() == 2 {
+            vec![
+                project_root
+                    .join("node_modules")
+                    .join(parts[0])
+                    .join(parts[1]),
+                project_root
+                    .join("node_modules")
+                    .join(".pnpm")
+                    .join("node_modules")
+                    .join(parts[0])
+                    .join(parts[1]),
+            ]
+        } else {
+            return None;
+        }
+    } else {
+        vec![
+            project_root.join("node_modules").join(package_name),
+            project_root
+                .join("node_modules")
+                .join(".pnpm")
+                .join("node_modules")
+                .join(package_name),
+        ]
+    };
+
+    let license_filenames = [
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "COPYING",
+        "COPYING.md",
+    ];
+
+    for dir in package_dirs {
+        if !dir.exists() {
+            continue;
+        }
+
+        for filename in &license_filenames {
+            let license_path = dir.join(filename);
+            if license_path.exists() {
+                if let Ok(content) = fs::read_to_string(&license_path) {
+                    if !content.trim().is_empty() {
+                        log(
+                            LogLevel::Info,
+                            &format!("Found license file for {package_name}: {filename}"),
+                        );
+                        return detect_license_from_content(&content);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn detect_license_from_content(content: &str) -> Option<String> {
+    let content_upper = content.to_uppercase();
+
+    let patterns = vec![
+        ("MIT", "MIT License"),
+        ("APACHE", "Apache License"),
+        ("GPL", "GPL"),
+        ("BSD", "BSD"),
+        ("ISC", "ISC License"),
+        ("LGPL", "LGPL"),
+        ("UNLICENSE", "Unlicense"),
+        ("MPL", "Mozilla Public License"),
+    ];
+
+    for (pattern, label) in patterns {
+        if content_upper.contains(pattern) {
+            return Some(label.to_string());
         }
     }
 
@@ -2391,4 +2497,99 @@ fn scan_nested_node_modules(
     }
 
     Ok(packages)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_detect_license_from_content_mit() {
+        let mit_content = "MIT License\n\nCopyright (c) 2024";
+        assert_eq!(
+            detect_license_from_content(mit_content),
+            Some("MIT License".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_from_content_apache() {
+        let apache_content = "Apache License\nVersion 2.0";
+        assert_eq!(
+            detect_license_from_content(apache_content),
+            Some("Apache License".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_from_content_gpl() {
+        let gpl_content = "GNU GPL License\n\nVersion 2";
+        assert_eq!(
+            detect_license_from_content(gpl_content),
+            Some("GPL".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_from_content_no_match() {
+        let unknown = "Some random content";
+        assert_eq!(detect_license_from_content(unknown), None);
+    }
+
+    #[test]
+    fn test_get_license_from_local_license_file_mit() {
+        let temp_dir = TempDir::new().unwrap();
+        let package_dir = temp_dir.path().join("node_modules").join("test-pkg");
+        fs::create_dir_all(&package_dir).unwrap();
+
+        let license_path = package_dir.join("LICENSE");
+        fs::write(&license_path, "MIT License\n\nCopyright (c) 2024").unwrap();
+
+        let result = get_license_from_local_license_file(temp_dir.path(), "test-pkg");
+        assert_eq!(result, Some("MIT License".to_string()));
+    }
+
+    #[test]
+    fn test_get_license_from_local_license_file_scoped() {
+        let temp_dir = TempDir::new().unwrap();
+        let package_dir = temp_dir
+            .path()
+            .join("node_modules")
+            .join("@scope")
+            .join("package");
+        fs::create_dir_all(&package_dir).unwrap();
+
+        let license_path = package_dir.join("LICENSE.md");
+        fs::write(&license_path, "Apache License").unwrap();
+
+        let result = get_license_from_local_license_file(temp_dir.path(), "@scope/package");
+        assert_eq!(result, Some("Apache License".to_string()));
+    }
+
+    #[test]
+    fn test_get_license_from_local_license_file_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let result = get_license_from_local_license_file(temp_dir.path(), "nonexistent");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_get_license_from_local_license_file_pnpm() {
+        let temp_dir = TempDir::new().unwrap();
+        let package_dir = temp_dir
+            .path()
+            .join("node_modules")
+            .join(".pnpm")
+            .join("node_modules")
+            .join("test-pkg");
+        fs::create_dir_all(&package_dir).unwrap();
+
+        let license_path = package_dir.join("LICENSE.txt");
+        fs::write(&license_path, "BSD License").unwrap();
+
+        let result = get_license_from_local_license_file(temp_dir.path(), "test-pkg");
+        assert_eq!(result, Some("BSD".to_string()));
+    }
 }

@@ -1329,7 +1329,7 @@ pub fn handle_generate_command(
     }
 
     // Parse and analyze dependencies
-    let mut analyzed_data = match parse_root(&path, language.as_deref(), false) {
+    let mut analyzed_data = match parse_root(&path, language.as_deref(), false, false) {
         Ok(data) => data,
         Err(e) => {
             println!("{} Failed to parse dependencies: {}", "❌".red().bold(), e);

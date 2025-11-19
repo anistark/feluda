@@ -45,6 +45,7 @@ struct CheckConfig {
     gist: bool,
     osi: Option<cli::OsiFilter>,
     strict: bool,
+    no_local: bool,
 }
 
 fn main() {
@@ -134,6 +135,7 @@ fn run() -> FeludaResult<()> {
             gist: args.gist,
             osi: args.osi,
             strict: args.strict,
+            no_local: args.no_local,
         };
         handle_check_command(config)
     } else {
@@ -244,8 +246,13 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     }
 
     // Parse and analyze dependencies
-    let mut analyzed_data = parse_root(&config.path, config.language.as_deref(), config.strict)
-        .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?;
+    let mut analyzed_data = parse_root(
+        &config.path,
+        config.language.as_deref(),
+        config.strict,
+        config.no_local,
+    )
+    .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?;
 
     log_debug("Analyzed dependencies", &analyzed_data);
 

@@ -215,6 +215,10 @@ pub struct Cli {
     /// Enable strict mode for license parser
     #[arg(long)]
     pub strict: bool,
+
+    /// Skip local license detection, force network lookup only
+    #[arg(long)]
+    pub no_local: bool,
 }
 
 impl Cli {
@@ -466,6 +470,7 @@ mod tests {
             gist: false,
             osi: None,
             strict: false,
+            no_local: false,
         };
 
         assert_eq!(cli.path, "./");
@@ -473,6 +478,7 @@ mod tests {
         assert!(!cli.json);
         assert!(!cli.restrictive);
         assert!(!cli.strict);
+        assert!(!cli.no_local);
         assert!(cli.is_default_command());
     }
 
@@ -505,6 +511,7 @@ mod tests {
             gist: false,
             osi: None,
             strict: false,
+            no_local: false,
         };
 
         let cmd = cli.get_command_args();
@@ -550,6 +557,7 @@ mod tests {
             gist: false,
             osi: None,
             strict: false,
+            no_local: false,
         };
 
         let cmd = cli.get_command_args();
