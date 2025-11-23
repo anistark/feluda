@@ -665,6 +665,37 @@ ignore = [
 ]
 ```
 
+### Ignoring Dependencies
+
+The `[dependencies]` section allows you to exclude entire dependencies from license scanning, regardless of their license. This is useful when:
+- A dependency is internal to your organization and shares your project's license
+- You have a written agreement with the dependency author allowing its use
+- A dependency is only used in development/testing and not distributed
+
+Ignored dependencies will be completely filtered out during the scanning phase and won't appear in any reports.
+
+```toml
+[[dependencies.ignore]]
+name = "github.com/anistark/wasmrun"
+version = "v1.0.0"
+reason = "This is within the same repo as the project, hence it shares the same license."
+
+[[dependencies.ignore]]
+name = "internal-library"
+version = ""  # Leave empty to ignore all versions of this dependency
+reason = "We have a written acknowledgment from the author that we may use their code under our license."
+
+[[dependencies.ignore]]
+name = "dev-only-package"
+version = ""  # Ignore all versions
+reason = "This package is only used for development and testing, not distributed."
+```
+
+**Note**: The `version` field is optional:
+- When specified (e.g., `"v1.0.0"`), only that version will be ignored
+- When left empty or omitted, **all versions** of that dependency will be ignored
+- The `reason` field documents why the dependency is being ignored for auditing purposes
+
 ### Environment Variables
 
 You can also override the configuration using environment variables:
@@ -682,10 +713,17 @@ The environment variables take precedence over both the configuration file and d
 ### Configuration Validation
 
 Feluda validates your configuration and will warn you if:
+
+**License Configuration:**
 - A license appears in both `restrictive` and `ignore` lists (the license will be ignored)
 - Empty license strings are found in either list (will cause an error)
 - Duplicate licenses are found in either list (will cause an error)
 - Invalid SPDX identifiers are used (warning only)
+
+**Dependency Configuration:**
+- Empty dependency names are provided (will cause an error)
+- Duplicate dependencies with the same name and version are found (will cause an error)
+- A dependency is missing a reason (warning only)
 
 ## License Compatibility Matrix
 

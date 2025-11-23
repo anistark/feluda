@@ -281,6 +281,25 @@ pub fn parse_root_with_config(
         );
     }
 
+    // Filter out ignored dependencies based on configuration
+    let ignored_count = licenses.len();
+    licenses.retain(|dep| {
+        !config
+            .dependencies
+            .should_ignore_dependency(&dep.name, Some(&dep.version))
+    });
+    let filtered_count = licenses.len();
+    if ignored_count != filtered_count {
+        log(
+            LogLevel::Info,
+            &format!(
+                "Filtered out {} ignored dependencies, {} remaining",
+                ignored_count - filtered_count,
+                filtered_count
+            ),
+        );
+    }
+
     // Set license compatibility based on project license
     let project_license =
         detect_project_license(root_path.as_ref().to_str().unwrap_or("")).unwrap_or(None);
