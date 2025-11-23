@@ -17,6 +17,12 @@
 //!     "AGPL-3.0",     # GNU Affero General Public License v3.0
 //!     "LGPL-3.0",     # GNU Lesser General Public License v3.0
 //! ]
+//!
+//! # Licenses to ignore from analysis
+//! ignore = [
+//!     "MIT",          # MIT License
+//!     "Apache-2.0",   # Apache License 2.0
+//! ]
 //! ```
 //!
 //! # Environment Variables
@@ -26,6 +32,8 @@
 //! ```sh
 //! # Override restrictive licenses list
 //! export FELUDA_LICENSES_RESTRICTIVE='["GPL-3.0","AGPL-3.0"]'
+//! # Override ignore licenses list
+//! export FELUDA_LICENSES_IGNORE='["MIT","Apache-2.0"]'
 //! ```
 
 use figment::{
@@ -73,12 +81,15 @@ impl FeludaConfig {
 pub struct LicenseConfig {
     #[serde(default = "default_restrictive_licenses")]
     pub restrictive: Vec<String>,
+    #[serde(default)]
+    pub ignore: Vec<String>,
 }
 
 impl Default for LicenseConfig {
     fn default() -> Self {
         Self {
             restrictive: default_restrictive_licenses(),
+            ignore: Vec::new(),
         }
     }
 }
@@ -94,7 +105,7 @@ impl LicenseConfig {
             );
         }
 
-        // Check for duplicate licenses
+        // Check for duplicate licenses in restrictive list
         let mut seen = std::collections::HashSet::new();
         let mut duplicates = Vec::new();
 
@@ -117,7 +128,7 @@ impl LicenseConfig {
             )));
         }
 
-        // Validate license format (basic SPDX-like validation)
+        // Validate license format for restrictive licenses (basic SPDX-like validation)
         for license in &self.restrictive {
             if !Self::is_valid_license_identifier(license) {
                 log(
@@ -127,7 +138,61 @@ impl LicenseConfig {
             }
         }
 
+        // Validate ignore licenses list
+        let mut ignore_seen = std::collections::HashSet::new();
+        let mut ignore_duplicates = Vec::new();
+
+        for license in &self.ignore {
+            if license.trim().is_empty() {
+                return Err(FeludaError::Config(
+                    "Empty license string found in ignore licenses list".to_string(),
+                ));
+            }
+
+            if !ignore_seen.insert(license) {
+                ignore_duplicates.push(license.clone());
+            }
+        }
+
+        if !ignore_duplicates.is_empty() {
+            return Err(FeludaError::Config(format!(
+                "Duplicate licenses found in ignore list: {}",
+                ignore_duplicates.join(", ")
+            )));
+        }
+
+        // Validate license format for ignore licenses
+        for license in &self.ignore {
+            if !Self::is_valid_license_identifier(license) {
+                log(
+                    LogLevel::Warn,
+                    &format!(
+                        "License '{license}' in ignore list may not be a valid SPDX identifier"
+                    ),
+                );
+            }
+        }
+
+        // Check for overlap between restrictive and ignore lists
+        let restrictive_set: std::collections::HashSet<_> = self.restrictive.iter().collect();
+        let ignore_set: std::collections::HashSet<_> = self.ignore.iter().collect();
+        let overlap: Vec<_> = restrictive_set
+            .intersection(&ignore_set)
+            .map(|s| s.to_string())
+            .collect();
+
+        if !overlap.is_empty() {
+            log(
+                LogLevel::Warn,
+                &format!(
+                    "Licenses found in both restrictive and ignore lists will be ignored: {}",
+                    overlap.join(", ")
+                ),
+            );
+        }
+
         log_debug("License configuration validation passed", &self.restrictive);
+        log_debug("Ignore licenses configuration", &self.ignore);
         Ok(())
     }
 
@@ -562,6 +627,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
+                ignore: Vec::new(),
             },
             dependencies: DependencyConfig { max_depth: 5 },
         };
@@ -593,6 +659,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
     fn test_license_config_serde() {
         let config = LicenseConfig {
             restrictive: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+            ignore: Vec::new(),
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -689,6 +756,7 @@ restrictive = [
     fn test_license_config_validation_empty_list() {
         let config = LicenseConfig {
             restrictive: vec![],
+            ignore: Vec::new(),
         };
         // Empty list should pass validation but generate a warning
         assert!(config.validate().is_ok());
@@ -698,6 +766,7 @@ restrictive = [
     fn test_license_config_validation_empty_license() {
         let config = LicenseConfig {
             restrictive: vec!["MIT".to_string(), "".to_string(), "GPL-3.0".to_string()],
+            ignore: Vec::new(),
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -716,6 +785,7 @@ restrictive = [
                 "MIT".to_string(),
                 "Apache-2.0".to_string(),
             ],
+            ignore: Vec::new(),
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -733,6 +803,7 @@ restrictive = [
                 "GPL-3.0".to_string(),
                 "SEE LICENSE IN LICENSE".to_string(),
             ],
+            ignore: Vec::new(),
         };
         assert!(config.validate().is_ok());
     }
@@ -795,6 +866,7 @@ restrictive = [
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string(), "GPL-3.0".to_string()],
+                ignore: Vec::new(),
             },
             dependencies: DependencyConfig { max_depth: 10 },
         };
@@ -807,6 +879,7 @@ restrictive = [
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["".to_string()], // Invalid empty license
+                ignore: Vec::new(),
             },
             dependencies: DependencyConfig { max_depth: 10 },
         };
@@ -824,6 +897,7 @@ restrictive = [
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string()],
+                ignore: Vec::new(),
             },
             dependencies: DependencyConfig { max_depth: 0 }, // Invalid zero depth
         };
@@ -901,5 +975,183 @@ max_depth = 5"#,
                     .contains(&"CUSTOM-LICENSE".to_string()));
             },
         );
+    }
+
+    // Tests for ignore licenses functionality
+    #[test]
+    fn test_toml_config_with_ignore() {
+        temp_env::with_var("FELUDA_LICENSES_IGNORE", None::<&str>, || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+restrictive = ["GPL-3.0"]
+ignore = ["MIT", "Apache-2.0"]"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.ignore.len(), 2);
+            assert!(config.licenses.ignore.contains(&"MIT".to_string()));
+            assert!(config.licenses.ignore.contains(&"Apache-2.0".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_env_config_with_ignore() {
+        temp_env::with_var(
+            "FELUDA_LICENSES_IGNORE",
+            Some(r#"["MIT","BSD-3-Clause"]"#),
+            || {
+                let dir = setup();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                let config = load_config().unwrap();
+                assert_eq!(config.licenses.ignore.len(), 2);
+                assert!(config.licenses.ignore.contains(&"MIT".to_string()));
+                assert!(config.licenses.ignore.contains(&"BSD-3-Clause".to_string()));
+            },
+        );
+    }
+
+    #[test]
+    fn test_env_ignore_overrides_toml() {
+        temp_env::with_var("FELUDA_LICENSES_IGNORE", Some(r#"["ENV-IGNORE"]"#), || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+ignore = ["TOML-IGNORE-1", "TOML-IGNORE-2"]"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.ignore.len(), 1);
+            assert!(config.licenses.ignore.contains(&"ENV-IGNORE".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_empty_ignore_list() {
+        temp_env::with_var("FELUDA_LICENSES_IGNORE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+ignore = []"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.ignore.len(), 0);
+        });
+    }
+
+    #[test]
+    fn test_license_config_validation_ignore_empty_license() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string()],
+            ignore: vec!["MIT".to_string(), "".to_string(), "Apache-2.0".to_string()],
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Empty license string"));
+    }
+
+    #[test]
+    fn test_license_config_validation_ignore_duplicate_licenses() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string()],
+            ignore: vec![
+                "MIT".to_string(),
+                "Apache-2.0".to_string(),
+                "MIT".to_string(),
+            ],
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Duplicate licenses"));
+        assert!(error_msg.contains("ignore list"));
+    }
+
+    #[test]
+    fn test_license_config_validation_ignore_overlap_with_restrictive() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string(), "MIT".to_string()],
+            ignore: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+        };
+        // Should pass validation but generate a warning
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_license_config_with_all_fields() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string(), "AGPL-3.0".to_string()],
+            ignore: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+        };
+        assert!(config.validate().is_ok());
+        assert_eq!(config.restrictive.len(), 2);
+        assert_eq!(config.ignore.len(), 2);
+    }
+
+    #[test]
+    fn test_load_config_toml_with_comments() {
+        temp_env::with_var("FELUDA_LICENSES_IGNORE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"# Feluda configuration file
+[licenses]
+# List of restrictive licenses
+restrictive = ["GPL-3.0"]
+# Licenses to ignore
+ignore = [
+    "MIT",          # MIT License
+    "Apache-2.0",   # Apache License
+]"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.restrictive.len(), 1);
+            assert_eq!(config.licenses.ignore.len(), 2);
+            assert!(config.licenses.ignore.contains(&"MIT".to_string()));
+            assert!(config.licenses.ignore.contains(&"Apache-2.0".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_default_ignore_list_is_empty() {
+        let config = FeludaConfig::default();
+        assert!(config.licenses.ignore.is_empty());
+    }
+
+    #[test]
+    fn test_load_config_ignore_serde() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string()],
+            ignore: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("MIT"));
+        assert!(json.contains("Apache-2.0"));
+
+        let deserialized: LicenseConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.ignore.len(), 2);
+        assert!(deserialized.ignore.contains(&"MIT".to_string()));
     }
 }

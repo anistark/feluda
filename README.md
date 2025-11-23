@@ -608,7 +608,7 @@ Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to cont
 
 ## Configuration (Optional)
 
-Feluda allows you to customize which licenses are considered restrictive through configuration. This can be done in three ways, listed in order of precedence (highest to lowest):
+Feluda allows you to customize which licenses are considered restrictive and which licenses to ignore from analysis. This can be done in three ways, listed in order of precedence (highest to lowest):
 
 1. Environment variables
 2. `.feluda.toml` configuration file
@@ -627,7 +627,7 @@ By default, Feluda considers the following licenses as restrictive:
 
 ### Configuration File
 
-Create a `.feluda.toml` file in your project root to override the default restrictive licenses:
+Create a `.feluda.toml` file in your project root to customize restrictive licenses and ignore licenses:
 
 ```toml
 [licenses]
@@ -636,6 +636,32 @@ restrictive = [
     "GPL-3.0",      # GNU General Public License v3.0
     "AGPL-3.0",     # GNU Affero General Public License v3.0
     "Custom-1.0",   # Your custom license identifier
+]
+
+# Licenses to ignore from analysis
+ignore = [
+    "MIT",          # MIT License
+    "Apache-2.0",   # Apache License 2.0
+]
+```
+
+### Ignoring Licenses
+
+The `ignore` section allows you to exclude specific licenses from analysis. This is useful when:
+- You want to exclude certain permissive licenses from the output
+- You're only interested in restrictive or incompatible licenses
+- You want to focus on specific subsets of your dependencies
+
+Ignored licenses will be completely filtered out from the analysis results and won't appear in any reports.
+
+```toml
+[licenses]
+ignore = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
 ]
 ```
 
@@ -646,9 +672,20 @@ You can also override the configuration using environment variables:
 ```sh
 # Override restrictive licenses list
 export FELUDA_LICENSES_RESTRICTIVE='["GPL-3.0","AGPL-3.0","Custom-1.0"]'
+
+# Override ignore licenses list
+export FELUDA_LICENSES_IGNORE='["MIT","Apache-2.0","BSD-3-Clause"]'
 ```
 
 The environment variables take precedence over both the configuration file and default values.
+
+### Configuration Validation
+
+Feluda validates your configuration and will warn you if:
+- A license appears in both `restrictive` and `ignore` lists (the license will be ignored)
+- Empty license strings are found in either list (will cause an error)
+- Duplicate licenses are found in either list (will cause an error)
+- Invalid SPDX identifiers are used (warning only)
 
 ## License Compatibility Matrix
 

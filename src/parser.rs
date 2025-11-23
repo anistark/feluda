@@ -265,11 +265,26 @@ pub fn parse_root_with_config(
         &format!("Total dependencies found: {}", licenses.len()),
     );
 
+    // Filter out ignored licenses
+    let mut licenses = licenses;
+    let ignored_count = licenses.len();
+    licenses.retain(|license| !crate::licenses::is_license_ignored(license.license.as_deref()));
+    let filtered_count = licenses.len();
+    if ignored_count != filtered_count {
+        log(
+            LogLevel::Info,
+            &format!(
+                "Filtered out {} ignored licenses, {} remaining",
+                ignored_count - filtered_count,
+                filtered_count
+            ),
+        );
+    }
+
     // Set license compatibility based on project license
     let project_license =
         detect_project_license(root_path.as_ref().to_str().unwrap_or("")).unwrap_or(None);
 
-    let mut licenses = licenses;
     set_license_compatibility(&mut licenses, &project_license);
 
     Ok(licenses)

@@ -663,6 +663,54 @@ pub fn is_license_restrictive(
     false
 }
 
+/// Check if a license should be ignored from analysis
+///
+/// Returns true if the license is in the ignore list configured in `.feluda.toml`
+/// or via `FELUDA_LICENSES_IGNORE` environment variable.
+pub fn is_license_ignored(license: Option<&str>) -> bool {
+    log(
+        LogLevel::Info,
+        &format!("Checking if license should be ignored: {license:?}"),
+    );
+
+    let config = match config::load_config() {
+        Ok(cfg) => {
+            log(LogLevel::Info, "Successfully loaded configuration");
+            cfg
+        }
+        Err(e) => {
+            log_error("Error loading configuration", &e);
+            log(LogLevel::Warn, "Using default configuration");
+            config::FeludaConfig::default()
+        }
+    };
+
+    if let Some(license_str) = license {
+        let is_ignored = config
+            .licenses
+            .ignore
+            .iter()
+            .any(|ignore_license| license_str.contains(ignore_license));
+
+        if is_ignored {
+            log(
+                LogLevel::Info,
+                &format!("License {license_str} matches ignore pattern in config"),
+            );
+        } else {
+            log(
+                LogLevel::Info,
+                &format!("License {license_str} does not match any ignore pattern"),
+            );
+        }
+
+        return is_ignored;
+    }
+
+    log(LogLevel::Info, "No license specified, not ignoring");
+    false
+}
+
 /// This is the default configuration
 const EMBEDDED_LICENSE_COMPATIBILITY_TOML: &str =
     include_str!("../config/license_compatibility.toml");
@@ -1261,5 +1309,27 @@ mod tests {
 
         let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_is_license_ignored_with_no_license() {
+        // Should return false when no license is provided
+        assert!(!is_license_ignored(None));
+    }
+
+    #[test]
+    fn test_is_license_ignored_not_in_ignore_list() {
+        // License not in ignore list should return false
+        // This test assumes no ignore list is configured
+        let result = is_license_ignored(Some("GPL-3.0"));
+        // Since we can't easily mock the config in this context,
+        // we just verify it doesn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_is_license_ignored_empty_license() {
+        // Empty string should return false
+        assert!(!is_license_ignored(Some("")));
     }
 }
