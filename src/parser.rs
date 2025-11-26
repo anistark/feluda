@@ -12,7 +12,6 @@ use crate::licenses::{
     detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
 };
 use cargo_metadata::MetadataCommand;
-use ignore::Walk;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
@@ -23,40 +22,30 @@ struct ProjectRoot {
     pub project_type: Language,
 }
 
-/// Walk through a directory and find all project-related roots
+/// Find project files only in the root directory (not recursive)
 fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRoot>> {
     let mut project_roots = Vec::new();
+    let root = root_path.as_ref();
+
     log(
         LogLevel::Info,
-        &format!(
-            "Scanning for project files in: {}",
-            root_path.as_ref().display()
-        ),
+        &format!("Scanning for project files in: {}", root.display()),
     );
 
-    for entry in Walk::new(&root_path).filter_map(|e| match e {
-        Ok(entry) => Some(entry),
-        Err(err) => {
-            log(
-                LogLevel::Error,
-                &format!("Error while walking directory: {err}"),
-            );
-            None
-        }
-    }) {
-        if let Some(file_type) = entry.file_type() {
-            if !file_type.is_file() {
+    // Only check files directly in the root directory, don't recurse into subdirectories
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            if let Ok(file_type) = entry.file_type() {
+                if !file_type.is_file() {
+                    continue;
+                }
+            } else {
                 continue;
             }
-        } else {
-            continue;
-        }
 
-        let path = entry.path();
-        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        let parent_path = path.parent();
+            let path = entry.path();
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        if let Some(parent) = parent_path {
             if let Some(project_type) = Language::from_file_name(file_name) {
                 log(
                     LogLevel::Info,
@@ -67,7 +56,7 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRo
                     ),
                 );
                 project_roots.push(ProjectRoot {
-                    path: parent.to_path_buf(),
+                    path: root.to_path_buf(),
                     project_type,
                 });
             }
@@ -721,11 +710,10 @@ mod tests {
         std::fs::write(root_path.join("go.mod"), "module test").unwrap();
 
         let result = find_project_roots(root_path.to_str().unwrap()).unwrap();
-        assert_eq!(result.len(), 3);
+        // Only finds go.mod in root directory (non-recursive scanning)
+        assert_eq!(result.len(), 1);
 
         let project_types: Vec<_> = result.iter().map(|r| r.project_type).collect();
-        assert!(project_types.contains(&Language::Rust("Cargo.toml")));
-        assert!(project_types.contains(&Language::Node("package.json")));
         assert!(project_types.contains(&Language::Go("go.mod")));
     }
 
