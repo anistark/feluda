@@ -1,3 +1,4 @@
+mod cache;
 mod cli;
 mod config;
 mod debug;
@@ -192,6 +193,10 @@ fn run() -> FeludaResult<()> {
                         handle_sbom_command(path, &cli::SbomFormat::All, output)
                     }
                 }
+            }
+            Commands::Cache { clear } => {
+                handle_cache_command(clear)?;
+                Ok(())
             }
         }
     }
@@ -484,5 +489,16 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
     log(LogLevel::Info, "Feluda completed successfully");
 
+    Ok(())
+}
+
+fn handle_cache_command(clear: bool) -> FeludaResult<()> {
+    if clear {
+        cache::clear_github_licenses_cache()?;
+        println!("✓ Cache cleared successfully\n");
+    } else {
+        let status = cache::get_cache_status()?;
+        status.print_status();
+    }
     Ok(())
 }

@@ -111,6 +111,12 @@ pub enum Commands {
         #[command(subcommand)]
         format: Option<SbomCommand>,
     },
+    /// Manage cache
+    Cache {
+        /// Clear the GitHub licenses cache
+        #[arg(long)]
+        clear: bool,
+    },
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -528,6 +534,9 @@ mod tests {
             Commands::Sbom { .. } => {
                 panic!("Expected Generate command");
             }
+            Commands::Cache { .. } => {
+                panic!("Expected Generate command");
+            }
         }
         assert!(!cli.is_default_command());
     }
@@ -572,6 +581,9 @@ mod tests {
                 assert_eq!(project_license, None);
             }
             Commands::Sbom { .. } => {
+                panic!("Expected Generate command");
+            }
+            Commands::Cache { .. } => {
                 panic!("Expected Generate command");
             }
         }

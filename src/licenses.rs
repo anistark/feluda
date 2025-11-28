@@ -12,6 +12,7 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 use toml::Value as TomlValue;
 
+use crate::cache;
 use crate::cli;
 use crate::config;
 use crate::debug::{log, log_debug, log_error, FeludaResult, LogLevel};
@@ -152,7 +153,7 @@ impl LicenseInfo {
 }
 
 /// License Info structure for GitHub API data
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct License {
     pub title: String,            // The full name of the license
     pub spdx_id: String,          // The SPDX identifier for the license
@@ -162,8 +163,28 @@ pub struct License {
 }
 
 /// Fetch license data from GitHub's official Licenses API
+/// Attempts to load from cache first, falls back to GitHub API if cache miss or stale
 pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
     log(LogLevel::Info, "Fetching licenses from GitHub Licenses API");
+
+    match cache::load_github_licenses_from_cache() {
+        Ok(Some(cached_licenses)) => {
+            log(
+                LogLevel::Info,
+                &format!("Using cached licenses ({})", cached_licenses.len()),
+            );
+            return Ok(cached_licenses);
+        }
+        Ok(None) => {
+            log(LogLevel::Info, "Cache miss or stale, fetching from GitHub");
+        }
+        Err(e) => {
+            log(
+                LogLevel::Warn,
+                &format!("Cache read error: {e}, fetching from GitHub"),
+            );
+        }
+    }
 
     let licenses_map = cli::with_spinner("Fetching licenses from GitHub API", |indicator| {
         // Use tokio runtime for async operations
@@ -177,6 +198,17 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
 
         rt.block_on(fetch_licenses_concurrent(indicator))
     });
+
+    if !licenses_map.is_empty() {
+        if let Err(e) = cache::save_github_licenses_to_cache(&licenses_map) {
+            log(LogLevel::Warn, &format!("Failed to save cache: {e}"));
+        }
+    } else {
+        log(
+            LogLevel::Warn,
+            "No licenses fetched from GitHub API, cache not saved",
+        );
+    }
 
     Ok(licenses_map)
 }
