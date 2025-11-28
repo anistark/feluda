@@ -291,6 +291,25 @@ feluda sbom validate spdx.json --json
 feluda sbom validate spdx.json --json --output validation-report.json
 ```
 
+### Cache Management
+
+Feluda caches GitHub license data to improve performance on repeated runs:
+
+```sh
+# View cache status (size, age, health)
+feluda cache
+
+# Clear the cache
+feluda cache --clear
+```
+
+**How Caching Works:**
+- Cache is stored at `.feluda/cache/github_licenses.json`
+- 30-day automatic expiration (cache is refreshed if older)
+- Only licenses successfully fetched from GitHub API are cached
+- Cache is automatically loaded on subsequent analysis runs
+- Reduces GitHub API calls and improves analysis speed
+
 ### Run feluda on a github repo directly
 
 ```sh
