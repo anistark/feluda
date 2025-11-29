@@ -81,6 +81,22 @@ This will:
 cargo test
 ```
 
+6. Install feluda system-wide (optional):
+
+```sh
+just install
+```
+
+This will:
+- Build the release binary with all checks
+- Copy the binary to `/usr/local/bin/feluda` for system-wide access
+- Make `feluda` available globally in your terminal
+
+Verify the installation:
+```sh
+feluda --version
+```
+
 ### Pre-commit Hooks
 
 The repository includes automated pre-commit hooks that run:

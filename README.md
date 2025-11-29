@@ -65,6 +65,47 @@ cargo install feluda
 
 </details>
 
+<details>
+<summary>DEB Package (Debian/Ubuntu/Pop! OS)</summary>
+
+![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white) ![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white) ![Pop!\_OS](https://img.shields.io/badge/Pop!_OS-48B9C7?style=for-the-badge&logo=Pop!_OS&logoColor=white) ![Linux Mint](https://img.shields.io/badge/Linux%20Mint-87CF3E?style=for-the-badge&logo=Linux%20Mint&logoColor=white)
+
+Feluda is available as a DEB package for Debian-based systems.
+
+1. Download the latest `.deb` file from [GitHub Releases](https://github.com/anistark/feluda/releases)
+2. Install the package:
+
+```sh
+# Install the downloaded DEB package
+sudo dpkg -i feluda_*.deb
+
+# If there are dependency issues, fix them
+sudo apt install -f
+```
+</details>
+
+<details>
+<summary>RPM Package (RHEL/Fedora/CentOS)</summary>
+
+![Fedora](https://img.shields.io/badge/Fedora-294172?style=for-the-badge&logo=fedora&logoColor=white) ![Red Hat](https://img.shields.io/badge/Red%20Hat-EE0000?style=for-the-badge&logo=redhat&logoColor=white) ![CentOS](https://img.shields.io/badge/cent%20os-002260?style=for-the-badge&logo=centos&logoColor=F0F0F0)
+
+Feluda is available as an RPM package for Red Hat-based systems.
+
+1. Download the latest `.rpm` file from [GitHub Releases](https://github.com/anistark/feluda/releases)
+2. Install the package:
+
+```sh
+# Install the downloaded RPM package
+sudo rpm -ivh feluda_*.rpm
+
+# Or using dnf (Fedora/newer RHEL)
+sudo dnf install feluda_*.rpm
+
+# Or using yum (older RHEL/CentOS)
+sudo yum install feluda_*.rpm
+```
+</details>
+
 ### Community Maintained 🙌:
 
 <details>
@@ -106,47 +147,6 @@ On NetBSD a package is available from the [official repositories](https://pkgsrc
 pkgin install feluda
 ```
 
-</details>
-
-<details>
-<summary>DEB Package (Debian/Ubuntu/Pop! OS)</summary>
-
-![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white) ![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white) ![Pop!\_OS](https://img.shields.io/badge/Pop!_OS-48B9C7?style=for-the-badge&logo=Pop!_OS&logoColor=white) ![Linux Mint](https://img.shields.io/badge/Linux%20Mint-87CF3E?style=for-the-badge&logo=Linux%20Mint&logoColor=white)
-
-Feluda is available as a DEB package for Debian-based systems.
-
-1. Download the latest `.deb` file from [GitHub Releases](https://github.com/anistark/feluda/releases)
-2. Install the package:
-
-```sh
-# Install the downloaded DEB package
-sudo dpkg -i feluda_*.deb
-
-# If there are dependency issues, fix them
-sudo apt install -f
-```
-</details>
-
-<details>
-<summary>RPM Package (RHEL/Fedora/CentOS)</summary>
-
-![Fedora](https://img.shields.io/badge/Fedora-294172?style=for-the-badge&logo=fedora&logoColor=white) ![Red Hat](https://img.shields.io/badge/Red%20Hat-EE0000?style=for-the-badge&logo=redhat&logoColor=white) ![CentOS](https://img.shields.io/badge/cent%20os-002260?style=for-the-badge&logo=centos&logoColor=F0F0F0)
-
-Feluda is available as an RPM package for Red Hat-based systems.
-
-1. Download the latest `.rpm` file from [GitHub Releases](https://github.com/anistark/feluda/releases)
-2. Install the package:
-
-```sh
-# Install the downloaded RPM package
-sudo rpm -ivh feluda_*.rpm
-
-# Or using dnf (Fedora/newer RHEL)
-sudo dnf install feluda_*.rpm
-
-# Or using yum (older RHEL/CentOS)
-sudo yum install feluda_*.rpm
-```
 </details>
 
 ### Package Managers 📦:
@@ -324,6 +324,8 @@ feluda --repo <repository_url> [--ssh-key <key_path>] [--ssh-passphrase <passphr
 
 ` --token <https_token>: (Optional) HTTPS token for authenticating with private repositories. `
 
+---
+
 _If you're using Feluda, feel free to grab a Scanned with Feluda badge for your project:_ [![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-brightgreen)](https://github.com/anistark/feluda)
 
 ```md
@@ -369,16 +371,6 @@ A **THIRD_PARTY_LICENSES file** provides comprehensive license documentation:
 
 **Audit Preparation**: Makes license audits faster and easier by providing all necessary documentation in standard formats.
 
-### Important Legal Notice
-
-**⚠️ DISCLAIMER**: Feluda is still in early stages. While we're trying to follow through all compliances, users are responsible for:
-
-- **Verifying accuracy** of all license information
-- **Ensuring compliance** with all applicable license terms
-- **Consulting legal counsel** for license compliance matters
-- **Checking official repositories** for up-to-date license information
-
-Feluda and its contributors disclaim all warranties and are not liable for any legal issues arising from the use of this information. **Use at your own risk.**
 
 ### When You Need These Files
 
@@ -811,13 +803,20 @@ Advanced users can customize compatibility rules by:
 
 **Important**: Modifying compatibility rules requires legal expertise. Consult legal counsel before making changes that could affect your project's compliance.
 
-### Limitations and Disclaimers
+## ⚠️ Legal Disclaimer
 
-⚠️ **Legal Disclaimer**: The license compatibility matrix is provided as a helpful tool, but:
-- **Not legal advice**: Always consult qualified legal counsel for license compliance
-- **Your responsibility**: Users must verify all license compatibility decisions  
-- **No warranty**: Feluda and its contributors provide no warranties regarding license compatibility
+Feluda is provided as a helpful tool for license compliance analysis. However, it is **not a substitute for legal advice**, and users are responsible for their own compliance decisions:
+
+**Important Points:**
+- **Verification**: You must verify the accuracy of all license information provided by Feluda
+- **Your Responsibility**: Ensure compliance with all applicable license terms and regulations
+- **Legal Counsel**: Always consult qualified legal counsel for license compliance matters
+- **Official Sources**: Check official repositories for up-to-date and authoritative license information
+- **No Warranty**: Feluda and its contributors provide no warranties regarding accuracy or fitness for any purpose
+- **No Liability**: Feluda and its contributors are not liable for any legal issues arising from the use of this tool or information
 - **Complexity**: License compatibility can depend on specific use cases, distribution methods, and jurisdictions
+
+Feluda is in active development. While we strive to provide accurate information, **use at your own risk.**
 
 ---
 

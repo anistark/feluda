@@ -27,6 +27,15 @@ build: format lint test
     @echo "🚀 Building release version..."
     cargo build --release
 
+# Install feluda system-wide
+install: build
+    @echo "📥 Installing {{CRATE_NAME}} to /usr/local/bin..."
+    sudo cp target/release/{{CRATE_NAME}} /usr/local/bin/
+    @echo "✅ Installation complete!"
+    @echo ""
+    @echo "{{CRATE_NAME}} is now available globally. Verify with:"
+    @echo "  feluda --version"
+
 # Create the crate package (to validate before publishing)
 package:
     @echo "📦 Creating package for validation..."
