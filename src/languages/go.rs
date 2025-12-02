@@ -417,7 +417,7 @@ fn parse_go_module_version(module_str: &str) -> Option<(String, String)> {
     }
 }
 
-/// Fetch the license for a Go dependency from the Go Package Index (pkg.go.dev)
+/// Fetch the license for a Go dependency, trying local sources first, then pkg.go.dev
 pub fn fetch_license_for_go_dependency(
     name: impl Into<String>,
     _version: impl Into<String>,
@@ -425,6 +425,114 @@ pub fn fetch_license_for_go_dependency(
     let name = name.into();
     let _version = _version.into();
 
+    if let Some(license) = get_license_from_local_go_mod(&name) {
+        log(
+            LogLevel::Info,
+            &format!("Found license in local go.mod for {name}: {license}"),
+        );
+        return license;
+    }
+
+    if let Some(license) = get_license_from_go_module_cache(&name) {
+        log(
+            LogLevel::Info,
+            &format!("Found license in Go module cache for {name}: {license}"),
+        );
+        return license;
+    }
+
+    fetch_license_from_pkg_go_dev(&name)
+}
+
+fn get_license_from_local_go_mod(package_name: &str) -> Option<String> {
+    let go_mod_path = Path::new("go.mod");
+    if !go_mod_path.exists() {
+        return None;
+    }
+
+    let content = fs::read_to_string(go_mod_path).ok()?;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("//")
+            && line.to_lowercase().contains("license")
+            && line.contains(package_name)
+        {
+            if let Some(license_part) = line.split("license:").nth(1) {
+                return Some(license_part.trim().to_string());
+            }
+        }
+    }
+    None
+}
+
+fn get_license_from_go_module_cache(package_name: &str) -> Option<String> {
+    let home_dir = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
+
+    let gopath = std::env::var("GOPATH").unwrap_or_else(|_| format!("{home_dir}/go"));
+    let module_cache = Path::new(&gopath).join("pkg").join("mod");
+
+    if !module_cache.exists() {
+        return None;
+    }
+
+    let package_path_normalized = package_name.to_lowercase().replace('/', "!");
+
+    if let Ok(entries) = fs::read_dir(&module_cache) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let dir_name = path.file_name()?.to_str()?;
+
+            if dir_name.to_lowercase().contains(&package_path_normalized) {
+                let license_files = [
+                    "LICENSE",
+                    "LICENSE.txt",
+                    "LICENSE.md",
+                    "COPYING",
+                    "COPYING.md",
+                ];
+
+                for license_file in &license_files {
+                    let license_path = path.join(license_file);
+                    if license_path.exists() {
+                        if let Ok(content) = fs::read_to_string(&license_path) {
+                            if let Some(license) = detect_license_from_content(&content) {
+                                return Some(license);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn detect_license_from_content(content: &str) -> Option<String> {
+    let content_upper = content.to_uppercase();
+
+    let patterns = vec![
+        ("MIT", "MIT License"),
+        ("APACHE", "Apache License"),
+        ("GPL", "GPL"),
+        ("BSD", "BSD"),
+        ("ISC", "ISC License"),
+        ("LGPL", "LGPL"),
+        ("UNLICENSE", "Unlicense"),
+        ("MPL", "Mozilla Public License"),
+    ];
+
+    for (pattern, label) in patterns {
+        if content_upper.contains(pattern) {
+            return Some(label.to_string());
+        }
+    }
+
+    None
+}
+
+fn fetch_license_from_pkg_go_dev(name: &str) -> String {
     let api_url = format!("https://pkg.go.dev/{name}?tab=licenses");
     log(
         LogLevel::Info,

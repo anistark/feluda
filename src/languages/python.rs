@@ -346,8 +346,173 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
     licenses
 }
 
-/// Fetch the license for a Python dependency from the Python Package Index (PyPI)
+/// Fetch the license for a Python dependency, trying local sources first, then PyPI
 pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String {
+    if let Some(license) = get_license_from_local_site_packages(name) {
+        log(
+            LogLevel::Info,
+            &format!("Found license in local site-packages for {name}: {license}"),
+        );
+        return license;
+    }
+
+    fetch_license_from_pypi(name, version)
+}
+
+fn get_license_from_local_site_packages(package_name: &str) -> Option<String> {
+    let python_paths = get_python_site_packages_paths();
+
+    for site_packages in python_paths {
+        if let Some(license) = check_site_package_metadata(&site_packages, package_name) {
+            return Some(license);
+        }
+
+        if let Some(license) = check_site_package_license_file(&site_packages, package_name) {
+            return Some(license);
+        }
+    }
+    None
+}
+
+fn get_python_site_packages_paths() -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+
+    if let Ok(output) = Command::new("python3")
+        .args([
+            "-c",
+            "import site; print('\\n'.join(site.getsitepackages()))",
+        ])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                paths.push(std::path::PathBuf::from(line.trim()));
+            }
+        }
+    }
+
+    if let Ok(output) = Command::new("python")
+        .args([
+            "-c",
+            "import site; print('\\n'.join(site.getsitepackages()))",
+        ])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let path = std::path::PathBuf::from(line.trim());
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+
+    paths
+}
+
+fn check_site_package_metadata(site_packages: &Path, package_name: &str) -> Option<String> {
+    let metadata_file = site_packages
+        .join(format!("{package_name}.dist-info"))
+        .join("METADATA");
+
+    if metadata_file.exists() {
+        if let Ok(content) = fs::read_to_string(&metadata_file) {
+            for line in content.lines() {
+                if line.starts_with("License:") {
+                    if let Some(license) = line.strip_prefix("License:") {
+                        let license = license.trim();
+                        if !license.is_empty() && license != "UNKNOWN" {
+                            return Some(license.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let normalized_name = package_name.replace('-', "_");
+    let metadata_file_normalized = site_packages
+        .join(format!("{normalized_name}.dist-info"))
+        .join("METADATA");
+
+    if metadata_file_normalized.exists() {
+        if let Ok(content) = fs::read_to_string(&metadata_file_normalized) {
+            for line in content.lines() {
+                if line.starts_with("License:") {
+                    if let Some(license) = line.strip_prefix("License:") {
+                        let license = license.trim();
+                        if !license.is_empty() && license != "UNKNOWN" {
+                            return Some(license.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn check_site_package_license_file(site_packages: &Path, package_name: &str) -> Option<String> {
+    let package_dirs = vec![
+        site_packages.join(package_name),
+        site_packages.join(package_name.replace('-', "_")),
+    ];
+
+    let license_files = [
+        "LICENSE",
+        "LICENSE.txt",
+        "LICENSE.md",
+        "COPYING",
+        "COPYING.md",
+    ];
+
+    for package_dir in package_dirs {
+        if !package_dir.exists() {
+            continue;
+        }
+
+        for license_file in &license_files {
+            let license_path = package_dir.join(license_file);
+            if license_path.exists() {
+                if let Ok(content) = fs::read_to_string(&license_path) {
+                    if let Some(license) = detect_license_from_content(&content) {
+                        return Some(license);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn detect_license_from_content(content: &str) -> Option<String> {
+    let content_upper = content.to_uppercase();
+
+    let patterns = vec![
+        ("MIT", "MIT License"),
+        ("APACHE", "Apache License"),
+        ("GPL", "GPL"),
+        ("BSD", "BSD"),
+        ("ISC", "ISC License"),
+        ("LGPL", "LGPL"),
+        ("UNLICENSE", "Unlicense"),
+        ("MPL", "Mozilla Public License"),
+    ];
+
+    for (pattern, label) in patterns {
+        if content_upper.contains(pattern) {
+            return Some(label.to_string());
+        }
+    }
+
+    None
+}
+
+fn fetch_license_from_pypi(name: &str, version: &str) -> String {
     let api_url = format!("https://pypi.org/pypi/{name}/{version}/json");
     log(
         LogLevel::Info,
