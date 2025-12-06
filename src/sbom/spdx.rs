@@ -1000,6 +1000,8 @@ mod tests {
 
     #[test]
     fn test_license_expression_edge_cases() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
         // Test empty license
         assert_eq!(convert_to_spdx_license_expression(""), "NOASSERTION");
         assert_eq!(convert_to_spdx_license_expression("   "), "NOASSERTION");
@@ -1144,6 +1146,8 @@ mod tests {
 
     #[test]
     fn test_extreme_edge_case_packages() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
         // Test package with only special characters
         let special_package = SpdxPackage::new("@#$%^&*()".to_string(), "https://example.com/test")
             .with_version("!!!".to_string())
@@ -1322,6 +1326,8 @@ mod tests {
 
     #[test]
     fn test_ultra_conservative_license_validation() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
         // Test the enhanced validation catches more edge cases
         assert_eq!(
             convert_to_spdx_license_expression("MIT=invalid"),
