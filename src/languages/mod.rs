@@ -2,6 +2,7 @@
 
 pub mod c;
 pub mod cpp;
+pub mod dotnet;
 pub mod go;
 pub mod node;
 pub mod python;
@@ -32,6 +33,7 @@ pub trait LanguageParser {
 pub enum Language {
     C(&'static [&'static str]),
     Cpp(&'static [&'static str]),
+    DotNet(&'static [&'static str]),
     Rust(&'static str),
     Node(&'static str),
     Go(&'static str),
@@ -49,12 +51,15 @@ impl Language {
             "conanfile.txt" | "conanfile.py" => Some(Language::Cpp(&CPP_PATHS[..])),
             "MODULE.bazel" => Some(Language::Cpp(&CPP_PATHS[..])),
             "configure.ac" | "configure.in" | "Makefile" => Some(Language::C(&C_PATHS[..])),
-            "CMakeLists.txt" => {
-                // CMake can be used for both C and C++, default to C++
-                Some(Language::Cpp(&CPP_PATHS[..]))
-            }
+            "CMakeLists.txt" => Some(Language::Cpp(&CPP_PATHS[..])),
             _ => {
-                if PYTHON_PATHS.contains(&file_name) {
+                if file_name.ends_with(".csproj")
+                    || file_name.ends_with(".fsproj")
+                    || file_name.ends_with(".vbproj")
+                    || file_name.ends_with(".slnx")
+                {
+                    Some(Language::DotNet(&DOTNET_PATHS[..]))
+                } else if PYTHON_PATHS.contains(&file_name) {
                     Some(Language::Python(&PYTHON_PATHS[..]))
                 } else if R_PATHS.contains(&file_name) {
                     Some(Language::R(&R_PATHS[..]))
@@ -88,3 +93,6 @@ pub const PYTHON_PATHS: [&str; 4] = [
 
 /// R project file patterns
 pub const R_PATHS: [&str; 2] = ["DESCRIPTION", "renv.lock"];
+
+/// .NET project file patterns
+pub const DOTNET_PATHS: [&str; 4] = [".csproj", ".fsproj", ".vbproj", ".slnx"];
