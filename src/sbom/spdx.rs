@@ -890,8 +890,10 @@ pub fn generate_spdx_output(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_convert_to_spdx_license_expression() {
         // Ensure environment variable is not set
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
@@ -999,6 +1001,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_license_expression_edge_cases() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
@@ -1108,6 +1111,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_complex_package_names() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
         // Test the specific lodash.castarray case
@@ -1145,6 +1149,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_extreme_edge_case_packages() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
@@ -1213,6 +1218,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_micromark_util_symbol_case() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
         // Test the specific case from the error message
@@ -1243,6 +1249,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_license_concluded_vs_declared() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
         // Test normal license handling
@@ -1325,6 +1332,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_ultra_conservative_license_validation() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
@@ -1412,6 +1420,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_force_noassertion_mode() {
         // Test normal mode first
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
@@ -1485,6 +1494,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_package_metadata_validation() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
@@ -1522,6 +1532,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_download_location_validation() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
@@ -1553,6 +1564,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_copyright_validation() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
@@ -1576,6 +1588,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_external_ref_validation() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
@@ -1608,6 +1621,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_comment_validation() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
