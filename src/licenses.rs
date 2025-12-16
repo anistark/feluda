@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-#[cfg(not(test))]
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -16,6 +15,18 @@ use crate::cache;
 use crate::cli;
 use crate::config;
 use crate::debug::{log, log_debug, log_error, FeludaResult, LogLevel};
+
+static GITHUB_TOKEN: OnceLock<Option<String>> = OnceLock::new();
+
+/// Set the GitHub API token for authenticated requests
+pub fn set_github_token(token: Option<String>) {
+    let _ = GITHUB_TOKEN.set(token);
+}
+
+/// Get the GitHub API token if set
+fn get_github_token() -> Option<&'static str> {
+    GITHUB_TOKEN.get().and_then(|t| t.as_deref())
+}
 
 /// License compatibility enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,12 +230,27 @@ async fn fetch_licenses_concurrent(
 ) -> HashMap<String, License> {
     let mut licenses_map = HashMap::new();
 
-    // Create async HTTP client
-    let client = match reqwest::Client::builder()
+    // Create async HTTP client with optional authentication
+    let mut client_builder = reqwest::Client::builder()
         .user_agent("feluda-license-checker/1.0")
-        .timeout(Duration::from_secs(30))
-        .build()
-    {
+        .timeout(Duration::from_secs(30));
+
+    if let Some(token) = get_github_token() {
+        log(
+            LogLevel::Info,
+            "Using authenticated GitHub API requests (higher rate limits)",
+        );
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {token}")
+                .parse()
+                .expect("Invalid token format"),
+        );
+        client_builder = client_builder.default_headers(headers);
+    }
+
+    let client = match client_builder.build() {
         Ok(client) => client,
         Err(err) => {
             log_error("Failed to create HTTP client", &err);

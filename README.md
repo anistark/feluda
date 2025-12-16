@@ -311,6 +311,23 @@ feluda cache --clear
 - Cache is automatically loaded on subsequent analysis runs
 - Reduces GitHub API calls and improves analysis speed
 
+### GitHub API Authentication
+
+Feluda uses the GitHub API to fetch license information. Unauthenticated requests are limited to 60 requests/hour, which may be insufficient for large projects or frequent scans.
+
+**Increase rate limits** by providing a GitHub personal access token:
+
+```sh
+# Via command-line flag
+feluda --github-token <your_token>
+
+# Or via environment variable (recommended for CI/CD)
+export GITHUB_TOKEN=<your_token>
+feluda
+```
+
+Authenticated requests get 5,000 requests/hour. No special scopes are required for the token—public repository access is sufficient.
+
 ### Run feluda on a github repo directly
 
 ```sh

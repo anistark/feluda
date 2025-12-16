@@ -15,7 +15,9 @@ use clap::Parser;
 use cli::{print_version_info, Cli, Commands};
 use debug::{log, log_debug, set_debug_mode, FeludaError, FeludaResult, LogLevel};
 use generate::handle_generate_command;
-use licenses::{detect_project_license, is_license_compatible, LicenseCompatibility};
+use licenses::{
+    detect_project_license, is_license_compatible, set_github_token, LicenseCompatibility,
+};
 use parser::parse_root;
 use reporter::{generate_report, ReportConfig};
 use sbom::handle_sbom_command;
@@ -77,6 +79,9 @@ fn run() -> FeludaResult<()> {
             &format!("Starting Feluda with args: {args:?}"),
         );
     }
+
+    // Set GitHub API token for authenticated requests
+    set_github_token(args.github_token.clone());
 
     // Handle repository cloning if --repo is provided
     let (analysis_path, _temp_dir) = match &args.repo.clone() {

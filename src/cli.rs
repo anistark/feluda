@@ -156,6 +156,10 @@ pub struct Cli {
     #[arg(long)]
     pub ssh_passphrase: Option<String>,
 
+    /// GitHub personal access token for API authentication (increases rate limits)
+    #[arg(long, env = "GITHUB_TOKEN", global = true)]
+    pub github_token: Option<String>,
+
     /// Output in JSON format
     #[arg(long, short, group = "output")]
     /// This will override the default output format
@@ -461,6 +465,7 @@ mod tests {
             token: None,
             ssh_key: None,
             ssh_passphrase: None,
+            github_token: None,
             json: false,
             yaml: false,
             verbose: false,
@@ -485,6 +490,7 @@ mod tests {
         assert!(!cli.restrictive);
         assert!(!cli.strict);
         assert!(!cli.no_local);
+        assert!(cli.github_token.is_none());
         assert!(cli.is_default_command());
     }
 
@@ -502,6 +508,7 @@ mod tests {
             token: None,
             ssh_key: None,
             ssh_passphrase: None,
+            github_token: None,
             json: false,
             yaml: false,
             verbose: false,
@@ -551,6 +558,7 @@ mod tests {
             token: None,
             ssh_key: None,
             ssh_passphrase: None,
+            github_token: None,
             json: false,
             yaml: false,
             verbose: false,
