@@ -222,10 +222,10 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     let mut project_license = config.project_license;
 
     // If no project license is provided via CLI, try to detect it
-    if let Some(license) = project_license {
+    if let Some(ref license) = project_license {
         log(
             LogLevel::Info,
-            &format!("Using provided project license: {}", license),
+            &format!("Using provided project license: {}", *license),
         );
     } else {
         log(
