@@ -222,7 +222,12 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     let mut project_license = config.project_license;
 
     // If no project license is provided via CLI, try to detect it
-    if project_license.is_none() {
+    if let Some(license) = project_license {
+        log(
+            LogLevel::Info,
+            &format!("Using provided project license: {}", license),
+        );
+    } else {
         log(
             LogLevel::Info,
             "No project license specified, attempting to detect",
@@ -245,14 +250,6 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
                 );
             }
         }
-    } else {
-        log(
-            LogLevel::Info,
-            &format!(
-                "Using provided project license: {}",
-                project_license.as_ref().unwrap()
-            ),
-        );
     }
 
     // Parse and analyze dependencies

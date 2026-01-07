@@ -656,12 +656,14 @@ fn print_summary_footer(license_info: &[LicenseInfo], project_license: Option<&s
     }
 
     // Add compatibility recommendation if project license is available
-    if project_license.is_some() && incompatible_count > 0 {
-        println!("\n{} {}: Some dependencies have licenses that may be incompatible with your project's {} license. Review for legal compliance.",
-            "❌".red().bold(),
-            "Warning".red().bold(),
-            project_license.unwrap()
-        );
+    if let Some(license) = project_license {
+        if incompatible_count > 0 {
+            println!("\n{} {}: Some dependencies have licenses that may be incompatible with your project's {} license. Review for legal compliance.",
+                "❌".red().bold(),
+                "Warning".red().bold(),
+                license
+            );
+        }
     }
 
     println!();
@@ -705,20 +707,22 @@ fn output_github_format(
         }
 
         // Add incompatible license warnings if project license is available
-        if project_license.is_some() && info.compatibility == LicenseCompatibility::Incompatible {
-            let warning = format!(
-                "::error title=Incompatible License::Dependency '{}@{}' has license {} which may be incompatible with project license {}\n",
-                info.name(),
-                info.version(),
-                info.get_license(),
-                project_license.unwrap()
-            );
-            output.push_str(&warning);
+        if let Some(license) = project_license {
+            if info.compatibility == LicenseCompatibility::Incompatible {
+                let warning = format!(
+                    "::error title=Incompatible License::Dependency '{}@{}' has license {} which may be incompatible with project license {}\n",
+                    info.name(),
+                    info.version(),
+                    info.get_license(),
+                    license
+                );
+                output.push_str(&warning);
 
-            log(
-                LogLevel::Info,
-                &format!("Added error for incompatible license: {}", info.name()),
-            );
+                log(
+                    LogLevel::Info,
+                    &format!("Added error for incompatible license: {}", info.name()),
+                );
+            }
         }
     }
 
@@ -835,24 +839,26 @@ fn output_jenkins_format(
         }
 
         // Check for incompatible license if project license is available
-        if project_license.is_some() && info.compatibility == LicenseCompatibility::Incompatible {
-            failures.push(format!(
-                r#"<failure message="Incompatible license found" type="incompatible">
+        if let Some(license) = project_license {
+            if info.compatibility == LicenseCompatibility::Incompatible {
+                failures.push(format!(
+                    r#"<failure message="Incompatible license found" type="incompatible">
             Dependency '{}@{}' has license {} which may be incompatible with project license {}
         </failure>"#,
-                info.name(),
-                info.version(),
-                info.get_license(),
-                project_license.unwrap()
-            ));
+                    info.name(),
+                    info.version(),
+                    info.get_license(),
+                    license
+                ));
 
-            log(
-                LogLevel::Info,
-                &format!(
-                    "Added failing test case for incompatible license: {}",
-                    info.name()
-                ),
-            );
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Added failing test case for incompatible license: {}",
+                        info.name()
+                    ),
+                );
+            }
         }
 
         if failures.is_empty() {

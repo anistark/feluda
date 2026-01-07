@@ -1295,37 +1295,37 @@ pub fn handle_generate_command(
     let mut resolved_project_license = project_license;
 
     // If no project license is provided via CLI, try to detect it
-    if resolved_project_license.is_none() {
-        log(
-            LogLevel::Info,
-            "No project license specified, attempting to detect",
-        );
-        match detect_project_license(&path) {
-            Ok(Some(detected)) => {
-                log(
-                    LogLevel::Info,
-                    &format!("Detected project license: {detected}"),
-                );
-                resolved_project_license = Some(detected);
-            }
-            Ok(None) => {
-                log(LogLevel::Warn, "Could not detect project license");
-            }
-            Err(e) => {
-                log(
-                    LogLevel::Error,
-                    &format!("Error detecting project license: {e}"),
-                );
+    match resolved_project_license {
+        Some(license) => {
+            log(
+                LogLevel::Info,
+                &format!("Using provided project license: {}", license),
+            );
+        }
+        None => {
+            log(
+                LogLevel::Info,
+                "No project license specified, attempting to detect",
+            );
+            match detect_project_license(&path) {
+                Ok(Some(detected)) => {
+                    log(
+                        LogLevel::Info,
+                        &format!("Detected project license: {detected}"),
+                    );
+                    resolved_project_license = Some(detected);
+                }
+                Ok(None) => {
+                    log(LogLevel::Warn, "Could not detect project license");
+                }
+                Err(e) => {
+                    log(
+                        LogLevel::Error,
+                        &format!("Error detecting project license: {e}"),
+                    );
+                }
             }
         }
-    } else {
-        log(
-            LogLevel::Info,
-            &format!(
-                "Using provided project license: {}",
-                resolved_project_license.as_ref().unwrap()
-            ),
-        );
     }
 
     // Parse and analyze dependencies
