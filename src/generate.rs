@@ -1296,10 +1296,10 @@ pub fn handle_generate_command(
 
     // If no project license is provided via CLI, try to detect it
     match resolved_project_license {
-        Some(license) => {
+        Some(ref license) => {
             log(
                 LogLevel::Info,
-                &format!("Using provided project license: {}", license),
+                &format!("Using provided project license: {}", *license),
             );
         }
         None => {
