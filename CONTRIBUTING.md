@@ -4,7 +4,7 @@ Welcoming contributions from the community! 🙌
 
 [![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-orange?logo=rust)](https://www.rust-lang.org/)
 
-_Minimum Supported Rust Version: `1.70.0`_
+_Minimum Supported Rust Version: `1.85.0`_
 _Currently Working Rust Version: `1.88.0`_
 
 ### Folder Structure:

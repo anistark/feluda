@@ -26,10 +26,8 @@ fn get_cache_dir() -> FeludaResult<PathBuf> {
     let cache_dir = PathBuf::from(CACHE_DIR);
 
     if !cache_dir.exists() {
-        fs::create_dir_all(&cache_dir).map_err(|e| {
-            log_error("Failed to create cache directory", &e);
-            e
-        })?;
+        fs::create_dir_all(&cache_dir)
+            .inspect_err(|e| log_error("Failed to create cache directory", e))?;
     }
 
     Ok(cache_dir)
@@ -141,10 +139,7 @@ pub fn save_github_licenses_to_cache(licenses: &HashMap<String, License>) -> Fel
         }
     };
 
-    fs::write(&cache_path, json).map_err(|e| {
-        log_error("Failed to write cache file", &e);
-        e
-    })?;
+    fs::write(&cache_path, json).inspect_err(|e| log_error("Failed to write cache file", e))?;
 
     log(
         LogLevel::Info,
@@ -162,10 +157,7 @@ pub fn clear_github_licenses_cache() -> FeludaResult<()> {
     let cache_path = get_github_cache_path()?;
 
     if cache_path.exists() {
-        fs::remove_file(&cache_path).map_err(|e| {
-            log_error("Failed to clear cache", &e);
-            e
-        })?;
+        fs::remove_file(&cache_path).inspect_err(|e| log_error("Failed to clear cache", e))?;
         log(LogLevel::Info, "Cleared GitHub licenses cache");
     } else {
         log(LogLevel::Info, "No cache to clear");
