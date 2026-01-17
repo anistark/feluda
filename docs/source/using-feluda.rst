@@ -1,4 +1,5 @@
 :description: Step-by-step workflows for scanning, filtering, and interpreting Feluda results.
+
 .. _using-feluda:
 
 Using Feluda
@@ -123,7 +124,7 @@ Run this when you want to see every dependency that conflicts with your declared
 
    feluda --incompatible
 
-Feluda now filters to dependencies whose licenses fail the compatibility matrix described in :ref:`reference`.
+Feluda now filters to dependencies whose licenses fail the compatibility matrix described in :ref:`configuration`.
 
 Call this when you want Feluda to check a specific outbound license before redistribution.
 
@@ -267,7 +268,7 @@ Call this when YAML integrates better with configuration management.
 
    feluda --yaml
 
-Feluda prints the same structured data in YAML, matching the schema outlined in :ref:`reference`.
+Feluda prints the same structured data in YAML so configuration management tools can parse it directly.
 
 Run gist mode when you want a one-line summary for dashboards or comment bots.
 

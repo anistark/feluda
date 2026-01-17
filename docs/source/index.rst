@@ -21,10 +21,23 @@ Each section ends with practical next steps so you can move from manual spot che
 
 .. toctree::
    :maxdepth: 1
-   :caption: Follow the clues
+   :caption: Getting Started
 
+   features
    getting-started
+   install
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Configuration
+
+   configuration
+   reference
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Using Feluda
+
    using-feluda
    compliance-reporting
    automate-integrate
-   reference

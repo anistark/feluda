@@ -1,4 +1,5 @@
 :description: Automate Feluda in CI pipelines and integrations.
+
 .. _automate-integrate:
 
 Automate & Integrate
@@ -153,5 +154,4 @@ Next integration moves
 
 - Reuse the ``feluda sbom`` commands from :ref:`compliance-reporting` in nightly jobs for a continuous SBOM stream.
 - Refer teammates back to :ref:`using-feluda` for manual cache clears or GUI reviews when CI finds issues.
-- Customize restrictive or ignore lists via :ref:`reference` before running Feluda in production pipelines.
-
+- Customize restrictive or ignore lists via :ref:`configuration` before running Feluda in production pipelines.

@@ -1,4 +1,5 @@
 :description: Generate compliance files, SBOMs, and badges with Feluda.
+
 .. _compliance-reporting:
 
 Compliance & Reporting
@@ -11,7 +12,7 @@ Compliance & Reporting
 ----
 
 Generate NOTICE and THIRD_PARTY_LICENSES
----------------------------------------
+----------------------------------------
 
 Feluda guides you through interactive generation and scripted exports alike.
 
@@ -187,6 +188,5 @@ Next compliance steps
 ---------------------
 
 - Pair ``feluda generate`` with ``feluda sbom`` in CI following :ref:`automate-integrate`.
-- Reference :ref:`reference` when tailoring restrictive or ignore lists for repeated runs.
+- Reference :ref:`configuration` when tailoring restrictive or ignore lists for repeated runs.
 - Share badge and SBOM artifacts with partners alongside the NOTICE files for a complete package.
-

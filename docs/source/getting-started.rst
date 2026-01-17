@@ -1,4 +1,5 @@
 :description: Start your investigation with Feluda, from installation to a first scan.
+
 .. _getting-started:
 
 Getting Started
@@ -34,6 +35,9 @@ Feluda favors orderly investigation, so follow these five deliberate moves befor
       export GITHUB_TOKEN=<your_token>
 
    Feluda reads the variable quietly, and :ref:`using-feluda` explains how the token changes cache usage.
+
+   .. important::
+      Personal access tokens with default scopes unlock 5,000 GitHub API requests/hour and are mandatory for private repositories.
 
 #. Start your first scan right from the project root.
 
@@ -77,8 +81,8 @@ Feluda prides himself on meeting you where you work; tab through the paths, pop 
 
    .. tab-item:: Cargo (Official)
 
-      .. tip::
-         Cargo installs are signed and published alongside Feluda releases.
+      .. note::
+         **Prerequisite:** Install the latest Rust toolchain so ``cargo install`` can fetch Feluda from crates.io.
 
       Run this when you want the direct Rust install path with zero distro lag.
 
@@ -211,7 +215,7 @@ Feluda prides himself on meeting you where you work; tab through the paths, pop 
 
          sudo mv target/release/feluda /usr/local/bin/
 
-      Feluda now runs the exact commit you checked out, handy for validating upcoming features described in :ref:`reference`.
+      Feluda now runs the exact commit you checked out, handy for validating upcoming features before they land in packaged releases.
 
 ----
 
@@ -253,4 +257,4 @@ Next detective moves
 
 - Visit :ref:`using-feluda` to master filters, caching, and GUI output.
 - Jump to :ref:`compliance-reporting` once legal partners request NOTICE, SBOM, or badges.
-- Bookmark :ref:`reference` for environment variables, config schema, and troubleshooting.
+- Bookmark :ref:`configuration` for restrictive lists, compatibility matrices, and cache management tips.

@@ -1,4 +1,5 @@
-:description: Reference tables, configuration schema, and troubleshooting notes for Feluda.
+:description: Reference tables, troubleshooting notes, and glossary entries for Feluda.
+
 .. _reference:
 
 Reference
@@ -6,7 +7,7 @@ Reference
 
 .. rst-class:: lead
 
-   Keep this dossier handy when you need definitive answers about Feluda’s flags, config files, caches, and terminology.
+   Keep this dossier handy when you need definitive answers about Feluda’s flags, troubleshooting steps, and terminology.
 
 ----
 
@@ -36,7 +37,7 @@ Use this table to double-check flag behavior before scripting.
      - Requires verbose, JSON, YAML, or GUI modes to display OSI columns clearly.
    * - ``feluda --restrictive`` / ``feluda --incompatible``
      - Show only restrictive or incompatible dependencies.
-     - Relies on the restrictive list and compatibility matrix described below.
+     - Relies on the restrictive list and compatibility matrix described in :ref:`configuration`.
    * - ``feluda --project-license <SPDX>``
      - Evaluate compatibility against a declared license.
      - Supports MIT, Apache-2.0, GPL variants, MPL-2.0, BSD variants, ISC, 0BSD, Unlicense, WTFPL, and more.
@@ -67,84 +68,10 @@ Use this table to double-check flag behavior before scripting.
 
 ----
 
-Configuration schema
---------------------
+Need configuration guidance?
+-----------------------------
 
-Customize Feluda via `.feluda.toml` to align with your company policy.
-
-Use this template when defining restrictive and ignore lists.
-
-.. code-block:: toml
-
-   [licenses]
-   restrictive = [
-       "GPL-3.0",
-       "AGPL-3.0",
-       "LGPL-3.0",
-       "MPL-2.0",
-       "SEE LICENSE IN LICENSE",
-       "CC-BY-SA-4.0",
-       "EPL-2.0",
-   ]
-   ignore = [
-       "MIT",
-       "Apache-2.0",
-       "BSD-2-Clause",
-       "BSD-3-Clause",
-       "ISC",
-   ]
-
-Feluda merges the defaults with your overrides and warns if a license appears in both lists.
-
-Document dependency exceptions when certain packages deserve a pass.
-
-.. code-block:: toml
-
-   [[dependencies.ignore]]
-   name = "github.com/anistark/wasmrun"
-   version = "v1.0.0"
-   reason = "Internal component that shares the project license."
-
-   [[dependencies.ignore]]
-   name = "internal-library"
-   version = ""
-   reason = "All versions are governed by a separate legal agreement."
-
-Feluda removes matching dependencies entirely from scan results, keeping the audit trail tidy.
-
-.. note::
-   Leave ``version`` empty to ignore every release of a dependency; fill it to scope the ignore more narrowly.
-
-----
-
-Environment variables
----------------------
-
-Environment overrides take precedence over config files.
-
-Run this export when you want to redefine restrictive licenses for a single session.
-
-.. code-block:: bash
-
-   export FELUDA_LICENSES_RESTRICTIVE='["GPL-3.0","AGPL-3.0","Custom-1.0"]'
-
-Feluda merges the JSON array into its restrictive list before scanning.
-
-Use this when you need to ignore common permissive licenses temporarily.
-
-.. code-block:: bash
-
-   export FELUDA_LICENSES_IGNORE='["MIT","Apache-2.0","BSD-3-Clause"]'
-
-Feluda hides the specified licenses from reports until the variable is unset.
-
-Run this when you prefer to set the GitHub token once per shell instead of passing ``--github-token`` every time.
-
-.. code-block:: bash
-
-   export GITHUB_TOKEN=<your_token>
-
-Feluda uses the supplied token to raise rate limits to 5,000 requests/hour.
+Looking to adjust restrictive lists, dependency ignores, compatibility matrices, or environment overrides? Jump to :ref:`configuration` for detailed instructions, code snippets, and validation tips before you rerun Feluda.
 
 ----
 
@@ -180,4 +107,3 @@ Contributor resources
 - Study ``ACTION-README.md`` for advanced GitHub Action usage, especially when combining ``update-badge`` with :ref:`automate-integrate`.
 - Check ``config/license_compatibility.toml`` if you need to suggest compatibility changes; open a pull request with legal input.
 - Explore ``examples/`` to see sample outputs that mirror ``feluda --json`` and ``feluda sbom`` results.
-
