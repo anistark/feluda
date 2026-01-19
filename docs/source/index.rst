@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Introduction: Meet Feluda
-=========================
+Meet Feluda
+===========
 
 .. rst-class:: lead
 
@@ -21,18 +21,17 @@ Each section ends with practical next steps so you can move from manual spot che
 
 .. toctree::
    :maxdepth: 1
-   :caption: Getting Started
+   :caption: Introducion
 
-   features
-   getting-started
-   install
+   self
 
 .. toctree::
    :maxdepth: 1
-   :caption: Configuration
+   :caption: Getting Started
 
-   configuration
-   reference
+   quickstart
+   features
+   install
 
 .. toctree::
    :maxdepth: 1
@@ -41,3 +40,10 @@ Each section ends with practical next steps so you can move from manual spot che
    using-feluda
    compliance-reporting
    automate-integrate
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Configuration
+
+   configuration
+   reference
