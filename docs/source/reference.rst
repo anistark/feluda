@@ -29,7 +29,7 @@ Use this table to double-check flag behavior before scripting.
    * - ``feluda --repo <url>``
      - Clone and scan a remote repository.
      - Combine with ``--ssh-key``, ``--ssh-passphrase``, or ``--token`` for private access.
-   * - ``feluda --language {rust|node|go|python|c|cpp|r}``
+   * - ``feluda --language {rust|node|go|python|c|cpp|dotnet|r}``
      - Limit analysis to one ecosystem.
      - Useful for monorepos or staged reviews.
    * - ``feluda --osi {approved|not-approved|unknown}``
@@ -65,6 +65,21 @@ Use this table to double-check flag behavior before scripting.
    * - ``feluda --ci-format {github|jenkins}``
      - Emit annotations suited to CI platforms.
      - Pairs with ``--fail-on-*`` for fully automated gates.
+   * - ``feluda --debug`` / ``-d``
+     - Enable debug mode with detailed logging.
+     - Useful for troubleshooting detection issues.
+   * - ``feluda --strict``
+     - Enable strict mode for license parsing.
+     - Treats unknown licenses as incompatible.
+   * - ``feluda generate``
+     - Generate NOTICE and THIRD_PARTY_LICENSES files.
+     - Accepts ``--path``, ``--language``, ``--project-license``.
+   * - ``feluda sbom [spdx|cyclonedx]``
+     - Generate SBOM in SPDX 2.3 or CycloneDX v1.5 format.
+     - Omit format to generate both; use ``--output`` to save.
+   * - ``feluda sbom validate <file>``
+     - Validate an SBOM file against its specification.
+     - Supports ``--json`` for machine-readable output.
 
 ----
 

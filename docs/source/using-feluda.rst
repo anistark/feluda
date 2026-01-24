@@ -64,7 +64,7 @@ Filter by language
 
 Mixed-language monorepos can overwhelm you with noise, so narrow the scope to the stack you’re reviewing.
 
-Run this when you want Feluda to focus on one ecosystem such as Rust, Node, Go, Python, C, C++, or R.
+Run this when you want Feluda to focus on one ecosystem such as Rust, Node, Go, Python, C, C++, .NET, or R.
 
 .. code-block:: bash
 
@@ -133,6 +133,14 @@ Call this when you want Feluda to check a specific outbound license before redis
    feluda --project-license MIT
 
 Feluda compares every dependency against the MIT row in ``config/license_compatibility.toml`` and flags conflicts.
+
+Use strict mode when unknown licenses should be treated as incompatible.
+
+.. code-block:: bash
+
+   feluda --strict --project-license MIT
+
+Feluda now marks any dependency with an unrecognized license as incompatible, preventing ambiguous licenses from slipping through.
 
 ----
 
@@ -246,6 +254,21 @@ Use verbose mode when you prefer extra columns (including OSI) in the standard o
    feluda --verbose
 
 Feluda adds OSI status and extended descriptions to the CLI table.
+
+----
+
+Enable debug mode
+-----------------
+
+When Feluda's detection seems off, debug mode reveals the reasoning.
+
+Run this when you need detailed logging to troubleshoot license lookups.
+
+.. code-block:: bash
+
+   feluda --debug
+
+Feluda outputs step-by-step details about file discovery, API calls, and cache hits.
 
 ----
 

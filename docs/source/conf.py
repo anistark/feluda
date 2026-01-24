@@ -30,3 +30,16 @@ language = 'en'
 
 html_theme = 'shibuya'
 html_static_path = ['_static']
+html_logo = '_static/felu.png'
+html_favicon = '_static/favicon.png'
+html_title = 'Feluda'
+
+html_theme_options = {
+    "logo_target": "/",
+    "github_url": "https://github.com/anistark/feluda",
+    "discord_url": "https://discord.gg/5YrbwNRGaE",
+}
+
+def setup(app):
+    app.add_css_file('custom.css')
+    app.add_js_file('custom.js')

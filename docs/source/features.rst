@@ -47,11 +47,11 @@ Core Features
   ``THIRD_PARTY_LICENSES``.
 
 - **SBOM Export:**
-  Generates a Software Bill of Materials (SBOM) in SPDX format for improved
-  security and compliance reporting.
+  Generates a Software Bill of Materials (SBOM) in **SPDX 2.3** and
+  **CycloneDX v1.5** formats for security and compliance reporting.
 
 - **Multiple Output Formats:**
-  Provides results in **plain text**, **JSON**, or **TUI** formats.
+  Provides results in **plain text**, **JSON**, **YAML**, or **TUI** formats.
   A **gist mode** is also available for restrictive environments, producing a
   single-line summary.
 
@@ -87,7 +87,7 @@ Feluda speaks multiple programming dialects fluently.
 ----
 
 Feluda currently supports projects written in these ecosystems:
-C, C++, Go, Python, Rust, JavaScript / TypeScript / NodeJS and R
+C, C++, Go, Python, Rust, JavaScript / TypeScript / Node.js, .NET (C#/F#/VB), and R
 
 ----
 

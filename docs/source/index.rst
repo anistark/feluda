@@ -21,7 +21,7 @@ Each section ends with practical next steps so you can move from manual spot che
 
 .. toctree::
    :maxdepth: 1
-   :caption: Introducion
+   :caption: Introduction
 
    self
 
