@@ -142,6 +142,37 @@ test-examples:
     @echo "\n📦 Testing C++ Example:"
     ./target/debug/feluda --path examples/cpp-example || cargo run -- --path examples/cpp-example
 
+# Documentation variables
+DOCS_DIR := "docs"
+DOCS_SOURCE := DOCS_DIR / "source"
+DOCS_BUILD := DOCS_DIR / "build"
+DOCS_VENV := DOCS_DIR / ".venv"
+DOCS_PYTHON := DOCS_VENV / "bin/python"
+
+# Build HTML documentation
+docs-build:
+    @echo "📚 Building documentation..."
+    uv run --python "{{DOCS_PYTHON}}" sphinx-build -M dirhtml "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}"
+    @echo "✅ Documentation built at {{DOCS_BUILD}}/dirhtml/index.html"
+
+# Serve documentation locally with live reload
+docs-serve:
+    @echo "🌐 Serving documentation with live reload..."
+    uv run --python "{{DOCS_PYTHON}}" sphinx-autobuild "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/dirhtml" --open-browser -b dirhtml
+
+# Clean documentation build artifacts
+docs-clean:
+    @echo "🧹 Cleaning documentation build..."
+    rm -rf "{{DOCS_BUILD}}"
+    @echo "✅ Documentation build cleaned"
+
+# Install documentation dependencies
+docs-setup:
+    @echo "📦 Installing documentation dependencies..."
+    uv venv "{{DOCS_VENV}}"
+    uv pip install --python "{{DOCS_PYTHON}}" -r "{{DOCS_DIR}}/requirements.txt" sphinx-autobuild
+    @echo "✅ Documentation dependencies installed"
+
 # Mimic CI checks exactly as they run on GitHub Actions
 test-ci:
     @echo "🔍 Running CI checks locally (format, lint, test)..."

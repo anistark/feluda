@@ -469,19 +469,19 @@ fn get_license_from_go_module_cache(package_name: &str, version: &str) -> Option
     let module_cache = get_gomodcache_path()?;
     let exact_path = build_module_cache_path(&module_cache, package_name, version);
     if let Some(license) = read_license_from_dir(&exact_path) {
-        return Some(license)
+        return Some(license);
     }
     find_license_in_any_version(&module_cache, package_name)
 }
 
 fn get_gomodcache_path() -> Option<PathBuf> {
-    if let Ok(output) = Command::new("go").args(["env","GOMODCACHE"]).output() {
+    if let Ok(output) = Command::new("go").args(["env", "GOMODCACHE"]).output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
                 let path_buf = PathBuf::from(&path);
                 if path_buf.exists() {
-                    return Some(path_buf)
+                    return Some(path_buf);
                 }
             }
         }
@@ -520,20 +520,24 @@ fn build_module_cache_path(root: &Path, module: &str, version: &str) -> PathBuf 
     root.join(format!("{escaped}@{version}"))
 }
 
-fn read_license_from_dir(dir : &Path) -> Option<String> {
+fn read_license_from_dir(dir: &Path) -> Option<String> {
     if !dir.exists() {
-        return None
+        return None;
     }
 
     let license_files = [
-        "LICENSE", "LICENSE.txt", "LICENSE.md", "COPYING", "COPYING.md",
+        "LICENSE",
+        "LICENSE.txt",
+        "LICENSE.md",
+        "COPYING",
+        "COPYING.md",
     ];
     for license_file in &license_files {
         let license_path = dir.join(license_file);
         if license_path.exists() {
             if let Ok(content) = fs::read_to_string(&license_path) {
                 if let Some(license) = detect_license_from_content(&content) {
-                    return Some(license)
+                    return Some(license);
                 }
             }
         }
