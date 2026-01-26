@@ -143,6 +143,24 @@ just test-ci
 
 This runs all checks exactly as the GitHub Actions CI does, without committing.
 
+### Documentation
+
+To work on the documentation locally:
+
+```sh
+# Install documentation dependencies (first time only)
+just docs-setup
+
+# Serve docs locally with live reload
+just docs-serve
+
+# Build documentation
+just docs-build
+
+# Clean documentation build artifacts
+just docs-clean
+```
+
 ### Testing with Example Projects
 
 Feluda includes example projects for all supported languages in the `examples/` directory. These projects are designed to test Feluda's license analysis capabilities with real-world dependencies that have transient (indirect) dependencies.
