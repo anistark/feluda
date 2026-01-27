@@ -3,3 +3,4 @@ sphinx-design>=0.6.1
 sphinx-tabs>=3.4.7
 sphinx-iconify>=0.2.1
 shibuya>=2025.9.25        # Nice modern theme
+doc8>=1.1.1               # RST linter
