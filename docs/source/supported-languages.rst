@@ -13,16 +13,55 @@ Supported Languages
 
 .. raw:: html
 
-   <div style="display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; align-items: center; margin-top: 1rem;">
-     <img src="_static/icons/c.svg" alt="C" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/c++.svg" alt="C++" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/go.svg" alt="Go" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/python.svg" alt="Python" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/rust.svg" alt="Rust" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/javascript.svg" alt="JavaScript" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/typescript.svg" alt="TypeScript" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/nodejs.svg" alt="Node.js" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/r.svg" alt="R" width="80" height="80" style="object-fit: contain;">
+   <style>
+     .lang-icons {
+       display: grid;
+       grid-template-columns: repeat(6, 1fr);
+       gap: 32px 24px;
+       justify-items: center;
+       align-items: center;
+       margin: 1.5rem auto;
+       max-width: 600px;
+     }
+     .lang-icons img {
+       width: 64px;
+       height: 64px;
+       object-fit: contain;
+     }
+     @media (max-width: 768px) {
+       .lang-icons {
+         grid-template-columns: repeat(4, 1fr);
+         gap: 24px 20px;
+         max-width: 400px;
+       }
+       .lang-icons img {
+         width: 60px;
+         height: 60px;
+       }
+     }
+     @media (max-width: 480px) {
+       .lang-icons {
+         grid-template-columns: repeat(3, 1fr);
+         gap: 20px 16px;
+         max-width: 280px;
+       }
+       .lang-icons img {
+         width: 56px;
+         height: 56px;
+       }
+     }
+   </style>
+   <div class="lang-icons">
+     <img src="../_static/icons/rust.png" alt="Rust">
+     <img src="../_static/icons/go.svg" alt="Go">
+     <img src="../_static/icons/python.svg" alt="Python">
+     <img src="../_static/icons/javascript.svg" alt="JavaScript">
+     <img src="../_static/icons/typescript.svg" alt="TypeScript">
+     <img src="../_static/icons/nodejs.svg" alt="Node.js">
+     <img src="../_static/icons/c.svg" alt="C">
+     <img src="../_static/icons/c++.svg" alt="C++">
+     <img src="../_static/icons/r.svg" alt="R">
+     <img src="../_static/icons/dotnet.svg" alt=".NET">
    </div>
 
 ----
@@ -39,33 +78,33 @@ Feluda currently supports projects written in these ecosystems:
    * - Language
      - Manifest Files
      - Notes
-   * - C
-     - ``conanfile.txt``, ``conanfile.py``
-     - Conan package manager
-   * - C++
-     - ``conanfile.txt``, ``conanfile.py``
-     - Conan package manager
+   * - Rust
+     - ``Cargo.toml``, ``Cargo.lock``
+     - Cargo package manager
    * - Go
      - ``go.mod``, ``go.sum``
      - Go modules
    * - Python
      - ``requirements.txt``, ``Pipfile``, ``pyproject.toml``
      - pip, pipenv, poetry
-   * - Rust
-     - ``Cargo.toml``, ``Cargo.lock``
-     - Cargo package manager
    * - JavaScript / TypeScript
      - ``package.json``, ``package-lock.json``
-     - npm, yarn
+     - npm, pnpm, yarn, bun
    * - Node.js
      - ``package.json``, ``package-lock.json``
-     - npm ecosystem
-   * - .NET (C#/F#/VB)
-     - ``*.csproj``, ``*.fsproj``, ``packages.config``
-     - NuGet packages
+     - npm, pnpm, yarn, bun
+   * - C
+     - ``conanfile.txt``, ``conanfile.py``
+     - Conan package manager
+   * - C++
+     - ``conanfile.txt``, ``conanfile.py``
+     - Conan package manager
    * - R
      - ``DESCRIPTION``, ``renv.lock``
      - CRAN packages
+   * - .NET (C#/F#/VB)
+     - ``*.csproj``, ``*.fsproj``, ``packages.config``
+     - NuGet packages
 
 ----
 
@@ -84,6 +123,14 @@ Filter scans to a specific ecosystem using the ``--language`` flag:
    feluda --language cpp
    feluda --language dotnet
    feluda --language r
+
+----
+
+Coming Soon
+-----------
+
+- `Java <https://github.com/anistark/feluda/issues/54>`_
+- `Ruby <https://github.com/anistark/feluda/issues/53>`_
 
 ----
 

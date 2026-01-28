@@ -19,7 +19,7 @@
 
 #### Prerequisites
 
-- [Rust](https://www.rust-lang.org/tools/install) installed on your system.
+- [Rust](https://rust-lang.org/tools/install) installed on your system.
 
 If you already had it, make sure it's up-to-date and update if needed.
 (Optional) Set rust path if not set already.

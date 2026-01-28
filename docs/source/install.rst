@@ -138,6 +138,6 @@ You’ll need to have Cargo_ and Git_ installed on your system.
 
 ----
 
-.. _Rust: https://www.rust-lang.org/
+.. _Rust: https://rust-lang.org/
 .. _Cargo: https://crates.io/
 .. _Git: https://git-scm.com/
