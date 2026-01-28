@@ -3,7 +3,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Meet Feluda
+👋 Feluda
 ===========
 
 .. rst-class:: lead
@@ -17,17 +17,72 @@ You remain the trusted companion who decides when to dig deeper, escalate findin
 Feluda's satchel carries scanning commands, filters, SBOM builders, cache tools, and CI integrations covered throughout this guide.
 Each section ends with practical next steps so you can move from manual spot checks to automated compliance quickly.
 
-----
+.. grid:: 1 1 2 2
+   :gutter: 3
+
+   .. grid-item-card:: 🚀 Install Feluda
+      :class-card: glassmorphic
+      :link: install
+      :link-type: doc
+
+      Get started with Feluda in minutes. Install via cargo, npm, pip, or download binaries.
+
+   .. grid-item-card:: 📦 Feluda Crate
+      :class-card: glassmorphic
+      :link: https://crates.io/crates/feluda
+      :link-type: url
+
+      View Feluda on crates.io - the Rust package registry.
+
+   .. grid-item-card:: 🤝 Contribute to Feluda
+      :class-card: glassmorphic
+      :link: contributing/index
+      :link-type: doc
+
+      Join the community! Learn how to contribute code, docs, or report issues.
+
+   .. grid-item-card:: 💻 CLI Reference
+      :class-card: glassmorphic
+      :link: cli/index
+      :link-type: doc
+
+      Explore all Feluda commands - scan, filter, cache, generate, and more.
+
+.. warning:: **Legal Disclaimer**
+
+   Feluda is provided as a helpful tool for license compliance analysis. However, it is **not a substitute for legal advice**, and users are responsible for their own compliance decisions:
+
+   - **Verification**: You must verify the accuracy of all license information provided by Feluda
+   - **Your Responsibility**: Ensure compliance with all applicable license terms and regulations
+   - **Legal Counsel**: Always consult qualified legal counsel for license compliance matters
+   - **Official Sources**: Check official repositories for up-to-date and authoritative license information
+   - **No Warranty**: Feluda and its contributors provide no warranties regarding accuracy or fitness for any purpose
+   - **No Liability**: Feluda and its contributors are not liable for any legal issues arising from the use of this tool or information
+   - **Complexity**: License compatibility can depend on specific use cases, distribution methods, and jurisdictions
+
+   Feluda is in active development. While we strive to provide accurate information, **use at your own risk.**
+
+Contributors ✨
+---------------
+
+Thanks to all the people who contribute to Feluda!
+
+.. raw:: html
+
+   <div id="contributors-container">Loading contributors...</div>
+
 
 .. toctree::
    :maxdepth: 1
    :caption: Introduction
+   :hidden:
 
-   self
+   👋 Feluda <self>
 
 .. toctree::
    :maxdepth: 1
    :caption: Getting Started
+   :hidden:
 
    install
    quickstart
@@ -37,6 +92,7 @@ Each section ends with practical next steps so you can move from manual spot che
 .. toctree::
    :maxdepth: 2
    :caption: Feluda CLI
+   :hidden:
 
    cli/index
    cli/scan
@@ -48,6 +104,7 @@ Each section ends with practical next steps so you can move from manual spot che
 .. toctree::
    :maxdepth: 2
    :caption: SBOM
+   :hidden:
 
    sbom/index
    sbom/spdx
@@ -57,6 +114,7 @@ Each section ends with practical next steps so you can move from manual spot che
 .. toctree::
    :maxdepth: 2
    :caption: Integrations
+   :hidden:
 
    integrations/index
    integrations/github-actions
@@ -65,6 +123,7 @@ Each section ends with practical next steps so you can move from manual spot che
 .. toctree::
    :maxdepth: 1
    :caption: Configuration
+   :hidden:
 
    configuration
    reference
@@ -72,6 +131,7 @@ Each section ends with practical next steps so you can move from manual spot che
 .. toctree::
    :maxdepth: 2
    :caption: Development
+   :hidden:
 
    contributing/index
    contributing/setup

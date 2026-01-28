@@ -6,3 +6,124 @@
     font-size: 1.25rem;
     font-weight: 600;
 }
+
+/* Contributors section */
+#contributors-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 1rem 0;
+}
+
+#contributors-container a {
+    display: inline-block;
+    text-decoration: none;
+    border-bottom: none;
+    transition: transform 0.2s ease;
+}
+
+#contributors-container a:hover {
+    text-decoration: none;
+    border-bottom: none;
+    transform: scale(1.1);
+}
+
+.contributor-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 2px solid var(--sy-c-border);
+}
+
+/* Code block language labels */
+div[class^="highlight-"]::before {
+    display: block;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--sy-c-text-muted);
+    background: var(--sy-c-bg-subtle);
+    border-bottom: 1px solid var(--sy-c-border);
+    border-radius: 0.5rem 0.5rem 0 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+div.highlight-python::before { content: "Python"; }
+div.highlight-rust::before { content: "Rust"; }
+div.highlight-bash::before,
+div.highlight-sh::before,
+div.highlight-shell::before { content: "Shell"; }
+div.highlight-json::before { content: "JSON"; }
+div.highlight-yaml::before { content: "YAML"; }
+div.highlight-toml::before { content: "TOML"; }
+div.highlight-javascript::before,
+div.highlight-js::before { content: "JavaScript"; }
+div.highlight-typescript::before,
+div.highlight-ts::before { content: "TypeScript"; }
+div.highlight-go::before { content: "Go"; }
+div.highlight-c::before { content: "C"; }
+div.highlight-cpp::before { content: "C++"; }
+div.highlight-r::before { content: "R"; }
+div.highlight-xml::before { content: "XML"; }
+div.highlight-html::before { content: "HTML"; }
+div.highlight-css::before { content: "CSS"; }
+div.highlight-sql::before { content: "SQL"; }
+div.highlight-console::before { content: "Console"; }
+div.highlight-text::before,
+div.highlight-none::before,
+div.highlight-default::before { content: none; }
+
+/* Glassmorphic cards */
+.sd-card.glassmorphic {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 16px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sd-card.glassmorphic:hover {
+    transform: translateY(-4px);
+}
+
+.sd-card.glassmorphic .sd-card-header {
+    background: transparent;
+}
+
+.sd-card.glassmorphic .sd-card-body {
+    background: transparent;
+}
+
+/* Dark mode */
+html[data-theme="dark"] .sd-card.glassmorphic {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .sd-card.glassmorphic:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme="dark"] .sd-card.glassmorphic .sd-card-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Light mode adjustments */
+html:not([data-theme="dark"]) .sd-card.glassmorphic {
+    background: rgba(255, 255, 255, 0.09);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+html:not([data-theme="dark"]) .sd-card.glassmorphic .sd-card-header {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+html:not([data-theme="dark"]) .sd-card.glassmorphic:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+/* Card link styling */
+.sd-card.glassmorphic .sd-card-text a {
+    color: var(--sd-color-primary);
+    font-weight: 500;
+}

@@ -4,3 +4,4 @@ target
 *.json
 *.bak
 docs/build
+docs/_build
