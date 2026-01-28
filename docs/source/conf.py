@@ -17,7 +17,8 @@ release = 'v1.10.0'
 extensions = [
     "sphinx_design",
     "sphinx_iconify",
-    "sphinx_tabs.tabs"
+    "sphinx_tabs.tabs",
+    "sphinx_copybutton",
 ]
 
 templates_path = ['_templates']

@@ -34,3 +34,42 @@
     border-radius: 50%;
     border: 2px solid var(--sy-c-border);
 }
+
+/* Code block language labels */
+div[class^="highlight-"]::before {
+    display: block;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--sy-c-text-muted);
+    background: var(--sy-c-bg-subtle);
+    border-bottom: 1px solid var(--sy-c-border);
+    border-radius: 0.5rem 0.5rem 0 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+div.highlight-python::before { content: "Python"; }
+div.highlight-rust::before { content: "Rust"; }
+div.highlight-bash::before,
+div.highlight-sh::before,
+div.highlight-shell::before { content: "Shell"; }
+div.highlight-json::before { content: "JSON"; }
+div.highlight-yaml::before { content: "YAML"; }
+div.highlight-toml::before { content: "TOML"; }
+div.highlight-javascript::before,
+div.highlight-js::before { content: "JavaScript"; }
+div.highlight-typescript::before,
+div.highlight-ts::before { content: "TypeScript"; }
+div.highlight-go::before { content: "Go"; }
+div.highlight-c::before { content: "C"; }
+div.highlight-cpp::before { content: "C++"; }
+div.highlight-r::before { content: "R"; }
+div.highlight-xml::before { content: "XML"; }
+div.highlight-html::before { content: "HTML"; }
+div.highlight-css::before { content: "CSS"; }
+div.highlight-sql::before { content: "SQL"; }
+div.highlight-console::before { content: "Console"; }
+div.highlight-text::before,
+div.highlight-none::before,
+div.highlight-default::before { content: none; }
