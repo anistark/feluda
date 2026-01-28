@@ -25,6 +25,12 @@ exclude_patterns = []
 
 language = 'en'
 
+# -- Options for linkcheck ---------------------------------------------------
+linkcheck_ignore = [
+    r'https://crates\.io/',  # Bot protection causes false 404s
+    r'https://api\.opensource\.org/',  # Frequent timeouts
+]
+
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 

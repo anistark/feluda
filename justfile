@@ -173,6 +173,20 @@ docs-setup:
     uv pip install --python "{{DOCS_PYTHON}}" -r "{{DOCS_DIR}}/requirements.txt" sphinx-autobuild
     @echo "✅ Documentation dependencies installed"
 
+# Check documentation for issues (lint, build warnings, links)
+docs-check:
+    @echo "📚 Checking documentation..."
+    @echo "\n📋 1️⃣ Linting RST files with doc8..."
+    uv run --python "{{DOCS_PYTHON}}" doc8 "{{DOCS_SOURCE}}" --ignore D001
+    @echo "\n✅ RST lint check passed!"
+    @echo "\n🔨 2️⃣ Building docs with strict warnings..."
+    uv run --python "{{DOCS_PYTHON}}" sphinx-build -W -b html "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/html"
+    @echo "\n✅ Documentation build passed!"
+    @echo "\n🔗 3️⃣ Checking for broken links..."
+    uv run --python "{{DOCS_PYTHON}}" sphinx-build -b linkcheck "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/linkcheck"
+    @echo "\n✅ Link check passed!"
+    @echo "\n🎉 All documentation checks passed!"
+
 # Mimic CI checks exactly as they run on GitHub Actions
 test-ci:
     @echo "🔍 Running CI checks locally (format, lint, test)..."

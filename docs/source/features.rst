@@ -1,14 +1,13 @@
-:description: Explore Feluda's key features and supported programming languages.
+:description: Explore Feluda's key features for license detection and compliance.
 
 .. _features:
 
-Features & Supported Languages
-==============================
+Features
+========
 
 .. rst-class:: lead
 
-   Discover what makes **Feluda** a reliable license investigator and which
-   programming languages it speaks fluently.
+   Discover what makes **Feluda** a reliable license investigator for your dependencies.
 
 ----
 
@@ -19,80 +18,106 @@ enterprise codebases, Feluda ensures that every dependency tells its story
 clearly.
 
 Core Features
---------------
+-------------
 
-- **Dependency Parsing:**
-  Scans your project to identify all declared dependencies and their licenses.
+Dependency Parsing
+^^^^^^^^^^^^^^^^^^
 
-- **License Classification:**
-  Categorizes each license as *permissive*, *restrictive*, or *unknown* for
-  easier risk assessment.
+Scans your project to identify all declared dependencies and their licenses.
+Feluda walks through manifest files, lock files, and package metadata to build
+a complete picture of your dependency tree.
 
-- **Compatibility Checks:**
-  Evaluates license compatibility between dependencies and your project's
-  declared license.
+License Classification
+^^^^^^^^^^^^^^^^^^^^^^
 
-- **OSI Mapping:**
-  Maps licenses to their OSI (Open Source Initiative) approval status and allows
-  filtering by OSI-approved licenses.
+Categorizes each license as *permissive*, *restrictive*, or *unknown* for
+easier risk assessment. This classification helps teams quickly identify
+dependencies that may require legal review.
 
-- **Restriction Detection:**
-  Flags dependencies that impose limits on personal or commercial use.
+Compatibility Checks
+^^^^^^^^^^^^^^^^^^^^
 
-- **Conflict Detection:**
-  Highlights dependencies whose licenses may conflict with your project's terms.
+Evaluates license compatibility between dependencies and your project's
+declared license. Feluda uses a comprehensive compatibility matrix to detect
+conflicts before they become legal issues.
 
-- **Compliance File Generation:**
-  Automatically creates legal attribution files such as ``NOTICE`` and
-  ``THIRD_PARTY_LICENSES``.
+OSI Mapping
+^^^^^^^^^^^
 
-- **SBOM Export:**
-  Generates a Software Bill of Materials (SBOM) in **SPDX 2.3** and
-  **CycloneDX v1.5** formats for security and compliance reporting.
+Maps licenses to their OSI (Open Source Initiative) approval status and allows
+filtering by OSI-approved licenses. This helps ensure your project uses
+well-recognized open source licenses.
 
-- **Multiple Output Formats:**
-  Provides results in **plain text**, **JSON**, **YAML**, or **TUI** formats.
-  A **gist mode** is also available for restrictive environments, producing a
-  single-line summary.
+Restriction Detection
+^^^^^^^^^^^^^^^^^^^^^
 
-- **CI/CD Integration:**
-  Integrates seamlessly with **GitHub Actions** and **Jenkins** to automate
-  license compliance in your pipeline.
+Flags dependencies that impose limits on personal or commercial use. Restrictive
+licenses like GPL-3.0 or AGPL-3.0 are clearly marked for review.
 
-- **Verbose Analysis:**
-  Enables a detailed, human-readable view of all discovered licenses and their
-  classifications.
+Conflict Detection
+^^^^^^^^^^^^^^^^^^
+
+Highlights dependencies whose licenses may conflict with your project's terms.
+Get early warnings about incompatibilities before they affect your release.
 
 ----
 
-Supported Languages
+Compliance & Reporting
+----------------------
+
+Compliance File Generation
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Automatically creates legal attribution files such as ``NOTICE`` and
+``THIRD_PARTY_LICENSES``. These files satisfy attribution requirements for
+most open source licenses.
+
+SBOM Export
+^^^^^^^^^^^
+
+Generates a Software Bill of Materials (SBOM) in **SPDX 2.3** and
+**CycloneDX v1.5** formats for security and compliance reporting. SBOMs
+are increasingly required by enterprise customers and regulatory frameworks.
+
+----
+
+Output & Integration
 --------------------
 
-Feluda speaks multiple programming dialects fluently.
+Multiple Output Formats
+^^^^^^^^^^^^^^^^^^^^^^^
 
-.. raw:: html
+Provides results in **plain text**, **JSON**, **YAML**, or **TUI** formats.
+A **gist mode** is also available for restrictive environments, producing a
+single-line summary.
 
-   <div style="display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; align-items: center; margin-top: 1rem;">
-     <img src="_static/icons/c.svg" alt="C" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/c++.svg" alt="C++" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/go.svg" alt="Go" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/python.svg" alt="Python" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/rust.svg" alt="Rust" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/javascript.svg" alt="JavaScript" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/typescript.svg" alt="JavaScript" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/nodejs.svg" alt="JavaScript" width="80" height="80" style="object-fit: contain;">
-     <img src="_static/icons/r.svg" alt="R" width="80" height="80" style="object-fit: contain;">
-   </div>
+CI/CD Integration
+^^^^^^^^^^^^^^^^^
+
+Integrates seamlessly with **GitHub Actions** and **Jenkins** to automate
+license compliance in your pipeline. Fail builds early when problematic
+licenses are detected.
+
+Verbose Analysis
+^^^^^^^^^^^^^^^^
+
+Enables a detailed, human-readable view of all discovered licenses and their
+classifications. Debug mode provides step-by-step insight into the detection
+process.
 
 ----
 
-Feluda currently supports projects written in these ecosystems:
-C, C++, Go, Python, Rust, JavaScript / TypeScript / Node.js, .NET (C#/F#/VB), and R
+Performance & Caching
+---------------------
 
-----
+Smart Caching
+^^^^^^^^^^^^^
 
-.. note::
+Feluda caches GitHub license responses to minimize API calls and stay under
+rate limits. Cache automatically refreshes after 30 days.
 
-   Additional language ecosystems are under development. If you'd like Feluda to
-   support a specific language or build tool, contributions are welcome!
+Local-First Detection
+^^^^^^^^^^^^^^^^^^^^^
 
+By default, Feluda examines local manifest files before calling remote APIs,
+making scans fast and reliable even without network access.

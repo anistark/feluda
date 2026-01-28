@@ -25,4 +25,4 @@ Feluda likes to set the scene before he inspects a repo, so walk through this sh
 3. Run ``feluda`` inside your project directory, or add ``--path``/``--language`` options if you want Feluda to focus on one workspace.
 4. Capture structured evidence with ``feluda --json`` or ``feluda --yaml`` whenever teammates or CI jobs need machine-readable reports.
 
-Ready for deeper filters, cache tips, and reporting workflows? Head to :ref:`using-feluda` and :ref:`compliance-reporting` once installation is complete.
+Ready for deeper filters, cache tips, and reporting workflows? Head to :ref:`cli` and :ref:`sbom` once installation is complete.

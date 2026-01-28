@@ -43,7 +43,7 @@ Use this table to double-check flag behavior before scripting.
      - Supports MIT, Apache-2.0, GPL variants, MPL-2.0, BSD variants, ISC, 0BSD, Unlicense, WTFPL, and more.
    * - ``feluda --fail-on-restrictive`` / ``feluda --fail-on-incompatible``
      - Exit non-zero when risky findings exist.
-     - Ideal for CI as in :ref:`automate-integrate`.
+     - Ideal for CI as in :ref:`integrations`.
    * - ``feluda --no-local``
      - Skip local manifests and fetch data remotely.
      - Helpful when manifests are incomplete or stale.
@@ -119,6 +119,6 @@ Contributor resources
 ---------------------
 
 - Review ``CONTRIBUTING.md`` in the repository root for code-style, testing, and submission expectations.
-- Study ``ACTION-README.md`` for advanced GitHub Action usage, especially when combining ``update-badge`` with :ref:`automate-integrate`.
+- Study ``ACTION-README.md`` for advanced GitHub Action usage, especially when combining ``update-badge`` with :ref:`github-actions`.
 - Check ``config/license_compatibility.toml`` if you need to suggest compatibility changes; open a pull request with legal input.
 - Explore ``examples/`` to see sample outputs that mirror ``feluda --json`` and ``feluda sbom`` results.
