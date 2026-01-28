@@ -6,3 +6,31 @@
     font-size: 1.25rem;
     font-weight: 600;
 }
+
+/* Contributors section */
+#contributors-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 1rem 0;
+}
+
+#contributors-container a {
+    display: inline-block;
+    text-decoration: none;
+    border-bottom: none;
+    transition: transform 0.2s ease;
+}
+
+#contributors-container a:hover {
+    text-decoration: none;
+    border-bottom: none;
+    transform: scale(1.1);
+}
+
+.contributor-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 2px solid var(--sy-c-border);
+}

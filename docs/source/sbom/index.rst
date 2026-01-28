@@ -74,16 +74,3 @@ Pair SBOM generation with other compliance files:
    # Validate SBOMs
    feluda sbom validate sbom.spdx.json
    feluda sbom validate sbom.cyclonedx.json
-
-----
-
-Badge Adoption
---------------
-
-Every solved case deserves credit. Showcase Feluda coverage in your README:
-
-.. code-block:: markdown
-
-   [![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-brightgreen)](https://github.com/anistark/feluda)
-
-The badge links back to Feluda and can be automatically updated via the GitHub Action's ``update-badge`` option.
