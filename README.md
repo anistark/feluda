@@ -1,46 +1,12 @@
 # Feluda
 
-[![Crates.io Version](https://img.shields.io/crates/v/feluda)
-](https://crates.io/crates/feluda) [![Crates.io Downloads](https://img.shields.io/crates/d/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)](https://crates.io/crates/feluda) [![Open Source](https://img.shields.io/badge/open-source-brightgreen)](https://github.com/anistark/feluda) [![Contributors](https://img.shields.io/github/contributors/anistark/feluda)](https://github.com/anistark/feluda/graphs/contributors) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
+[![Crates.io Version](https://img.shields.io/crates/v/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads](https://img.shields.io/crates/d/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)](https://crates.io/crates/feluda) [![Documentation](https://img.shields.io/badge/docs-feluda-blue)](https://feluda.readthedocs.io/) [![Open Source](https://img.shields.io/badge/open-source-brightgreen)](https://github.com/anistark/feluda) [![Contributors](https://img.shields.io/github/contributors/anistark/feluda)](https://github.com/anistark/feluda/graphs/contributors) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
 🔎 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage or are incompatible with your project's license.
 
 ![ss](https://github.com/user-attachments/assets/473908eb-43cb-4c4f-86aa-017de251afa8)
 
 > 👋 It's still highly experimental, but fast iterating. Welcoming contributors and support to help bring out this project even better!
-
-## Features
-
-- Parse your project to identify dependencies and their licenses.
-- Classify licenses into permissive, restrictive, or unknown categories.
-- Check license compatibility between dependencies and your project's license.
-- Map licenses to OSI (Open Source Initiative) approval status and filter by OSI approval.
-- Flag dependencies with licenses that may restrict personal or commercial use.
-- Flag dependencies with licenses that may be incompatible with your project's license.
-- Generate compliance files (NOTICE and THIRD_PARTY_LICENSES) for legal requirements.
-- Generate Software Bill of Materials (SBOM) in SPDX format for security and compliance.
-- Output results in plain text, JSON or TUI formats. There's also a gist format which is available in restrictive mode to output a single line only.
-- CI/CD support for Github Actions and Jenkins.
-- Verbose mode gives an enhanced view of all licenses.
-
-### Support Languages
-
-1. ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
-2. ![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white) ![JavaScript](https://img.shields.io/badge/javascript-%23323330.svg?style=for-the-badge&logo=javascript&logoColor=%23F7DF1E) ![NodeJS](https://img.shields.io/badge/node.js-6DA55F?style=for-the-badge&logo=node.js&logoColor=white)
-3. ![Go](https://img.shields.io/badge/go-%2300ADD8.svg?style=for-the-badge&logo=go&logoColor=white)
-4. ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
-5. ![C](https://img.shields.io/badge/c-%2300599C.svg?style=for-the-badge&logo=c&logoColor=white)
-6. ![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)
-7. ![.NET](https://img.shields.io/badge/.NET-512BD4?style=for-the-badge&logo=dotnet&logoColor=white) ![C#](https://img.shields.io/badge/c%23-%23239120.svg?style=for-the-badge&logo=csharp&logoColor=white) ![F#](https://img.shields.io/badge/F%23-378BBA?style=for-the-badge&logo=fsharp&logoColor=white)
-8. ![R](https://img.shields.io/badge/r-%23276DC3.svg?style=for-the-badge&logo=r&logoColor=white)
-
-Feluda supports analyzing dependencies across multiple languages simultaneously.
-
-```sh
-feluda
-```
-
-You can also filter the analysis to a specific language using the `--language` flag.
 
 ## Installation
 

@@ -46,7 +46,7 @@ Thanks to all the people who contribute to Feluda!
    :caption: Introduction
    :hidden:
 
-   self
+   👋 Feluda <self>
 
 .. toctree::
    :maxdepth: 1
