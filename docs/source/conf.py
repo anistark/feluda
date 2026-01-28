@@ -43,7 +43,6 @@ html_title = 'Feluda'
 
 html_theme_options = {
     "logo_target": "/",
-    "crate_url": "https://crates.io/crates/feluda",
     "github_url": "https://github.com/anistark/feluda",
     "discord_url": "https://discord.gg/5YrbwNRGaE",
 }

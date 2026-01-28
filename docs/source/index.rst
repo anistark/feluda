@@ -17,6 +17,37 @@ You remain the trusted companion who decides when to dig deeper, escalate findin
 Feluda's satchel carries scanning commands, filters, SBOM builders, cache tools, and CI integrations covered throughout this guide.
 Each section ends with practical next steps so you can move from manual spot checks to automated compliance quickly.
 
+.. grid:: 1 1 2 2
+   :gutter: 3
+
+   .. grid-item-card:: 🚀 Install Feluda
+      :class-card: glassmorphic
+      :link: install
+      :link-type: doc
+
+      Get started with Feluda in minutes. Install via cargo, npm, pip, or download binaries.
+
+   .. grid-item-card:: 📦 Feluda Crate
+      :class-card: glassmorphic
+      :link: https://crates.io/crates/feluda
+      :link-type: url
+
+      View Feluda on crates.io - the Rust package registry.
+
+   .. grid-item-card:: 🤝 Contribute to Feluda
+      :class-card: glassmorphic
+      :link: contributing/index
+      :link-type: doc
+
+      Join the community! Learn how to contribute code, docs, or report issues.
+
+   .. grid-item-card:: 💻 CLI Reference
+      :class-card: glassmorphic
+      :link: cli/index
+      :link-type: doc
+
+      Explore all Feluda commands - scan, filter, cache, generate, and more.
+
 .. warning:: **Legal Disclaimer**
 
    Feluda is provided as a helpful tool for license compliance analysis. However, it is **not a substitute for legal advice**, and users are responsible for their own compliance decisions:

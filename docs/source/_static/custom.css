@@ -73,3 +73,57 @@ div.highlight-console::before { content: "Console"; }
 div.highlight-text::before,
 div.highlight-none::before,
 div.highlight-default::before { content: none; }
+
+/* Glassmorphic cards */
+.sd-card.glassmorphic {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 16px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sd-card.glassmorphic:hover {
+    transform: translateY(-4px);
+}
+
+.sd-card.glassmorphic .sd-card-header {
+    background: transparent;
+}
+
+.sd-card.glassmorphic .sd-card-body {
+    background: transparent;
+}
+
+/* Dark mode */
+html[data-theme="dark"] .sd-card.glassmorphic {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .sd-card.glassmorphic:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme="dark"] .sd-card.glassmorphic .sd-card-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Light mode adjustments */
+html:not([data-theme="dark"]) .sd-card.glassmorphic {
+    background: rgba(255, 255, 255, 0.09);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+html:not([data-theme="dark"]) .sd-card.glassmorphic .sd-card-header {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+html:not([data-theme="dark"]) .sd-card.glassmorphic:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+/* Card link styling */
+.sd-card.glassmorphic .sd-card-text a {
+    color: var(--sd-color-primary);
+    font-weight: 500;
+}
