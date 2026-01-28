@@ -47,95 +47,69 @@ Community Maintained
    Feluda is also available through several community package managers.
    Each method below includes installation steps and maintainers.
 
-.. dropdown:: **Homebrew (macOS)** 🍺
-   :animate: fade-in
+.. tab-set::
+   :class: outline
 
-   .. image:: https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0
-      :align: right
-      :width: 120px
+   .. tab-item:: 🍺 Homebrew (macOS)
 
-   Maintained by `@chenrui333 <https://github.com/chenrui333>`_
+      Maintained by `@chenrui333 <https://github.com/chenrui333>`_
 
-   Available on `Homebrew <https://formulae.brew.sh/formula/feluda>`_.
+      Available on `Homebrew <https://formulae.brew.sh/formula/feluda>`_.
 
-   .. code-block:: bash
+      .. code-block:: bash
 
-      brew install feluda
+         brew install feluda
 
+   .. tab-item:: 🐧 Arch Linux (AUR)
 
-.. dropdown:: **Arch Linux (AUR)** 🐧
-   :animate: fade-in
+      Maintained by `@adamperkowski <https://github.com/adamperkowski>`_
 
-   .. image:: https://img.shields.io/badge/Arch%20Linux-1793D1?logo=arch-linux&logoColor=fff&style=for-the-badge
-      :align: right
-      :width: 120px
+      Available in the `AUR <https://aur.archlinux.org/packages/feluda>`_.
 
-   Maintained by `@adamperkowski <https://github.com/adamperkowski>`_
+      .. code-block:: bash
 
-   Available in the `AUR <https://aur.archlinux.org/packages/feluda>`_.
+         paru -S feluda
 
-   .. code-block:: bash
+   .. tab-item:: NetBSD
 
-      paru -S feluda
+      Maintained by `@0323pin <https://github.com/0323pin>`_
 
+      Available from the `official pkgsrc repositories <https://pkgsrc.se/devel/feluda/>`_.
 
-.. dropdown:: **NetBSD**
-   :animate: fade-in
+      .. code-block:: bash
 
-   .. image:: https://img.shields.io/badge/NetBSD-FC7303?style=for-the-badge&logo=netbsd&logoColor=white
-      :align: right
-      :width: 120px
+         pkgin install feluda
 
-   Maintained by `@0323pin <https://github.com/0323pin>`_
+   .. tab-item:: 🐧 DEB (Debian/Ubuntu)
 
-   Available from the `official pkgsrc repositories <https://pkgsrc.se/devel/feluda/>`_.
+      Feluda is available as a DEB package for Debian-based systems.
 
-   .. code-block:: bash
+      1. Download the latest ``.deb`` file from `GitHub Releases <https://github.com/anistark/feluda/releases>`_
+      2. Install the package:
 
-      pkgin install feluda
+      .. code-block:: bash
 
+         sudo dpkg -i feluda_*.deb
+         # Fix any dependency issues
+         sudo apt install -f
 
-.. dropdown:: **DEB Package (Debian/Ubuntu/Pop!_OS)** 🐧
-   :animate: fade-in
+   .. tab-item:: 🎩 RPM (Fedora/RHEL)
 
-   .. image:: https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white
-      :align: right
-      :width: 120px
+      Feluda is available as an RPM package for Red Hat-based systems.
 
-   Feluda is available as a DEB package for Debian-based systems.
+      1. Download the latest ``.rpm`` file from `GitHub Releases <https://github.com/anistark/feluda/releases>`_
+      2. Install the package:
 
-   1. Download the latest ``.deb`` file from `GitHub Releases <https://github.com/anistark/feluda/releases>`_
-   2. Install the package:
+      .. code-block:: bash
 
-   .. code-block:: bash
+         # Using rpm
+         sudo rpm -ivh feluda_*.rpm
 
-      sudo dpkg -i feluda_*.deb
-      # Fix any dependency issues
-      sudo apt install -f
+         # Using dnf (Fedora/newer RHEL)
+         sudo dnf install feluda_*.rpm
 
-
-.. dropdown:: **RPM Package (RHEL/Fedora/CentOS)** 🎩
-   :animate: fade-in
-
-   .. image:: https://img.shields.io/badge/Fedora-294172?style=for-the-badge&logo=fedora&logoColor=white
-      :align: right
-      :width: 120px
-
-   Feluda is available as an RPM package for Red Hat-based systems.
-
-   1. Download the latest ``.rpm`` file from `GitHub Releases <https://github.com/anistark/feluda/releases>`_
-   2. Install the package:
-
-   .. code-block:: bash
-
-      # Using rpm
-      sudo rpm -ivh feluda_*.rpm
-
-      # Using dnf (Fedora/newer RHEL)
-      sudo dnf install feluda_*.rpm
-
-      # Using yum (older RHEL/CentOS)
-      sudo yum install feluda_*.rpm
+         # Using yum (older RHEL/CentOS)
+         sudo yum install feluda_*.rpm
 
 ----
 
