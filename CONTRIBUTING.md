@@ -2,7 +2,7 @@
 
 Welcoming contributions from the community!
 
-[![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-orange?logo=rust)](https://www.rust-lang.org/) [![Documentation](https://img.shields.io/badge/docs-feluda-blue)](https://feluda.readthedocs.io/)
+[![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-orange?logo=rust)](https://rust-lang.org/) [![Documentation](https://img.shields.io/badge/docs-feluda-blue)](https://feluda.readthedocs.io/)
 
 ## Quick Start
 
