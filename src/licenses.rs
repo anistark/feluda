@@ -8,7 +8,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
-use tokio::sync::Semaphore;
 use toml::Value as TomlValue;
 
 use crate::cache;
@@ -198,8 +197,10 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
     }
 
     let licenses_map = cli::with_spinner("Fetching licenses from GitHub API", |indicator| {
-        // Use tokio runtime for async operations
-        let rt = match tokio::runtime::Runtime::new() {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
             Ok(rt) => rt,
             Err(err) => {
                 log_error("Failed to create tokio runtime", &err);
@@ -289,11 +290,8 @@ async fn fetch_licenses_concurrent(
     let total_licenses = licenses_list.len();
     indicator.update_progress(&format!("found {total_licenses} licenses"));
 
-    // Rate limiting: Allow max 10 concurrent requests (GitHub's recommended limit)
-    let semaphore = Arc::new(Semaphore::new(10));
     let client = Arc::new(client);
 
-    // Collect all license keys
     let license_keys: Vec<String> = licenses_list
         .iter()
         .filter_map(|license_info| {
@@ -304,26 +302,19 @@ async fn fetch_licenses_concurrent(
         })
         .collect();
 
-    // Create futures for concurrent processing
-    let mut tasks = Vec::new();
+    // H2 multiplexes all requests over a single connection; no throttling needed for ~13 licenses
+    let mut join_set = tokio::task::JoinSet::new();
 
     for license_key in license_keys {
-        let semaphore = Arc::clone(&semaphore);
         let client = Arc::clone(&client);
 
-        let task = tokio::spawn(async move {
-            // Acquire semaphore permit for rate limiting
-            let _permit = semaphore.acquire().await.unwrap();
-
+        join_set.spawn(async move {
             log(
                 LogLevel::Info,
                 &format!("Fetching detailed license info: {license_key}"),
             );
 
             let license_url = format!("https://api.github.com/licenses/{license_key}");
-
-            // Add delay for rate limiting (reduced from 100ms since we have concurrency control)
-            tokio::time::sleep(Duration::from_millis(50)).await;
 
             match client.get(&license_url).send().await {
                 Ok(license_response) => {
@@ -426,30 +417,27 @@ async fn fetch_licenses_concurrent(
                 }
             }
         });
-
-        tasks.push(task);
     }
 
-    // Wait for all tasks to complete and collect results
     let mut license_count = 0;
-    for (i, task) in tasks.into_iter().enumerate() {
-        indicator.update_progress(&format!(
-            "processing {}/{}: concurrent requests",
-            i + 1,
-            total_licenses,
-        ));
-
-        if let Ok(Some((key, license))) = task.await {
-            licenses_map.insert(key, license);
-            license_count += 1;
+    while let Some(result) = join_set.join_next().await {
+        match result {
+            Ok(Some((key, license))) => {
+                licenses_map.insert(key, license);
+                license_count += 1;
+            }
+            Ok(None) => {}
+            Err(e) => log(
+                LogLevel::Error,
+                &format!("License fetch task panicked: {e}"),
+            ),
         }
+        indicator.update_progress(&format!("fetched {license_count}/{total_licenses}"));
     }
-
-    indicator.update_progress(&format!("processed {license_count} licenses"));
 
     log(
         LogLevel::Info,
-        &format!("Successfully fetched {license_count} licenses from GitHub API using concurrent requests"),
+        &format!("Fetched {license_count} licenses from GitHub API"),
     );
 
     licenses_map
@@ -459,90 +447,69 @@ async fn fetch_licenses_concurrent(
 #[cfg(not(test))]
 static OSI_LICENSES: OnceLock<HashMap<String, OsiStatus>> = OnceLock::new();
 
-/// Fetch OSI approved licenses from official API
+/// Fetch OSI approved licenses from official API (single request, no async needed)
 pub fn fetch_osi_licenses() -> FeludaResult<HashMap<String, OsiStatus>> {
     log(LogLevel::Info, "Fetching OSI approved licenses");
 
     let osi_map = cli::with_spinner("Fetching OSI approved licenses", |indicator| {
-        // Use tokio runtime for async operations
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
+        let client = match reqwest::blocking::Client::builder()
+            .user_agent("feluda-license-checker/1.0")
+            .timeout(Duration::from_secs(30))
+            .build()
+        {
+            Ok(client) => client,
             Err(err) => {
-                log_error("Failed to create tokio runtime", &err);
+                log_error("Failed to create HTTP client", &err);
                 return HashMap::new();
             }
         };
 
-        rt.block_on(fetch_osi_licenses_async(indicator))
+        indicator.update_progress("fetching OSI licenses");
+
+        let response = match client.get("https://api.opensource.org/licenses/").send() {
+            Ok(response) => response,
+            Err(err) => {
+                log_error("Failed to fetch OSI licenses from API", &err);
+                return HashMap::new();
+            }
+        };
+
+        if !response.status().is_success() {
+            log(
+                LogLevel::Error,
+                &format!("OSI API returned error status: {}", response.status()),
+            );
+            return HashMap::new();
+        }
+
+        let osi_licenses: Vec<serde_json::Value> = match response.json() {
+            Ok(licenses) => licenses,
+            Err(err) => {
+                log_error("Failed to parse OSI licenses JSON", &err);
+                return HashMap::new();
+            }
+        };
+
+        let total_licenses = osi_licenses.len();
+        indicator.update_progress(&format!("found {total_licenses} OSI licenses"));
+
+        let mut osi_map = HashMap::new();
+        for license_data in osi_licenses {
+            if let Some(id) = license_data.get("id").and_then(|id| id.as_str()) {
+                osi_map.insert(id.to_string(), OsiStatus::Approved);
+            }
+        }
+
+        indicator.update_progress(&format!("processed {total_licenses} OSI licenses"));
+        log(
+            LogLevel::Info,
+            &format!("Fetched {total_licenses} OSI approved licenses"),
+        );
+
+        osi_map
     });
 
     Ok(osi_map)
-}
-
-/// Async helper function for fetching OSI licenses
-async fn fetch_osi_licenses_async(
-    indicator: &crate::cli::LoadingIndicator,
-) -> HashMap<String, OsiStatus> {
-    let mut osi_map = HashMap::new();
-
-    // Create async HTTP client
-    let client = match reqwest::Client::builder()
-        .user_agent("feluda-license-checker/1.0")
-        .timeout(Duration::from_secs(30))
-        .build()
-    {
-        Ok(client) => client,
-        Err(err) => {
-            log_error("Failed to create HTTP client", &err);
-            return osi_map;
-        }
-    };
-
-    indicator.update_progress("fetching OSI licenses");
-
-    let osi_api_url = "https://api.opensource.org/licenses/";
-    let response = match client.get(osi_api_url).send().await {
-        Ok(response) => response,
-        Err(err) => {
-            log_error("Failed to fetch OSI licenses from API", &err);
-            return osi_map;
-        }
-    };
-
-    if !response.status().is_success() {
-        log(
-            LogLevel::Error,
-            &format!("OSI API returned error status: {}", response.status()),
-        );
-        return osi_map;
-    }
-
-    let osi_licenses: Vec<serde_json::Value> = match response.json().await {
-        Ok(licenses) => licenses,
-        Err(err) => {
-            log_error("Failed to parse OSI licenses JSON", &err);
-            return osi_map;
-        }
-    };
-
-    let total_licenses = osi_licenses.len();
-    indicator.update_progress(&format!("found {total_licenses} OSI licenses"));
-
-    for license_data in osi_licenses {
-        if let Some(id) = license_data.get("id").and_then(|id| id.as_str()) {
-            // All licenses from OSI API are approved
-            osi_map.insert(id.to_string(), OsiStatus::Approved);
-        }
-    }
-
-    indicator.update_progress(&format!("processed {total_licenses} OSI licenses"));
-
-    log(
-        LogLevel::Info,
-        &format!("Successfully fetched {total_licenses} OSI approved licenses"),
-    );
-
-    osi_map
 }
 
 /// Get the OSI licenses map, loading it if not already cached
