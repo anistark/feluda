@@ -1,7 +1,7 @@
-sphinx>=7.0
-sphinx-design>=0.6.1
-sphinx-tabs>=3.4.7
-sphinx-iconify>=0.2.1
+sphinx>=9.1.0
+sphinx-design>=0.7.0
+sphinx-tabs>=3.5.0
+sphinx-iconify>=0.3.0
 sphinx-copybutton>=0.5.2
-shibuya>=2025.9.25        # Nice modern theme
-doc8>=1.1.1               # RST linter
+shibuya>=2026.1.9
+doc8>=2.0.0
