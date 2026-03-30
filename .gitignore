@@ -5,3 +5,4 @@ target
 *.bak
 docs/build
 docs/_build
+plan/
