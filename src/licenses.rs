@@ -994,6 +994,152 @@ fn normalize_license_id(license_id: &str) -> String {
     }
 }
 
+/// A well-known license filename.
+///
+/// `implied_spdx` is `Some` when the filename alone is sufficient to identify the license
+/// (e.g. `OFL.txt` → `OFL-1.1`).  Generic filenames like `LICENSE` leave it `None` and fall
+/// through to content-based detection.
+struct LicenseFilename {
+    filename: &'static str,
+    implied_spdx: Option<&'static str>,
+}
+
+/// Content-based detection rule.
+///
+/// The rule fires when **any** marker group matches, where a group matches when
+/// **all** of its strings appear in the file content (OR-of-ANDs).  List more-specific
+/// rules (more markers) before less-specific ones so the first match wins.
+struct LicenseContentRule {
+    spdx_id: &'static str,
+    marker_groups: &'static [&'static [&'static str]],
+}
+
+/// Canonical set of license filenames to probe, in priority order.
+///
+/// To add support for a new license filename:
+///   • Append a `LicenseFilename` entry here.
+///   • If the filename unambiguously identifies the license, set `implied_spdx`.
+///   • Otherwise leave `implied_spdx: None`; content rules below will handle detection.
+static LICENSE_FILENAMES: &[LicenseFilename] = &[
+    LicenseFilename {
+        filename: "LICENSE",
+        implied_spdx: None,
+    },
+    LicenseFilename {
+        filename: "LICENSE.txt",
+        implied_spdx: None,
+    },
+    LicenseFilename {
+        filename: "LICENSE.md",
+        implied_spdx: None,
+    },
+    LicenseFilename {
+        filename: "license",
+        implied_spdx: None,
+    },
+    LicenseFilename {
+        filename: "COPYING",
+        implied_spdx: None,
+    },
+    // OFL.txt is the conventional license file for font projects (e.g. Google Fonts).
+    LicenseFilename {
+        filename: "OFL.txt",
+        implied_spdx: Some("OFL-1.1"),
+    },
+    LicenseFilename {
+        filename: "OFL-1.1.txt",
+        implied_spdx: Some("OFL-1.1"),
+    },
+];
+
+/// Content-matching rules applied when a filename has no implied SPDX ID.
+///
+/// To add a new license:
+///   • Add a `LicenseContentRule` with the SPDX identifier and one or more marker groups.
+///   • Each group is a set of strings that must ALL appear in the file (logical AND).
+///   • Multiple groups are tried in order; the first matching group wins (logical OR).
+///   • Place more-specific rules (more markers) before less-specific ones.
+static LICENSE_CONTENT_RULES: &[LicenseContentRule] = &[
+    // GPL family must be ordered specific → general: AGPL and LGPL texts both
+    // contain the "GNU GENERAL PUBLIC LICENSE" substring (via reference to GPL),
+    // so they would otherwise match the GPL rules first.
+    LicenseContentRule {
+        spdx_id: "AGPL-3.0",
+        marker_groups: &[&["GNU AFFERO GENERAL PUBLIC LICENSE", "Version 3"]],
+    },
+    LicenseContentRule {
+        spdx_id: "LGPL-3.0",
+        marker_groups: &[&["GNU LESSER GENERAL PUBLIC LICENSE", "Version 3"]],
+    },
+    LicenseContentRule {
+        spdx_id: "LGPL-2.1",
+        marker_groups: &[&["GNU LESSER GENERAL PUBLIC LICENSE", "Version 2.1"]],
+    },
+    LicenseContentRule {
+        spdx_id: "GPL-3.0",
+        marker_groups: &[&["GNU GENERAL PUBLIC LICENSE", "Version 3"]],
+    },
+    LicenseContentRule {
+        spdx_id: "GPL-2.0",
+        marker_groups: &[&["GNU GENERAL PUBLIC LICENSE", "Version 2"]],
+    },
+    LicenseContentRule {
+        spdx_id: "Apache-2.0",
+        marker_groups: &[&["Apache License", "Version 2.0"]],
+    },
+    LicenseContentRule {
+        spdx_id: "MPL-2.0",
+        marker_groups: &[&["Mozilla Public License", "Version 2.0"]],
+    },
+    // BSD-3 must come before BSD-2: "Neither the name" distinguishes them.
+    LicenseContentRule {
+        spdx_id: "BSD-3-Clause",
+        marker_groups: &[&["BSD", "Redistribution and use", "Neither the name"]],
+    },
+    LicenseContentRule {
+        spdx_id: "BSD-2-Clause",
+        marker_groups: &[&["BSD", "Redistribution and use"]],
+    },
+    // OFL must come before MIT: the OFL grant text begins with "Permission is hereby
+    // granted, free of charge" (the same opening as MIT), so OFL files would otherwise
+    // match the MIT rule first.
+    LicenseContentRule {
+        spdx_id: "OFL-1.1",
+        marker_groups: &[
+            &["SIL OPEN FONT LICENSE"],
+            &["This Font Software is licensed under the SIL Open Font License"],
+        ],
+    },
+    LicenseContentRule {
+        spdx_id: "MIT",
+        marker_groups: &[
+            &["MIT License"],
+            // "associated documentation files" is MIT-specific phrasing — it
+            // disambiguates from OFL/ISC/etc. which share the permission preamble.
+            &[
+                "Permission is hereby granted, free of charge",
+                "associated documentation files",
+            ],
+        ],
+    },
+    LicenseContentRule {
+        spdx_id: "ISC",
+        marker_groups: &[&["ISC License"]],
+    },
+];
+
+/// Return the SPDX ID for the first content rule that matches `content`, or `None`.
+fn match_license_content(content: &str) -> Option<&'static str> {
+    for rule in LICENSE_CONTENT_RULES {
+        for group in rule.marker_groups {
+            if group.iter().all(|marker| content.contains(marker)) {
+                return Some(rule.spdx_id);
+            }
+        }
+    }
+    None
+}
+
 /// Detect the project's license
 pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>> {
     log(
@@ -1001,82 +1147,43 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
         &format!("Detecting license for project at path: {project_path}"),
     );
 
-    // Check LICENSE file
-    let license_paths = [
-        Path::new(project_path).join("LICENSE"),
-        Path::new(project_path).join("LICENSE.txt"),
-        Path::new(project_path).join("LICENSE.md"),
-        Path::new(project_path).join("license"),
-        Path::new(project_path).join("COPYING"),
-    ];
+    for entry in LICENSE_FILENAMES {
+        let license_path = Path::new(project_path).join(entry.filename);
+        if !license_path.exists() {
+            continue;
+        }
 
-    for license_path in &license_paths {
-        if license_path.exists() {
+        log(
+            LogLevel::Info,
+            &format!("Found license file: {}", license_path.display()),
+        );
+
+        // Filename alone is sufficient (e.g. OFL.txt → OFL-1.1).
+        if let Some(spdx) = entry.implied_spdx {
             log(
                 LogLevel::Info,
-                &format!("Found license file: {}", license_path.display()),
+                &format!("Detected {spdx} license from filename"),
             );
+            return Ok(Some(spdx.to_string()));
+        }
 
-            match fs::read_to_string(license_path) {
-                Ok(content) => {
-                    // Check for MIT license
-                    if content.contains("MIT License")
-                        || content.contains("Permission is hereby granted, free of charge")
-                    {
-                        log(LogLevel::Info, "Detected MIT license");
-                        return Ok(Some("MIT".to_string()));
-                    }
-
-                    // Check for GPL-3.0
-                    if content.contains("GNU GENERAL PUBLIC LICENSE")
-                        && content.contains("Version 3")
-                    {
-                        log(LogLevel::Info, "Detected GPL-3.0 license");
-                        return Ok(Some("GPL-3.0".to_string()));
-                    }
-
-                    // Check for Apache-2.0
-                    if content.contains("Apache License") && content.contains("Version 2.0") {
-                        log(LogLevel::Info, "Detected Apache-2.0 license");
-                        return Ok(Some("Apache-2.0".to_string()));
-                    }
-
-                    // Check for BSD-3-Clause
-                    if content.contains("BSD")
-                        && content.contains("Redistribution and use")
-                        && content.contains("Neither the name")
-                    {
-                        log(LogLevel::Info, "Detected BSD-3-Clause license");
-                        return Ok(Some("BSD-3-Clause".to_string()));
-                    }
-
-                    // Check for LGPL-3.0
-                    if content.contains("GNU LESSER GENERAL PUBLIC LICENSE")
-                        && content.contains("Version 3")
-                    {
-                        log(LogLevel::Info, "Detected LGPL-3.0 license");
-                        return Ok(Some("LGPL-3.0".to_string()));
-                    }
-
-                    // Check for MPL-2.0
-                    if content.contains("Mozilla Public License") && content.contains("Version 2.0")
-                    {
-                        log(LogLevel::Info, "Detected MPL-2.0 license");
-                        return Ok(Some("MPL-2.0".to_string()));
-                    }
-
-                    log(
-                        LogLevel::Warn,
-                        "License file found but could not determine license type",
-                    );
+        match fs::read_to_string(&license_path) {
+            Ok(content) => {
+                if let Some(spdx) = match_license_content(&content) {
+                    log(LogLevel::Info, &format!("Detected {spdx} license"));
+                    return Ok(Some(spdx.to_string()));
                 }
-                Err(err) => {
-                    log(
-                        LogLevel::Error,
-                        &format!("Failed to read license file: {}", license_path.display()),
-                    );
-                    log_debug("Error details", &err);
-                }
+                log(
+                    LogLevel::Warn,
+                    "License file found but could not determine license type",
+                );
+            }
+            Err(err) => {
+                log(
+                    LogLevel::Error,
+                    &format!("Failed to read license file: {}", license_path.display()),
+                );
+                log_debug("Error details", &err);
             }
         }
     }
@@ -1326,6 +1433,61 @@ mod tests {
 
         let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
         assert_eq!(result, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_ofl_filename() {
+        // OFL.txt is the canonical font license file; filename alone should suffice.
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::write(temp_dir.path().join("OFL.txt"), "some font license text").unwrap();
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("OFL-1.1".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_ofl_content_in_license_file() {
+        // When only a generic LICENSE file is present, content-based detection must fire.
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::write(
+            temp_dir.path().join("LICENSE"),
+            "SIL OPEN FONT LICENSE\nVersion 1.1",
+        )
+        .unwrap();
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("OFL-1.1".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_lgpl_not_misidentified_as_gpl() {
+        // Regression: LGPL text contains "GNU GENERAL PUBLIC LICENSE" via reference,
+        // so without correct rule ordering it would be misidentified as GPL-3.0.
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::write(
+            temp_dir.path().join("LICENSE"),
+            "GNU LESSER GENERAL PUBLIC LICENSE\nVersion 3\n\
+             This version of the GNU Lesser General Public License incorporates \
+             the terms and conditions of version 3 of the GNU General Public License.",
+        )
+        .unwrap();
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("LGPL-3.0".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_ofl_in_license_not_misidentified_as_mit() {
+        // Regression: OFL grant text starts with the same "Permission is hereby granted,
+        // free of charge" preamble as MIT, so without correct rule ordering it would be
+        // misidentified as MIT.
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::write(
+            temp_dir.path().join("LICENSE"),
+            "SIL OPEN FONT LICENSE Version 1.1\n\n\
+             Permission is hereby granted, free of charge, to any person obtaining \
+             a copy of the Font Software, to use, study, copy, merge, embed, modify...",
+        )
+        .unwrap();
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("OFL-1.1".to_string()));
     }
 
     #[test]
