@@ -127,3 +127,245 @@ html:not([data-theme="dark"]) .sd-card.glassmorphic:hover {
     color: var(--sd-color-primary);
     font-weight: 500;
 }
+
+/* Field Reports — vertical timeline */
+.field-reports-timeline {
+    list-style: none;
+    margin: 1.5rem 0 0;
+    padding: 0 !important;
+    padding-inline-start: 0 !important;
+    position: relative;
+}
+
+.field-report-item {
+    display: grid;
+    grid-template-columns: 2.5rem 1fr;
+    gap: 0.75rem;
+    padding: 0 0 1.75rem;
+    margin: 0;
+    list-style: none;
+    position: relative;
+}
+
+.field-report-item:last-child {
+    padding-bottom: 0;
+}
+
+/* Rail column — both the line and the dot share this container's center axis,
+   so they're guaranteed to align horizontally regardless of theme padding. */
+.field-report-rail {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Per-item rail line — extends slightly past the item's bottom so it overlaps
+   into the next item's rail with no sub-pixel gap. */
+.field-report-rail::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: -2rem;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: linear-gradient(
+        to bottom,
+        rgba(168, 85, 247, 0.5),
+        rgba(99, 102, 241, 0.4),
+        rgba(168, 85, 247, 0.5)
+    );
+    border-radius: 2px;
+    z-index: 0;
+}
+
+.field-report-item:last-child .field-report-rail::before {
+    bottom: 0;
+}
+
+.field-report-dot {
+    position: relative;
+    z-index: 1;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #a855f7;
+    transition: transform 0.2s ease;
+    animation: field-report-pulse-purple 2.4s ease-in-out infinite;
+}
+
+.field-report-item.is-upcoming .field-report-dot {
+    background: #10b981;
+    animation: field-report-pulse-green 2s ease-in-out infinite;
+}
+
+@keyframes field-report-pulse-purple {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.45); }
+    50%      { box-shadow: 0 0 0 7px rgba(168, 85, 247, 0); }
+}
+
+@keyframes field-report-pulse-green {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+    50%      { box-shadow: 0 0 0 9px rgba(16, 185, 129, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .field-report-dot,
+    .field-report-item.is-upcoming .field-report-dot {
+        animation: none;
+        transition: none;
+    }
+
+    .field-report-item:hover .field-report-dot {
+        transform: none;
+    }
+
+    .field-report-content {
+        transition: none;
+    }
+}
+.field-report-item:hover .field-report-dot {
+    transform: scale(1.2);
+}
+
+.field-report-content {
+    position: relative;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Stretched link — title's <a> covers the entire card so the whole card is clickable */
+.field-report-item.has-link {
+    cursor: pointer;
+}
+
+.field-report-item.has-link .field-report-title a::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+}
+
+html[data-theme="dark"] .field-report-content {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+html:not([data-theme="dark"]) .field-report-content {
+    background: rgba(255, 255, 255, 0.09);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.field-report-item:hover .field-report-content {
+    transform: translateY(-2px);
+}
+
+html[data-theme="dark"] .field-report-item:hover .field-report-content {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+html:not([data-theme="dark"]) .field-report-item:hover .field-report-content {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+.field-report-item.is-upcoming .field-report-content {
+    border-left: 3px solid var(--sd-color-primary, #6366f1);
+}
+
+.field-report-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--sy-c-text-muted, #6b7280);
+    margin-bottom: 0.35rem;
+}
+
+.field-report-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--sy-c-bg-subtle, rgba(127, 127, 127, 0.12));
+    border: 1px solid var(--sy-c-border, rgba(127, 127, 127, 0.2));
+}
+
+.field-report-item.is-upcoming .field-report-chip {
+    background: rgba(99, 102, 241, 0.12);
+    border-color: rgba(99, 102, 241, 0.4);
+    color: var(--sd-color-primary, #6366f1);
+}
+
+.field-report-title {
+    margin: 0 0 0.25rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.field-report-title a {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: none;
+}
+
+.field-report-title a:hover {
+    color: var(--sd-color-primary, #6366f1);
+    text-decoration: none;
+    border-bottom: none;
+}
+
+.field-report-byline {
+    margin: 0 0 0.35rem;
+    font-size: 0.85rem;
+    color: var(--sy-c-text-muted, #6b7280);
+}
+
+.field-report-speaker,
+.field-report-venue {
+    transition: color 0.2s ease;
+}
+
+/* On card hover, give speaker and venue distinct accent colors */
+.field-report-item:hover .field-report-speaker {
+    color: #a855f7; /* purple — matches dot */
+}
+
+.field-report-item:hover .field-report-venue {
+    color: #10b981; /* green — matches upcoming dot */
+}
+
+.field-report-desc {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.field-reports-empty {
+    margin: 1rem 0;
+    padding: 1rem;
+    text-align: center;
+    color: var(--sy-c-text-muted, #6b7280);
+    font-style: italic;
+}
+
+@media (max-width: 480px) {
+    .field-report-item {
+        grid-template-columns: 1.5rem 1fr;
+        gap: 0.5rem;
+    }
+    .field-report-content {
+        padding: 0.7rem 0.85rem;
+    }
+}
