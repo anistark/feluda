@@ -210,6 +210,21 @@ html:not([data-theme="dark"]) .sd-card.glassmorphic:hover {
     50%      { box-shadow: 0 0 0 9px rgba(16, 185, 129, 0); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .field-report-dot,
+    .field-report-item.is-upcoming .field-report-dot {
+        animation: none;
+        transition: none;
+    }
+
+    .field-report-item:hover .field-report-dot {
+        transform: none;
+    }
+
+    .field-report-content {
+        transition: none;
+    }
+}
 .field-report-item:hover .field-report-dot {
     transform: scale(1.2);
 }
