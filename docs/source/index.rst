@@ -71,6 +71,16 @@ Thanks to all the people who contribute to Feluda!
 
    <div id="contributors-container">Loading contributors...</div>
 
+Field Reports 🔎
+----------------
+
+Talks, videos, slides, and upcoming appearances where Feluda steps out of the codebase.
+Have a session to share? `Open a PR <https://github.com/anistark/feluda/edit/main/docs/source/_static/field-reports.json>`_ to add it.
+
+.. raw:: html
+
+   <div id="field-reports-container">Loading field reports...</div>
+
 
 .. toctree::
    :maxdepth: 1

@@ -1,0 +1,33 @@
+[
+  {
+    "title": "From types to trust: safer API design in Rust",
+    "speaker": "Farhaan Bukhsh",
+    "venue": "Rust India 2025, Bengaluru",
+    "date": "2026-04-18",
+    "type": "video",
+    "url": "https://www.youtube.com/watch?v=PRsq5iYXPA4"
+  },
+  {
+    "title": "Feluda CLI: Detecting License Risks in Your Dependencies",
+    "speaker": "Farhaan Bukhsh",
+    "venue": "EuroPython 2025, Prague",
+    "date": "2025-07-18",
+    "type": "lightning"
+  },
+  {
+    "title": "Detect license usage restrictions in your project",
+    "speaker": "Kumar Anirudha, Farhaan Bukhsh",
+    "venue": "FOSS United, Bengaluru",
+    "date": "2025-05-24",
+    "type": "talk",
+    "url": "https://fossunited.org/c/bengaluru/may-2025/cfp/2rt9houfgc"
+  },
+  {
+    "title": "How safe is your Product License?",
+    "speaker": "Kumar Anirudha",
+    "venue": "Cyber Secure India, Bengaluru",
+    "date": "2025-05-17",
+    "type": "slides",
+    "url": "https://anistark.github.io/talks/feluda.pdf"
+  }
+]
