@@ -1,6 +1,6 @@
 [package]
 name = "feluda"
-version = "1.12.0"
+version = "1.13.0"
 edition = "2021"
 description = "A CLI tool to check dependency licenses."
 readme = "README.md"
@@ -49,6 +49,7 @@ git2 = { version = "0.20", features = ["vendored-libgit2", "vendored-openssl"] }
 tempfile = "3.27"
 dirs = "6.0"
 semver = "1.0"
+quick-xml = { version = "0.37", features = ["serialize"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

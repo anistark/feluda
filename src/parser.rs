@@ -4,11 +4,13 @@ use crate::cli;
 use crate::debug::{log, log_debug, FeludaResult, LogLevel};
 use crate::languages::{
     c::analyze_c_licenses, cpp::analyze_cpp_licenses, dotnet::analyze_dotnet_licenses,
-    go::analyze_go_licenses, node::analyze_js_licenses_with_no_local,
+    go::analyze_go_licenses, java::analyze_java_licenses, node::analyze_js_licenses_with_no_local,
     python::analyze_python_licenses, r::analyze_r_licenses,
     rust::analyze_rust_licenses_with_no_local,
 };
-use crate::languages::{Language, CPP_PATHS, C_PATHS, DOTNET_PATHS, PYTHON_PATHS, R_PATHS};
+use crate::languages::{
+    Language, CPP_PATHS, C_PATHS, DOTNET_PATHS, JAVA_PATHS, PYTHON_PATHS, R_PATHS,
+};
 use crate::licenses::{
     detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
 };
@@ -165,6 +167,29 @@ fn check_which_r_file_exists(project_path: impl AsRef<Path>) -> Option<String> {
     None
 }
 
+/// Check which Java project file exists in the given path
+fn check_which_java_file_exists(project_path: impl AsRef<Path>) -> Option<String> {
+    for &path in JAVA_PATHS.iter() {
+        let full_path = Path::new(project_path.as_ref()).join(path);
+        if full_path.exists() {
+            log(
+                LogLevel::Info,
+                &format!("Found Java project file: {}", full_path.display()),
+            );
+            return Some(path.to_string());
+        }
+    }
+
+    log(
+        LogLevel::Warn,
+        &format!(
+            "No Java project file found in: {}",
+            project_path.as_ref().display()
+        ),
+    );
+    None
+}
+
 fn check_which_dotnet_file_exists(project_path: impl AsRef<Path>) -> Option<String> {
     for &path in DOTNET_PATHS.iter() {
         if path.starts_with('.') {
@@ -239,7 +264,7 @@ pub fn parse_root_with_config(
         );
         println!(
             "❌ No supported project files found.\n\
-            Feluda supports: C, C++, .NET, Rust, Node.js, Go, Python, R"
+            Feluda supports: C, C++, .NET, Java/Maven/Gradle, Rust, Node.js, Go, Python, R"
         );
         return Ok(Vec::new());
     }
@@ -359,6 +384,7 @@ fn matches_language(project_type: Language, language: &str) -> bool {
                 Language::DotNet(_),
                 "dotnet" | ".net" | "csharp" | "c#" | "fsharp" | "f#"
             )
+            | (Language::Java(_), "java" | "maven" | "gradle")
             | (Language::Rust(_), "rust")
             | (Language::Node(_), "node")
             | (Language::Go(_), "go")
@@ -535,6 +561,34 @@ fn parse_dependencies(
                 }
                 None => {
                     log(LogLevel::Error, "C++ build file not found");
+                    Vec::new()
+                }
+            },
+            Language::Java(_) => match check_which_java_file_exists(project_path) {
+                Some(java_build_file) => {
+                    let project_path = Path::new(project_path).join(&java_build_file);
+                    log(
+                        LogLevel::Info,
+                        &format!("Parsing Java project: {}", project_path.display()),
+                    );
+
+                    indicator.update_progress(&format!("analyzing {java_build_file}"));
+
+                    match project_path.to_str() {
+                        Some(path_str) => {
+                            let deps = analyze_java_licenses(path_str, config);
+                            indicator
+                                .update_progress(&format!("found {} dependencies", deps.len()));
+                            deps
+                        }
+                        None => {
+                            log(LogLevel::Error, "Failed to convert Java path to string");
+                            Vec::new()
+                        }
+                    }
+                }
+                None => {
+                    log(LogLevel::Error, "Java build file not found");
                     Vec::new()
                 }
             },

@@ -163,7 +163,7 @@ feluda
 feluda --path /path/to/project/
 
 # Check with specific language
-feluda --language {rust|node|go|python|c|cpp|r}
+feluda --language {rust|node|go|python|java|maven|gradle|c|cpp|r}
 
 # Skip local file checks and force network lookup only
 feluda --no-local
@@ -179,6 +179,7 @@ feluda --osi unknown        # Show licenses with unknown OSI status
 By default, Feluda checks local files first for license information before making network requests:
 - **Node.js**: Checks `LICENSE` files in local `node_modules` (npm, pnpm, yarn, bun)
 - **Rust**: Checks `Cargo.toml` manifests for license field
+- **Java**: Fetches POM files from Maven Central to extract `<licenses>` metadata
 
 Use `--no-local` to skip local checks and force network-only license lookup.
 
