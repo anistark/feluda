@@ -8,6 +8,7 @@ mod licenses;
 mod parser;
 mod reporter;
 mod sbom;
+mod spdx;
 mod table;
 mod utils;
 

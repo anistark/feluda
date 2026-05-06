@@ -1,5 +1,6 @@
 //! Core license analysis functionality and types
 
+use crate::spdx;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -553,22 +554,19 @@ fn get_osi_licenses() -> &'static HashMap<String, OsiStatus> {
     }
 }
 
-/// Check OSI approval status for a license
-pub fn get_osi_status(license_id: &str) -> OsiStatus {
+/// Check OSI approval status for a license ID (single, non-compound).
+fn get_osi_status_single(license_id: &str) -> OsiStatus {
     let normalized_id = normalize_license_id(license_id);
     let osi_licenses = get_osi_licenses();
 
-    // Check for exact match first
     if let Some(status) = osi_licenses.get(&normalized_id) {
         return *status;
     }
 
-    // Check for original license ID
     if let Some(status) = osi_licenses.get(license_id) {
         return *status;
     }
 
-    // For well-known licenses, we can provide static mappings as fallback
     match normalized_id.as_str() {
         "MIT" | "Apache-2.0" | "BSD-3-Clause" | "BSD-2-Clause" | "GPL-3.0" | "GPL-2.0"
         | "LGPL-3.0" | "LGPL-2.1" | "MPL-2.0" | "ISC" | "0BSD" => OsiStatus::Approved,
@@ -577,7 +575,56 @@ pub fn get_osi_status(license_id: &str) -> OsiStatus {
     }
 }
 
-/// Check if a license is considered restrictive based on configuration and known licenses
+/// Check OSI approval status for a license string, which may be a compound SPDX expression.
+pub fn get_osi_status(license_id: &str) -> OsiStatus {
+    if spdx::is_compound(license_id) {
+        let expr = spdx::parse(license_id);
+        return spdx::expression_osi_status(&expr, &get_osi_status_single);
+    }
+    get_osi_status_single(license_id)
+}
+
+/// Check if a single (non-compound) license ID is restrictive.
+fn is_single_license_restrictive(
+    license_str: &str,
+    known_licenses: &HashMap<String, License>,
+    config: &config::FeludaConfig,
+    strict: bool,
+) -> bool {
+    if let Some(license_data) = known_licenses.get(license_str) {
+        let conditions = if strict {
+            vec![
+                "source-disclosure",
+                "network-use-disclosure",
+                "disclose-source",
+                "same-license",
+            ]
+        } else {
+            vec!["source-disclosure", "network-use-disclosure"]
+        };
+        return conditions
+            .iter()
+            .any(|&c| license_data.conditions.contains(&c.to_string()));
+    }
+
+    let is_restrictive = config
+        .licenses
+        .restrictive
+        .iter()
+        .any(|r| license_str.contains(r.as_str()));
+
+    if !is_restrictive && strict && license_str.contains("Unknown") {
+        return true;
+    }
+
+    is_restrictive
+}
+
+/// Check if a license is considered restrictive based on configuration and known licenses.
+///
+/// Handles compound SPDX expressions:
+///   - `OR`  → not restrictive if ANY alternative is permissive.
+///   - `AND` → restrictive if ANY component is restrictive.
 pub fn is_license_restrictive(
     license: &Option<String>,
     known_licenses: &HashMap<String, License>,
@@ -589,13 +636,9 @@ pub fn is_license_restrictive(
     );
 
     let config = match config::load_config() {
-        Ok(cfg) => {
-            log(LogLevel::Info, "Successfully loaded configuration");
-            cfg
-        }
+        Ok(cfg) => cfg,
         Err(e) => {
             log_error("Error loading configuration", &e);
-            log(LogLevel::Warn, "Using default configuration");
             config::FeludaConfig::default()
         }
     };
@@ -614,66 +657,31 @@ pub fn is_license_restrictive(
             &known_licenses.keys().collect::<Vec<_>>(),
         );
 
-        if let Some(license_data) = known_licenses.get(license_str) {
-            log_debug("Found license data", license_data);
-
-            let conditions = if strict {
-                vec![
-                    "source-disclosure",
-                    "network-use-disclosure",
-                    "disclose-source",
-                    "same-license",
-                ]
-            } else {
-                vec!["source-disclosure", "network-use-disclosure"]
-            };
-
-            let is_restrictive = conditions
-                .iter()
-                .any(|&condition| license_data.conditions.contains(&condition.to_string()));
-
-            if is_restrictive {
-                log(
-                    LogLevel::Warn,
-                    &format!("License {license_str} is restrictive due to conditions"),
-                );
-            } else {
-                log(
-                    LogLevel::Info,
-                    &format!("License {license_str} is not restrictive"),
-                );
-            }
-
-            return is_restrictive;
-        } else {
-            let is_restrictive = config
-                .licenses
-                .restrictive
-                .iter()
-                .any(|restrictive_license| license_str.contains(restrictive_license));
-
-            if is_restrictive {
-                log(
-                    LogLevel::Warn,
-                    &format!("License {license_str} matches restrictive pattern in config"),
-                );
-            } else if strict && license_str.contains("Unknown") {
-                log(
-                    LogLevel::Warn,
-                    &format!(
-                        "License {license_str} is unknown in strict mode, considering restrictive"
-                    ),
-                );
-                return true;
-            } else {
-                log(
-                    LogLevel::Info,
-                    &format!("License {license_str} does not match any restrictive pattern"),
-                );
-            }
-
-            return is_restrictive;
+        if spdx::is_compound(license_str) {
+            let expr = spdx::parse(license_str);
+            let result = spdx::expression_is_restrictive(&expr, &|id| {
+                is_single_license_restrictive(id, known_licenses, &config, strict)
+            });
+            log(
+                LogLevel::Info,
+                &format!("Compound expression '{license_str}' is_restrictive={result}"),
+            );
+            return result;
         }
+
+        let result = is_single_license_restrictive(license_str, known_licenses, &config, strict);
+        if result {
+            log(
+                LogLevel::Warn,
+                &format!("License {license_str} is restrictive"),
+            );
+        } else {
+            log(
+                LogLevel::Info,
+                &format!("License {license_str} is not restrictive"),
+            );
+        }
+        return result;
     }
 
     if strict {
@@ -883,7 +891,39 @@ fn get_compatibility_matrix() -> &'static HashMap<String, Vec<String>> {
     }
 }
 
-/// Check if a license is compatible with the base project license
+/// Check if a single (non-compound) dependency license ID is compatible with the project license.
+fn is_single_license_compatible(
+    dependency_license: &str,
+    project_license: &str,
+    strict: bool,
+) -> LicenseCompatibility {
+    let compatibility_matrix = get_compatibility_matrix();
+    let norm_dep = normalize_license_id(dependency_license);
+    let norm_proj = normalize_license_id(project_license);
+
+    match compatibility_matrix.get(&norm_proj) {
+        Some(compatible_licenses) => {
+            if compatible_licenses.contains(&norm_dep) {
+                LicenseCompatibility::Compatible
+            } else {
+                LicenseCompatibility::Incompatible
+            }
+        }
+        None => {
+            if strict {
+                LicenseCompatibility::Incompatible
+            } else {
+                LicenseCompatibility::Unknown
+            }
+        }
+    }
+}
+
+/// Check if a license is compatible with the base project license.
+///
+/// Handles compound SPDX expressions in `dependency_license`:
+///   - `OR`  → compatible if ANY alternative is compatible with the project license.
+///   - `AND` → compatible only if ALL components are compatible.
 pub fn is_license_compatible(
     dependency_license: &str,
     project_license: &str,
@@ -892,57 +932,29 @@ pub fn is_license_compatible(
     log(
         LogLevel::Info,
         &format!(
-            "Checking if dependency license {dependency_license} is compatible with project license {project_license} (strict={strict})"
+            "Checking compatibility: dependency={dependency_license} project={project_license} strict={strict}"
         ),
     );
 
-    let compatibility_matrix = get_compatibility_matrix();
-    let norm_dependency_license = normalize_license_id(dependency_license);
-    let norm_project_license = normalize_license_id(project_license);
+    if spdx::is_compound(dependency_license) {
+        let expr = spdx::parse(dependency_license);
+        let result =
+            spdx::expression_compatibility(&expr, project_license, strict, &|dep, proj, s| {
+                is_single_license_compatible(dep, proj, s)
+            });
+        log(
+            LogLevel::Info,
+            &format!("Compound expression '{dependency_license}' compatibility={result}"),
+        );
+        return result;
+    }
 
+    let result = is_single_license_compatible(dependency_license, project_license, strict);
     log(
         LogLevel::Info,
-        &format!(
-            "Normalized licenses: dependency={norm_dependency_license}, project={norm_project_license}"
-        ),
+        &format!("License {dependency_license} compatibility with {project_license}: {result}"),
     );
-
-    match compatibility_matrix.get(&norm_project_license) {
-        Some(compatible_licenses) => {
-            if compatible_licenses.contains(&norm_dependency_license) {
-                log(
-                    LogLevel::Info,
-                    &format!(
-                        "License {norm_dependency_license} is compatible with project license {norm_project_license}"
-                    ),
-                );
-                LicenseCompatibility::Compatible
-            } else {
-                log(
-                    LogLevel::Warn,
-                    &format!(
-                        "License {norm_dependency_license} may be incompatible with project license {norm_project_license}"
-                    ),
-                );
-                LicenseCompatibility::Incompatible
-            }
-        }
-        None => {
-            if strict {
-                log(
-                    LogLevel::Warn,
-                    &format!("Unknown compatibility for project license {norm_project_license} in strict mode, marking as incompatible"),
-                );
-                LicenseCompatibility::Incompatible
-            } else {
-                log(
-                    LogLevel::Warn,
-                    &format!("Unknown compatibility for project license {norm_project_license}"),
-                );
-                LicenseCompatibility::Unknown
-            }
-        }
-    }
+    result
 }
 
 /// Normalize license identifier to a standard format
