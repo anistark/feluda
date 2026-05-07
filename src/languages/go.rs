@@ -98,6 +98,7 @@ pub fn analyze_go_licenses(go_mod_path: &str, config: &FeludaConfig) -> Vec<Lice
                 Some(l) => crate::licenses::get_osi_status(l),
                 None => crate::licenses::OsiStatus::Unknown,
             },
+            sub_project: None,
         });
     }
 
@@ -106,6 +107,193 @@ pub fn analyze_go_licenses(go_mod_path: &str, config: &FeludaConfig) -> Vec<Lice
         &format!("Found {} Go dependencies with licenses", licenses.len()),
     );
     licenses
+}
+
+/// Analyze a Go workspace (go.work) by scanning each `use` directory's go.mod and
+/// attributing every dependency to the workspace member it belongs to. Deps shared by
+/// multiple members are listed under all of them.
+pub fn analyze_go_workspace_licenses(
+    workspace_root: &std::path::Path,
+    config: &FeludaConfig,
+) -> Vec<LicenseInfo> {
+    let go_work_path = workspace_root.join("go.work");
+    log(
+        LogLevel::Info,
+        &format!("Reading Go workspace file: {}", go_work_path.display()),
+    );
+
+    let content = match fs::read_to_string(&go_work_path) {
+        Ok(c) => c,
+        Err(err) => {
+            log_error(
+                &format!("Failed to read go.work: {}", go_work_path.display()),
+                &err,
+            );
+            return Vec::new();
+        }
+    };
+
+    let use_dirs = parse_go_work_use_directives(&content);
+    log(
+        LogLevel::Info,
+        &format!("go.work has {} use directives", use_dirs.len()),
+    );
+    log_debug("go.work use directives", &use_dirs);
+
+    if use_dirs.is_empty() {
+        log(
+            LogLevel::Warn,
+            "go.work has no use directives; nothing to scan",
+        );
+        return Vec::new();
+    }
+
+    let mut merged: HashMap<(String, String), (LicenseInfo, std::collections::BTreeSet<String>)> =
+        HashMap::new();
+
+    for rel_dir in &use_dirs {
+        let member_path = workspace_root.join(rel_dir);
+        let member_go_mod = member_path.join("go.mod");
+        if !member_go_mod.exists() {
+            log(
+                LogLevel::Warn,
+                &format!(
+                    "go.work member missing go.mod, skipping: {}",
+                    member_go_mod.display()
+                ),
+            );
+            continue;
+        }
+
+        let member_name = read_go_module_name(&member_go_mod).unwrap_or_else(|| rel_dir.clone());
+        log(
+            LogLevel::Info,
+            &format!(
+                "Scanning workspace member '{}' at {}",
+                member_name,
+                member_path.display()
+            ),
+        );
+
+        let member_path_str = match member_go_mod.to_str() {
+            Some(s) => s,
+            None => {
+                log(LogLevel::Error, "Failed to convert member go.mod to string");
+                continue;
+            }
+        };
+
+        let member_deps = analyze_go_licenses(member_path_str, config);
+        log(
+            LogLevel::Info,
+            &format!(
+                "Member '{}' contributed {} deps",
+                member_name,
+                member_deps.len()
+            ),
+        );
+
+        for info in member_deps {
+            let key = (info.name.clone(), info.version.clone());
+            let entry = merged
+                .entry(key)
+                .or_insert_with(|| (info.clone(), std::collections::BTreeSet::new()));
+            entry.1.insert(member_name.clone());
+        }
+    }
+
+    let mut result: Vec<LicenseInfo> = merged
+        .into_iter()
+        .map(|(_, (mut info, members))| {
+            info.sub_project = Some(members.into_iter().collect::<Vec<_>>().join(", "));
+            info
+        })
+        .collect();
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Go workspace analysis produced {} unique deps",
+            result.len()
+        ),
+    );
+
+    result.sort_by(|a, b| a.name.cmp(&b.name));
+    result
+}
+
+/// Parse `use (...)` and bare `use ./path` directives from go.work content.
+pub fn parse_go_work_use_directives(content: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let stripped = strip_go_line_comments(content);
+
+    let mut iter = stripped.lines().peekable();
+    while let Some(raw) = iter.next() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("use") {
+            let rest = rest.trim();
+            if let Some(stripped) = rest.strip_prefix('(') {
+                let mut block = String::from(stripped);
+                if !rest.ends_with(')') {
+                    for inner in iter.by_ref() {
+                        let l = inner.trim();
+                        if l == ")" || l.ends_with(')') {
+                            block.push(' ');
+                            block.push_str(l.trim_end_matches(')'));
+                            break;
+                        }
+                        block.push(' ');
+                        block.push_str(l);
+                    }
+                } else {
+                    block = block.trim_end_matches(')').to_string();
+                }
+                for tok in block.split_whitespace() {
+                    let t = tok.trim_matches(|c: char| c == '"' || c == ',');
+                    if !t.is_empty() && t != "(" && t != ")" {
+                        result.push(t.to_string());
+                    }
+                }
+            } else if !rest.is_empty() {
+                let t = rest.trim_matches(|c: char| c == '"' || c == ',');
+                if !t.is_empty() {
+                    result.push(t.to_string());
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Read the `module` declaration from a go.mod file.
+pub fn read_go_module_name(go_mod_path: &std::path::Path) -> Option<String> {
+    let content = fs::read_to_string(go_mod_path).ok()?;
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("module") {
+            let name = rest.trim().trim_matches('"').to_string();
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+fn strip_go_line_comments(content: &str) -> String {
+    content
+        .lines()
+        .map(|l| match l.find("//") {
+            Some(i) => &l[..i],
+            None => l,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Parse Go dependencies from go.mod content
@@ -974,5 +1162,64 @@ github.com/level2@v1.0.0 github.com/level3@v1.0.0"#;
         let (name, version) = result.unwrap();
         assert_eq!(name, "github.com/user/repo");
         assert_eq!(version, "v1.2.3");
+    }
+
+    #[test]
+    fn test_parse_go_work_use_directives_block() {
+        let content = r#"go 1.22
+
+use (
+    ./api
+    ./worker
+    ./shared
+)
+"#;
+        let dirs = parse_go_work_use_directives(content);
+        assert_eq!(dirs, vec!["./api", "./worker", "./shared"]);
+    }
+
+    #[test]
+    fn test_parse_go_work_use_directives_single() {
+        let content = "go 1.22\n\nuse ./only\n";
+        let dirs = parse_go_work_use_directives(content);
+        assert_eq!(dirs, vec!["./only"]);
+    }
+
+    #[test]
+    fn test_parse_go_work_use_directives_with_comments() {
+        let content = r#"go 1.22
+
+use (
+    ./api      // public api
+    ./worker   // background worker
+)
+"#;
+        let dirs = parse_go_work_use_directives(content);
+        assert_eq!(dirs, vec!["./api", "./worker"]);
+    }
+
+    #[test]
+    fn test_parse_go_work_use_directives_empty() {
+        assert!(parse_go_work_use_directives("go 1.22\n").is_empty());
+    }
+
+    #[test]
+    fn test_read_go_module_name() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let path = temp.path().join("go.mod");
+        std::fs::write(&path, "module github.com/example/svc\n\ngo 1.22\n").unwrap();
+        assert_eq!(
+            read_go_module_name(&path),
+            Some("github.com/example/svc".to_string())
+        );
+    }
+
+    #[test]
+    fn test_analyze_go_workspace_licenses_empty_workspace() {
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::write(temp.path().join("go.work"), "go 1.22\n").unwrap();
+        let cfg = crate::config::FeludaConfig::default();
+        let result = analyze_go_workspace_licenses(temp.path(), &cfg);
+        assert!(result.is_empty());
     }
 }

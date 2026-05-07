@@ -25,7 +25,10 @@ Machine-readable JSON for downstream automation.
 
    feluda --json
 
-Feluda emits a JSON array containing dependency names, versions, licenses, restriction flags, and OSI status.
+Feluda emits a JSON array containing dependency names, versions, licenses,
+restriction flags, and OSI status. When scanning a workspace or monorepo, each
+entry also carries a ``sub_project`` field listing the workspace member(s) that
+pull in that dependency. The field is omitted on single-project scans.
 
 YAML Format
 ^^^^^^^^^^^
@@ -89,7 +92,9 @@ Extra columns including OSI status in standard output.
 
    feluda --verbose
 
-Feluda adds OSI status and extended descriptions to the CLI table.
+Feluda adds OSI status and extended descriptions to the CLI table. In a
+workspace or monorepo scan, the verbose table also includes a **Sub-project**
+column showing which workspace member(s) own each dependency.
 
 Debug Mode
 ^^^^^^^^^^

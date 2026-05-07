@@ -123,6 +123,8 @@ pub struct LicenseInfo {
     pub is_restrictive: bool,    // A boolean indicating whether the license is restrictive or not
     pub compatibility: LicenseCompatibility, // Compatibility with project license
     pub osi_status: OsiStatus,   // OSI approval status
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sub_project: Option<String>, // Workspace member that brought in this dependency (None for non-monorepos)
 }
 
 impl LicenseInfo {
@@ -151,6 +153,10 @@ impl LicenseInfo {
 
     pub fn osi_status(&self) -> &OsiStatus {
         &self.osi_status
+    }
+
+    pub fn sub_project(&self) -> Option<&str> {
+        self.sub_project.as_deref()
     }
 
     #[allow(dead_code)]
@@ -1360,6 +1366,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: OsiStatus::Approved,
+            sub_project: None,
         };
 
         assert_eq!(info.name(), "test_package");
@@ -1378,6 +1385,7 @@ mod tests {
             is_restrictive: true,
             compatibility: LicenseCompatibility::Unknown,
             osi_status: OsiStatus::Unknown,
+            sub_project: None,
         };
 
         assert_eq!(info.get_license(), "No License");

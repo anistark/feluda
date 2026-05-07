@@ -1048,6 +1048,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let app = App::new(test_data.clone(), Some("MIT".to_string()));
@@ -1080,6 +1081,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1088,6 +1090,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package3".to_string(),
@@ -1096,6 +1099,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1137,6 +1141,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let mut app = App::new(test_data, None);
@@ -1174,6 +1179,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "short".to_string(),
@@ -1182,6 +1188,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1220,6 +1227,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let (name_len, _, _, _, _, _) = constraint_len_calculator(&test_data);
@@ -1237,6 +1245,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "incompatible".to_string(),
@@ -1245,6 +1254,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "unknown".to_string(),
@@ -1253,6 +1263,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::OsiStatus::Unknown,
+                sub_project: None,
             },
         ];
 
@@ -1271,6 +1282,7 @@ mod tests {
                 is_restrictive: true, // true
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1279,6 +1291,7 @@ mod tests {
                 is_restrictive: false, // false
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1317,6 +1330,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "much_longer_name".to_string(),
@@ -1325,6 +1339,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1347,6 +1362,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "apple".to_string(),
@@ -1355,6 +1371,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "banana".to_string(),
@@ -1363,6 +1380,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1389,6 +1407,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "zebra".to_string(),
@@ -1397,6 +1416,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1421,6 +1441,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1429,6 +1450,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1455,6 +1477,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let mut app = App::new(test_data, None);
@@ -1483,6 +1506,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let mut app = App::new(test_data, None);
@@ -1513,6 +1537,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "apple".to_string(),
@@ -1521,6 +1546,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1549,6 +1575,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let app = App::new(test_data, None);
@@ -1569,6 +1596,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1577,6 +1605,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package3".to_string(),
@@ -1585,6 +1614,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1612,6 +1642,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1620,6 +1651,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package3".to_string(),
@@ -1628,6 +1660,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1653,6 +1686,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1661,6 +1695,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package3".to_string(),
@@ -1669,6 +1704,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 

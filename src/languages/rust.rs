@@ -1,8 +1,8 @@
-use cargo_metadata::Package;
+use cargo_metadata::{Metadata, Package, PackageId};
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
-use crate::debug::{log, log_error, LogLevel};
+use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
     fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
 };
@@ -14,12 +14,121 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
     analyze_rust_licenses_with_config(packages, &config, false)
 }
 
-pub fn analyze_rust_licenses_with_no_local(
-    packages: Vec<Package>,
+/// Analyze Rust deps with full Metadata so workspace members can be attributed.
+///
+/// In a multi-member Cargo workspace, every dependency is tagged with the workspace
+/// member(s) that pull it in, and workspace members themselves are excluded from the
+/// dep report. Single-crate projects fall through to the existing behavior.
+pub fn analyze_rust_licenses_with_metadata(
+    metadata: Metadata,
+    config: &crate::config::FeludaConfig,
     no_local: bool,
 ) -> Vec<LicenseInfo> {
-    let config = crate::config::load_config().unwrap_or_default();
-    analyze_rust_licenses_with_config(packages, &config, no_local)
+    let workspace_members: HashSet<PackageId> =
+        metadata.workspace_members.iter().cloned().collect();
+    let is_workspace = workspace_members.len() > 1;
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Cargo metadata: {} workspace members, {} total packages",
+            workspace_members.len(),
+            metadata.packages.len()
+        ),
+    );
+
+    if !is_workspace {
+        log(
+            LogLevel::Info,
+            "Single-crate project; no workspace attribution",
+        );
+        return analyze_rust_licenses_with_config(metadata.packages, config, no_local);
+    }
+
+    let attribution = build_workspace_attribution(&metadata, &workspace_members);
+    log_debug("Workspace attribution map", &attribution);
+
+    let dep_packages: Vec<Package> = metadata
+        .packages
+        .into_iter()
+        .filter(|p| !workspace_members.contains(&p.id))
+        .collect();
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Analyzing {} non-workspace deps across workspace",
+            dep_packages.len()
+        ),
+    );
+
+    let mut infos = analyze_rust_licenses_with_config(dep_packages, config, no_local);
+    for info in &mut infos {
+        if let Some(member_names) = attribution.get(&(info.name.clone(), info.version.clone())) {
+            if !member_names.is_empty() {
+                info.sub_project =
+                    Some(member_names.iter().cloned().collect::<Vec<_>>().join(", "));
+            }
+        }
+    }
+    infos
+}
+
+/// Build a map from (dep name, version) -> set of workspace member names that depend on it.
+fn build_workspace_attribution(
+    metadata: &Metadata,
+    workspace_members: &HashSet<PackageId>,
+) -> HashMap<(String, String), BTreeSet<String>> {
+    let mut attribution: HashMap<(String, String), BTreeSet<String>> = HashMap::new();
+
+    let resolve = match &metadata.resolve {
+        Some(r) => r,
+        None => {
+            log(LogLevel::Warn, "No resolve graph in cargo metadata");
+            return attribution;
+        }
+    };
+
+    let nodes_by_id: HashMap<&PackageId, &cargo_metadata::Node> =
+        resolve.nodes.iter().map(|n| (&n.id, n)).collect();
+    let pkg_by_id: HashMap<&PackageId, &Package> =
+        metadata.packages.iter().map(|p| (&p.id, p)).collect();
+
+    for member_id in workspace_members {
+        let member_name = match pkg_by_id.get(member_id) {
+            Some(p) => p.name.to_string(),
+            None => continue,
+        };
+
+        let mut visited: HashSet<&PackageId> = HashSet::new();
+        let mut queue: VecDeque<&PackageId> = VecDeque::new();
+        queue.push_back(member_id);
+        visited.insert(member_id);
+
+        while let Some(id) = queue.pop_front() {
+            let node = match nodes_by_id.get(id) {
+                Some(n) => *n,
+                None => continue,
+            };
+            for dep_id in &node.dependencies {
+                if !visited.insert(dep_id) {
+                    continue;
+                }
+                queue.push_back(dep_id);
+                if workspace_members.contains(dep_id) {
+                    continue;
+                }
+                if let Some(pkg) = pkg_by_id.get(dep_id) {
+                    attribution
+                        .entry((pkg.name.to_string(), pkg.version.to_string()))
+                        .or_default()
+                        .insert(member_name.clone());
+                }
+            }
+        }
+    }
+
+    attribution
 }
 
 pub fn analyze_rust_licenses_with_config(
@@ -92,6 +201,7 @@ pub fn analyze_rust_licenses_with_config(
                     Some(license) => crate::licenses::get_osi_status(license),
                     None => crate::licenses::OsiStatus::Unknown,
                 },
+                sub_project: None,
             }
         })
         .collect()

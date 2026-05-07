@@ -6,7 +6,7 @@ use crate::languages::{
     c::analyze_c_licenses, cpp::analyze_cpp_licenses, dotnet::analyze_dotnet_licenses,
     go::analyze_go_licenses, node::analyze_js_licenses_with_no_local,
     python::analyze_python_licenses, r::analyze_r_licenses,
-    rust::analyze_rust_licenses_with_no_local,
+    rust::analyze_rust_licenses_with_metadata,
 };
 use crate::languages::{Language, CPP_PATHS, C_PATHS, DOTNET_PATHS, PYTHON_PATHS, R_PATHS};
 use crate::licenses::{
@@ -25,7 +25,7 @@ struct ProjectRoot {
 
 /// Find project files only in the root directory (not recursive)
 fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRoot>> {
-    let mut project_roots = Vec::new();
+    let mut project_roots: Vec<ProjectRoot> = Vec::new();
     let root = root_path.as_ref();
 
     log(
@@ -56,6 +56,22 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> FeludaResult<Vec<ProjectRo
                         project_type
                     ),
                 );
+
+                // Several markers can map to the same language (e.g. go.mod and go.work). Keep
+                // one entry per language per directory; analyzers handle workspace resolution.
+                let already_seen = project_roots.iter().any(|existing| {
+                    existing.path == root
+                        && std::mem::discriminant(&existing.project_type)
+                            == std::mem::discriminant(&project_type)
+                });
+                if already_seen {
+                    log(
+                        LogLevel::Info,
+                        &format!("Skipping duplicate language entry for: {}", path.display()),
+                    );
+                    continue;
+                }
+
                 project_roots.push(ProjectRoot {
                     path: root.to_path_buf(),
                     project_type,
@@ -396,12 +412,15 @@ fn parse_dependencies(
                             LogLevel::Info,
                             &format!("Found {} packages in Rust project", metadata.packages.len()),
                         );
+                        let workspace_size = metadata.workspace_members.len();
                         indicator.update_progress(&format!(
-                            "found {} packages",
-                            metadata.packages.len()
+                            "found {} packages ({} workspace member{})",
+                            metadata.packages.len(),
+                            workspace_size,
+                            if workspace_size == 1 { "" } else { "s" }
                         ));
 
-                        analyze_rust_licenses_with_no_local(metadata.packages, no_local)
+                        analyze_rust_licenses_with_metadata(metadata, config, no_local)
                     }
                     Err(err) => {
                         log(
@@ -434,23 +453,38 @@ fn parse_dependencies(
                 }
             }
             Language::Go(_) => {
-                let project_path = Path::new(project_path).join("go.mod");
-                log(
-                    LogLevel::Info,
-                    &format!("Parsing Go project: {}", project_path.display()),
-                );
+                let go_work_path = Path::new(project_path).join("go.work");
+                if go_work_path.exists() {
+                    log(
+                        LogLevel::Info,
+                        &format!("Parsing Go workspace: {}", go_work_path.display()),
+                    );
+                    indicator.update_progress("analyzing go.work");
 
-                indicator.update_progress("analyzing go.mod");
+                    let deps =
+                        crate::languages::go::analyze_go_workspace_licenses(project_path, config);
+                    indicator.update_progress(&format!("found {} dependencies", deps.len()));
+                    deps
+                } else {
+                    let project_path = Path::new(project_path).join("go.mod");
+                    log(
+                        LogLevel::Info,
+                        &format!("Parsing Go project: {}", project_path.display()),
+                    );
 
-                match project_path.to_str() {
-                    Some(path_str) => {
-                        let deps = analyze_go_licenses(path_str, config);
-                        indicator.update_progress(&format!("found {} dependencies", deps.len()));
-                        deps
-                    }
-                    None => {
-                        log(LogLevel::Error, "Failed to convert Go path to string");
-                        Vec::new()
+                    indicator.update_progress("analyzing go.mod");
+
+                    match project_path.to_str() {
+                        Some(path_str) => {
+                            let deps = analyze_go_licenses(path_str, config);
+                            indicator
+                                .update_progress(&format!("found {} dependencies", deps.len()));
+                            deps
+                        }
+                        None => {
+                            log(LogLevel::Error, "Failed to convert Go path to string");
+                            Vec::new()
+                        }
                     }
                 }
             }
@@ -856,5 +890,39 @@ mod tests {
         assert!(result.is_ok());
         let licenses = result.unwrap();
         assert!(licenses.is_empty());
+    }
+
+    #[test]
+    fn test_find_project_roots_dedupes_go_workspace_markers() {
+        // Both go.mod and go.work in the same directory should produce a single Go entry,
+        // not two — the analyzer decides which strategy to use.
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::write(root.join("go.mod"), "module example/root\n").unwrap();
+        std::fs::write(root.join("go.work"), "go 1.22\n\nuse ./svc\n").unwrap();
+
+        let result = find_project_roots(root.to_str().unwrap()).unwrap();
+        let go_count = result
+            .iter()
+            .filter(|r| {
+                std::mem::discriminant(&r.project_type)
+                    == std::mem::discriminant(&Language::Go("go.mod"))
+            })
+            .count();
+        assert_eq!(go_count, 1, "expected exactly one Go project root entry");
+    }
+
+    #[test]
+    fn test_find_project_roots_finds_go_work_alone() {
+        // A go.work without a sibling go.mod should still register a Go project root.
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::write(temp.path().join("go.work"), "go 1.22\n\nuse ./svc\n").unwrap();
+
+        let result = find_project_roots(temp.path().to_str().unwrap()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            std::mem::discriminant(&result[0].project_type),
+            std::mem::discriminant(&Language::Go("go.work"))
+        );
     }
 }

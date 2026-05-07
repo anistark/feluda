@@ -93,6 +93,51 @@ Feluda clones the repository into a temporary location, performs the scan, and r
 
 ----
 
+Scan a Workspace or Monorepo
+----------------------------
+
+Feluda automatically detects multi-package projects and produces one unified
+report covering every sub-project, so you don't have to run separate scans.
+
+**Cargo workspaces** — point Feluda at the workspace root (the directory
+containing the ``[workspace]`` ``Cargo.toml``). Workspace members themselves
+are excluded from the report; their transitive dependencies are attributed to
+the member that pulls them in.
+
+**npm/yarn/pnpm workspaces** — point Feluda at the directory containing the
+root ``package.json`` with the ``workspaces`` field. Each dependency is
+attributed to the workspace package(s) that declare it.
+
+**Go workspaces** — point Feluda at the directory containing ``go.work``.
+Feluda parses the ``use`` directives, scans each member module, and merges
+the results.
+
+.. code-block:: bash
+
+   feluda --path /path/to/monorepo
+
+In a monorepo scan, Feluda's standard table grows a *Workspace breakdown*
+section listing the dependency count per sub-project:
+
+.. code-block:: text
+
+   📦 Total dependencies scanned: 142
+
+   🧩 Workspace breakdown:
+     • 98 api
+     • 76 worker
+     • 42 cli
+
+In ``--verbose`` mode, the table also gains a **Sub-project** column showing
+which workspace member(s) pulled in each dependency. Shared dependencies list
+all owners separated by commas.
+
+In ``--json`` and ``--yaml`` output, every dependency carries an optional
+``sub_project`` field. The field is omitted entirely for non-workspace scans
+to keep the schema stable.
+
+----
+
 Control Local vs Remote Detection
 ---------------------------------
 

@@ -223,6 +223,7 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                                         Some(l) => crate::licenses::get_osi_status(l),
                                         None => crate::licenses::OsiStatus::Unknown,
                                     },
+                                    sub_project: None,
                                 });
                             }
                         } else {
@@ -322,6 +323,7 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                             Some(l) => crate::licenses::get_osi_status(l),
                             None => crate::licenses::OsiStatus::Unknown,
                         },
+                        sub_project: None,
                     });
                 }
 

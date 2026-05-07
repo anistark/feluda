@@ -286,6 +286,8 @@ fn print_verbose_table(
 ) {
     log(LogLevel::Info, "Printing verbose table");
 
+    let has_workspace = license_info.iter().any(|i| i.sub_project().is_some());
+
     let mut headers = vec![
         "Name".to_string(),
         "Version".to_string(),
@@ -300,6 +302,10 @@ fn print_verbose_table(
 
     // Always add OSI status column in verbose mode
     headers.push("OSI Status".to_string());
+
+    if has_workspace {
+        headers.push("Sub-project".to_string());
+    }
 
     let mut formatter = TableFormatter::new(headers);
 
@@ -320,6 +326,10 @@ fn print_verbose_table(
 
             // Always add OSI status in verbose mode
             row.push(info.osi_status().to_string());
+
+            if has_workspace {
+                row.push(info.sub_project().unwrap_or("-").to_string());
+            }
 
             row
         })
@@ -461,6 +471,8 @@ fn print_summary_table(
         format!("Total dependencies scanned: {total_packages}").bold()
     );
 
+    print_workspace_breakdown(license_info);
+
     if !restrictive_licenses.is_empty() {
         print_restrictive_licenses_table(&restrictive_licenses);
     } else {
@@ -480,6 +492,35 @@ fn print_summary_table(
             "\n{}\n",
             "✅ No incompatible licenses found! 🎉".green().bold()
         );
+    }
+}
+
+/// Print a breakdown of dep counts per workspace member when the scan covers a monorepo.
+/// Silent for single-project scans.
+fn print_workspace_breakdown(license_info: &[LicenseInfo]) {
+    let mut by_member: HashMap<String, usize> = HashMap::new();
+    for info in license_info {
+        if let Some(label) = info.sub_project() {
+            for member in label.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                *by_member.entry(member.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    if by_member.is_empty() {
+        return;
+    }
+
+    let mut entries: Vec<(String, usize)> = by_member.into_iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    println!(
+        "\n{} {}",
+        "🧩".bold(),
+        "Workspace breakdown:".bold().underline()
+    );
+    for (member, count) in entries {
+        println!("  • {} {}", count.to_string().cyan().bold(), member);
     }
 }
 
@@ -1032,6 +1073,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "crate2".to_string(),
@@ -1040,6 +1082,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "crate3".to_string(),
@@ -1048,6 +1091,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "crate4".to_string(),
@@ -1056,6 +1100,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::OsiStatus::Unknown,
+                sub_project: None,
             },
         ]
     }
@@ -1069,6 +1114,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "crate2".to_string(),
@@ -1077,6 +1123,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ]
     }
@@ -1410,6 +1457,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1418,6 +1466,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1449,6 +1498,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "bad_package".to_string(),
@@ -1457,6 +1507,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1488,6 +1539,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "restrictive_package".to_string(),
@@ -1496,6 +1548,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1526,6 +1579,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let config = ReportConfig::new(
@@ -1546,6 +1600,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let config = ReportConfig::new(
@@ -1566,6 +1621,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let config = ReportConfig::new(
@@ -1595,6 +1651,7 @@ mod tests {
             is_restrictive: true,
             compatibility: LicenseCompatibility::Incompatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let config = ReportConfig::new(
@@ -1624,6 +1681,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         output_github_format(
@@ -1642,6 +1700,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         output_jenkins_format(
@@ -1661,6 +1720,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "restrictive2".to_string(),
@@ -1669,6 +1729,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1713,5 +1774,64 @@ mod tests {
         assert!(debug_str.contains("json: true"));
         assert!(debug_str.contains("yaml: false"));
         assert!(debug_str.contains("Github"));
+    }
+
+    #[test]
+    fn test_workspace_breakdown_no_panic_on_empty() {
+        // Pure smoke test: with no sub_project entries, the breakdown printer should
+        // silently no-op rather than print or panic.
+        let data: Vec<LicenseInfo> = vec![LicenseInfo {
+            name: "foo".into(),
+            version: "1.0".into(),
+            license: Some("MIT".into()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
+        }];
+        print_workspace_breakdown(&data);
+    }
+
+    #[test]
+    fn test_workspace_breakdown_prints_per_member() {
+        // Smoke test for the workspace breakdown path; just ensure it runs without panic
+        // when sub_project values are populated, including comma-joined multi-member values.
+        let data = vec![
+            LicenseInfo {
+                name: "shared-dep".into(),
+                version: "1.0".into(),
+                license: Some("MIT".into()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: Some("api, worker".into()),
+            },
+            LicenseInfo {
+                name: "api-only".into(),
+                version: "2.0".into(),
+                license: Some("Apache-2.0".into()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: Some("api".into()),
+            },
+        ];
+        print_workspace_breakdown(&data);
+    }
+
+    #[test]
+    fn test_verbose_table_includes_subproject_column_when_set() {
+        // Verbose table renders Sub-project column conditionally on data; just exercise
+        // the rendering paths without crashing.
+        let data = vec![LicenseInfo {
+            name: "hyper".into(),
+            version: "1.0".into(),
+            license: Some("MIT".into()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: Some("api".into()),
+        }];
+        print_verbose_table(&data, false, Some("MIT"));
     }
 }
