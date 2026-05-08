@@ -86,7 +86,7 @@ Feluda currently supports projects written in these ecosystems:
      - Go modules and Go workspaces (``go.work``)
    * - Python
      - ``requirements.txt``, ``Pipfile``, ``pyproject.toml``
-     - pip, pipenv, poetry
+     - pip, pipenv, poetry; uv workspaces supported
    * - JavaScript / TypeScript
      - ``package.json``, ``package-lock.json``
      - npm, pnpm, yarn, bun; npm/yarn/pnpm workspaces supported

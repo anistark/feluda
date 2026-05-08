@@ -63,10 +63,11 @@ Get early warnings about incompatibilities before they affect your release.
 Workspace & Monorepo Support
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Detects Cargo workspaces, npm/yarn/pnpm workspaces, and Go workspaces
-(``go.work``) and produces a single unified report across every sub-project.
-Each dependency is attributed to the workspace member(s) that pull it in, so
-you can see at a glance which package introduced a restrictive license.
+Detects Cargo workspaces, npm/yarn/pnpm workspaces, Go workspaces
+(``go.work``), and Python uv workspaces (``[tool.uv.workspace]``) and
+produces a single unified report across every sub-project. Each dependency
+is attributed to the workspace member(s) that pull it in, so you can see at
+a glance which package introduced a restrictive license.
 
 ----
 

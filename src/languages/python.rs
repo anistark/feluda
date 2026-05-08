@@ -1,9 +1,9 @@
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use toml::Value as TomlValue;
 
@@ -140,92 +140,74 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
 
     // Check if it's a pyproject.toml file
     if package_file_path.ends_with("pyproject.toml") {
+        let project_root = Path::new(package_file_path)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let attribution = build_uv_workspace_attribution(&project_root, package_file_path);
+        if !attribution.is_empty() {
+            log(
+                LogLevel::Info,
+                &format!(
+                    "Built uv workspace attribution for {} unique deps across members",
+                    attribution.len()
+                ),
+            );
+        }
+
         match fs::read_to_string(package_file_path) {
             Ok(content) => match toml::from_str::<TomlValue>(&content) {
                 Ok(toml_config) => {
-                    if let Some(project) = toml_config.as_table().and_then(|t| t.get("project")) {
-                        if let Some(deps) = project
-                            .as_table()
-                            .and_then(|t| t.get("dependencies"))
-                            .and_then(|d| d.as_array())
-                        {
-                            log(
-                                LogLevel::Info,
-                                &format!("Found {} Python dependencies", deps.len()),
-                            );
-                            log_debug("Dependencies", deps);
+                    let mut direct_deps = extract_pep508_deps_from_toml(&toml_config);
+                    let is_workspace = is_uv_workspace_root(&toml_config);
 
-                            // First collect direct dependencies
-                            let mut direct_deps = Vec::new();
-                            for dep in deps {
-                                if let Some(dep_str) = dep.as_str() {
-                                    let (name, version) = if let Some((n, v)) = dep_str
-                                        .split_once("==")
-                                        .or_else(|| dep_str.split_once(">="))
-                                        .or_else(|| dep_str.split_once(">"))
-                                        .or_else(|| dep_str.split_once("~="))
-                                        .or_else(|| dep_str.split_once("<="))
-                                        .or_else(|| dep_str.split_once("<"))
-                                    {
-                                        (n.trim(), v.trim())
-                                    } else {
-                                        (dep_str.trim(), "latest")
-                                    };
-
-                                    direct_deps.push((name.to_string(), version.to_string()));
-                                }
+                    if is_workspace {
+                        let member_dirs =
+                            collect_uv_workspace_member_dirs(&project_root, &toml_config);
+                        log(
+                            LogLevel::Info,
+                            &format!(
+                                "uv workspace detected; merging deps from {} members",
+                                member_dirs.len()
+                            ),
+                        );
+                        for member_dir in &member_dirs {
+                            let member_pyproject = member_dir.join("pyproject.toml");
+                            if !member_pyproject.exists() {
+                                continue;
                             }
-
-                            // Try to resolve all dependencies (direct + transitive) using uv or fallback to PyPI
-                            let max_depth = config.dependencies.max_depth;
-                            log(
-                                LogLevel::Info,
-                                &format!("Using max dependency depth: {max_depth}"),
-                            );
-                            let all_deps = resolve_python_dependencies(
-                                &direct_deps,
-                                package_file_path,
-                                max_depth,
-                            );
-
-                            // Process all resolved dependencies
-                            for (name, version) in all_deps {
-                                log(
-                                    LogLevel::Info,
-                                    &format!("Processing dependency: {name} ({version})"),
-                                );
-
-                                let license_result =
-                                    fetch_license_for_python_dependency(&name, &version);
-                                let license = Some(license_result);
-                                let is_restrictive = is_license_restrictive(
-                                    &license,
-                                    &known_licenses,
-                                    config.strict,
-                                );
-
-                                if is_restrictive {
+                            if let Ok(c) = fs::read_to_string(&member_pyproject) {
+                                if let Ok(member_toml) = toml::from_str::<TomlValue>(&c) {
+                                    let extra = extract_pep508_deps_from_toml(&member_toml);
                                     log(
-                                        LogLevel::Warn,
+                                        LogLevel::Info,
                                         &format!(
-                                            "Restrictive license found: {license:?} for {name}"
+                                            "Member {} contributed {} direct deps",
+                                            member_dir.display(),
+                                            extra.len()
                                         ),
                                     );
+                                    direct_deps.extend(extra);
                                 }
-
-                                licenses.push(LicenseInfo {
-                                    name,
-                                    version,
-                                    license: license.clone(),
-                                    is_restrictive,
-                                    compatibility: LicenseCompatibility::Unknown,
-                                    osi_status: match &license {
-                                        Some(l) => crate::licenses::get_osi_status(l),
-                                        None => crate::licenses::OsiStatus::Unknown,
-                                    },
-                                    sub_project: None,
-                                });
                             }
+                        }
+
+                        let mut seen = HashSet::new();
+                        direct_deps.retain(|(n, _)| seen.insert(n.clone()));
+                    }
+
+                    if direct_deps.is_empty() {
+                        if is_workspace {
+                            log(LogLevel::Warn, "uv workspace has no member dependencies");
+                        } else if toml_config
+                            .as_table()
+                            .and_then(|t| t.get("project"))
+                            .is_none()
+                        {
+                            log(
+                                LogLevel::Warn,
+                                "No 'project' section found in pyproject.toml",
+                            );
                         } else {
                             log(
                                 LogLevel::Warn,
@@ -234,9 +216,57 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                         }
                     } else {
                         log(
-                            LogLevel::Warn,
-                            "No 'project' section found in pyproject.toml",
+                            LogLevel::Info,
+                            &format!("Found {} direct Python dependencies", direct_deps.len()),
                         );
+                        log_debug("Direct dependencies", &direct_deps);
+
+                        // Try to resolve all dependencies (direct + transitive) using uv or fallback to PyPI
+                        let max_depth = config.dependencies.max_depth;
+                        log(
+                            LogLevel::Info,
+                            &format!("Using max dependency depth: {max_depth}"),
+                        );
+                        let all_deps =
+                            resolve_python_dependencies(&direct_deps, package_file_path, max_depth);
+
+                        // Process all resolved dependencies
+                        for (name, version) in all_deps {
+                            log(
+                                LogLevel::Info,
+                                &format!("Processing dependency: {name} ({version})"),
+                            );
+
+                            let license_result =
+                                fetch_license_for_python_dependency(&name, &version);
+                            let license = Some(license_result);
+                            let is_restrictive =
+                                is_license_restrictive(&license, &known_licenses, config.strict);
+
+                            if is_restrictive {
+                                log(
+                                    LogLevel::Warn,
+                                    &format!("Restrictive license found: {license:?} for {name}"),
+                                );
+                            }
+
+                            let sub_project = attribution.get(&name).map(|members| {
+                                members.iter().cloned().collect::<Vec<_>>().join(", ")
+                            });
+
+                            licenses.push(LicenseInfo {
+                                name,
+                                version,
+                                license: license.clone(),
+                                is_restrictive,
+                                compatibility: LicenseCompatibility::Unknown,
+                                osi_status: match &license {
+                                    Some(l) => crate::licenses::get_osi_status(l),
+                                    None => crate::licenses::OsiStatus::Unknown,
+                                },
+                                sub_project,
+                            });
+                        }
                     }
                 }
                 Err(err) => {
@@ -1007,6 +1037,207 @@ fn parse_version_constraint(constraint: &str) -> Option<(&str, &str)> {
     }
 }
 
+/// Extract direct deps from a parsed pyproject.toml's `[project] dependencies` array.
+/// Returns (name, version) pairs; version is "latest" when no constraint is present.
+fn extract_pep508_deps_from_toml(toml_config: &TomlValue) -> Vec<(String, String)> {
+    let mut deps = Vec::new();
+    if let Some(arr) = toml_config
+        .as_table()
+        .and_then(|t| t.get("project"))
+        .and_then(|p| p.as_table())
+        .and_then(|t| t.get("dependencies"))
+        .and_then(|d| d.as_array())
+    {
+        for dep in arr {
+            if let Some(dep_str) = dep.as_str() {
+                deps.push(split_pep508_dep(dep_str));
+            }
+        }
+    }
+    deps
+}
+
+fn split_pep508_dep(dep_str: &str) -> (String, String) {
+    if let Some((n, v)) = dep_str
+        .split_once("==")
+        .or_else(|| dep_str.split_once(">="))
+        .or_else(|| dep_str.split_once(">"))
+        .or_else(|| dep_str.split_once("~="))
+        .or_else(|| dep_str.split_once("<="))
+        .or_else(|| dep_str.split_once("<"))
+    {
+        (n.trim().to_string(), v.trim().to_string())
+    } else {
+        (dep_str.trim().to_string(), "latest".to_string())
+    }
+}
+
+fn is_uv_workspace_root(toml_config: &TomlValue) -> bool {
+    toml_config
+        .as_table()
+        .and_then(|t| t.get("tool"))
+        .and_then(|t| t.as_table())
+        .and_then(|t| t.get("uv"))
+        .and_then(|u| u.as_table())
+        .and_then(|u| u.get("workspace"))
+        .is_some()
+}
+
+/// Expand a `[tool.uv.workspace]` block into a list of member directories.
+///
+/// Honors the `members` glob list and the optional `exclude` patterns. The exclude
+/// match is intentionally simple — it strips a trailing `/*` and compares the prefix.
+fn collect_uv_workspace_member_dirs(project_root: &Path, toml_config: &TomlValue) -> Vec<PathBuf> {
+    let workspace = match toml_config
+        .as_table()
+        .and_then(|t| t.get("tool"))
+        .and_then(|t| t.get("uv"))
+        .and_then(|u| u.get("workspace"))
+        .and_then(|w| w.as_table())
+    {
+        Some(w) => w,
+        None => return Vec::new(),
+    };
+
+    let members: Vec<&str> = workspace
+        .get("members")
+        .and_then(|m| m.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+
+    let exclude: Vec<&str> = workspace
+        .get("exclude")
+        .and_then(|m| m.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+
+    let mut result = Vec::new();
+    for pattern in members {
+        for dir in expand_uv_member_pattern(project_root, pattern) {
+            if !is_uv_member_excluded(&dir, project_root, &exclude) {
+                result.push(dir);
+            }
+        }
+    }
+    result
+}
+
+fn expand_uv_member_pattern(project_root: &Path, pattern: &str) -> Vec<PathBuf> {
+    let mut result = Vec::new();
+    if let Some(stripped) = pattern.strip_suffix("/*") {
+        let parent = project_root.join(stripped);
+        if parent.is_dir() {
+            if let Ok(entries) = fs::read_dir(&parent) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        result.push(p);
+                    }
+                }
+            }
+        }
+    } else {
+        let p = project_root.join(pattern);
+        if p.is_dir() {
+            result.push(p);
+        }
+    }
+    result
+}
+
+fn is_uv_member_excluded(dir: &Path, project_root: &Path, exclude: &[&str]) -> bool {
+    let rel = match dir.strip_prefix(project_root) {
+        Ok(r) => r.to_string_lossy().replace('\\', "/"),
+        Err(_) => return false,
+    };
+    for pat in exclude {
+        let prefix = pat.strip_suffix("/*").unwrap_or(pat);
+        if rel == prefix || rel.starts_with(&format!("{prefix}/")) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Build a map from dep name -> set of workspace member names that declare it.
+///
+/// Returns an empty map for non-workspace pyproject.toml files. The root project's
+/// own deps are attributed to its `[project] name` (or "root" if unnamed).
+fn build_uv_workspace_attribution(
+    project_root: &Path,
+    pyproject_path: &str,
+) -> HashMap<String, BTreeSet<String>> {
+    let mut attribution: HashMap<String, BTreeSet<String>> = HashMap::new();
+
+    let root_content = match fs::read_to_string(pyproject_path) {
+        Ok(c) => c,
+        Err(_) => return attribution,
+    };
+    let root_toml: TomlValue = match toml::from_str(&root_content) {
+        Ok(v) => v,
+        Err(_) => return attribution,
+    };
+
+    if !is_uv_workspace_root(&root_toml) {
+        return attribution;
+    }
+
+    let root_name = root_toml
+        .as_table()
+        .and_then(|t| t.get("project"))
+        .and_then(|p| p.as_table())
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| "root".to_string());
+    record_uv_direct_deps(&root_toml, &root_name, &mut attribution);
+
+    for member_dir in collect_uv_workspace_member_dirs(project_root, &root_toml) {
+        let member_pyproject = member_dir.join("pyproject.toml");
+        if !member_pyproject.exists() {
+            continue;
+        }
+        let content = match fs::read_to_string(&member_pyproject) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let member_toml: TomlValue = match toml::from_str(&content) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let member_name = member_toml
+            .as_table()
+            .and_then(|t| t.get("project"))
+            .and_then(|p| p.as_table())
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                member_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            });
+        record_uv_direct_deps(&member_toml, &member_name, &mut attribution);
+    }
+
+    attribution
+}
+
+fn record_uv_direct_deps(
+    toml_config: &TomlValue,
+    member_name: &str,
+    attribution: &mut HashMap<String, BTreeSet<String>>,
+) {
+    for (dep_name, _) in extract_pep508_deps_from_toml(toml_config) {
+        attribution
+            .entry(dep_name)
+            .or_default()
+            .insert(member_name.to_string());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1229,5 +1460,182 @@ mod tests {
 
         let marker2 = EnvironmentMarker::parse("sys_platform == 'darwin'");
         assert!(marker2.unwrap().applies_to_environment());
+    }
+
+    #[test]
+    fn test_split_pep508_dep_variants() {
+        assert_eq!(
+            split_pep508_dep("fastapi==0.115.0"),
+            ("fastapi".to_string(), "0.115.0".to_string())
+        );
+        assert_eq!(
+            split_pep508_dep("click>=8.0"),
+            ("click".to_string(), "8.0".to_string())
+        );
+        assert_eq!(
+            split_pep508_dep("requests~=2.31.0"),
+            ("requests".to_string(), "2.31.0".to_string())
+        );
+        assert_eq!(
+            split_pep508_dep("celery"),
+            ("celery".to_string(), "latest".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_pep508_deps_from_toml() {
+        let toml_content = r#"
+[project]
+name = "demo"
+dependencies = ["fastapi==0.115.0", "click>=8.0", "no-version"]
+"#;
+        let parsed: TomlValue = toml::from_str(toml_content).unwrap();
+        let deps = extract_pep508_deps_from_toml(&parsed);
+        assert_eq!(deps.len(), 3);
+        assert!(deps.iter().any(|(n, v)| n == "fastapi" && v == "0.115.0"));
+        assert!(deps.iter().any(|(n, v)| n == "click" && v == "8.0"));
+        assert!(deps.iter().any(|(n, v)| n == "no-version" && v == "latest"));
+    }
+
+    #[test]
+    fn test_is_uv_workspace_root_detects_workspace() {
+        let with_workspace = toml::from_str::<TomlValue>(
+            r#"
+[project]
+name = "monorepo"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+"#,
+        )
+        .unwrap();
+        assert!(is_uv_workspace_root(&with_workspace));
+
+        let without_workspace = toml::from_str::<TomlValue>(
+            r#"
+[project]
+name = "single"
+dependencies = []
+"#,
+        )
+        .unwrap();
+        assert!(!is_uv_workspace_root(&without_workspace));
+    }
+
+    #[test]
+    fn test_collect_uv_workspace_member_dirs_globs_and_excludes() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        for sub in &[
+            "services/api",
+            "services/worker",
+            "services/legacy",
+            "packages/shared",
+        ] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+
+        let toml_config: TomlValue = toml::from_str(
+            r#"
+[project]
+name = "monorepo"
+
+[tool.uv.workspace]
+members = ["services/*", "packages/*"]
+exclude = ["services/legacy"]
+"#,
+        )
+        .unwrap();
+
+        let dirs = collect_uv_workspace_member_dirs(root, &toml_config);
+        let names: BTreeSet<String> = dirs
+            .iter()
+            .filter_map(|p| p.file_name().and_then(|n| n.to_str()).map(String::from))
+            .collect();
+
+        assert!(names.contains("api"));
+        assert!(names.contains("worker"));
+        assert!(names.contains("shared"));
+        assert!(
+            !names.contains("legacy"),
+            "legacy was excluded but still surfaced"
+        );
+    }
+
+    #[test]
+    fn test_build_uv_workspace_attribution_root_and_members() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        std::fs::write(
+            root.join("pyproject.toml"),
+            r#"
+[project]
+name = "monorepo-root"
+dependencies = ["click>=8.0"]
+
+[tool.uv.workspace]
+members = ["services/*"]
+"#,
+        )
+        .unwrap();
+
+        let api = root.join("services/api");
+        std::fs::create_dir_all(&api).unwrap();
+        std::fs::write(
+            api.join("pyproject.toml"),
+            r#"
+[project]
+name = "api-service"
+dependencies = ["fastapi==0.115.0", "click>=8.0"]
+"#,
+        )
+        .unwrap();
+
+        let worker = root.join("services/worker");
+        std::fs::create_dir_all(&worker).unwrap();
+        std::fs::write(
+            worker.join("pyproject.toml"),
+            r#"
+[project]
+name = "worker-service"
+dependencies = ["celery>=5.0"]
+"#,
+        )
+        .unwrap();
+
+        let attribution =
+            build_uv_workspace_attribution(root, root.join("pyproject.toml").to_str().unwrap());
+
+        let click = attribution.get("click").expect("click attributed");
+        assert!(click.contains("monorepo-root"));
+        assert!(click.contains("api-service"));
+        assert_eq!(click.len(), 2);
+
+        let fastapi = attribution.get("fastapi").expect("fastapi attributed");
+        assert_eq!(fastapi.iter().next().unwrap(), "api-service");
+
+        let celery = attribution.get("celery").expect("celery attributed");
+        assert_eq!(celery.iter().next().unwrap(), "worker-service");
+    }
+
+    #[test]
+    fn test_build_uv_workspace_attribution_returns_empty_for_non_workspace() {
+        let temp = TempDir::new().unwrap();
+        std::fs::write(
+            temp.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "single"
+dependencies = ["click>=8.0"]
+"#,
+        )
+        .unwrap();
+
+        let attribution = build_uv_workspace_attribution(
+            temp.path(),
+            temp.path().join("pyproject.toml").to_str().unwrap(),
+        );
+        assert!(attribution.is_empty());
     }
 }

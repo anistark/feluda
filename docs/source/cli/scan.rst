@@ -112,6 +112,11 @@ attributed to the workspace package(s) that declare it.
 Feluda parses the ``use`` directives, scans each member module, and merges
 the results.
 
+**Python uv workspaces** — point Feluda at the directory containing the root
+``pyproject.toml`` with a ``[tool.uv.workspace]`` section. Feluda expands the
+``members`` glob list (honoring ``exclude``), reads each member's
+``pyproject.toml``, and attributes every declared dependency to its member.
+
 .. code-block:: bash
 
    feluda --path /path/to/monorepo
