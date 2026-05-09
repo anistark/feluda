@@ -47,6 +47,7 @@ impl Language {
             "Cargo.toml" => Some(Language::Rust("Cargo.toml")),
             "package.json" => Some(Language::Node("package.json")),
             "go.mod" => Some(Language::Go("go.mod")),
+            "go.work" => Some(Language::Go("go.work")),
             "vcpkg.json" => Some(Language::Cpp(&CPP_PATHS[..])),
             "conanfile.txt" | "conanfile.py" => Some(Language::Cpp(&CPP_PATHS[..])),
             "MODULE.bazel" => Some(Language::Cpp(&CPP_PATHS[..])),

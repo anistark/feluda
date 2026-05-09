@@ -104,6 +104,7 @@ pub fn analyze_dotnet_licenses(project_path: &str, config: &FeludaConfig) -> Vec
                 Some(l) => crate::licenses::get_osi_status(l),
                 None => crate::licenses::OsiStatus::Unknown,
             },
+            sub_project: None,
         });
     }
 

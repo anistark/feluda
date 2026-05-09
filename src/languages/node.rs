@@ -318,6 +318,17 @@ pub fn analyze_js_licenses_with_config(
         }
     };
 
+    let attribution = build_npm_workspace_attribution(project_root, package_json_path);
+    if !attribution.is_empty() {
+        log(
+            LogLevel::Info,
+            &format!(
+                "Built npm workspace attribution for {} unique deps across members",
+                attribution.len()
+            ),
+        );
+    }
+
     // Process dependencies in parallel
     all_dependencies
         .par_iter()
@@ -333,6 +344,10 @@ pub fn analyze_js_licenses_with_config(
                 );
             }
 
+            let sub_project = attribution
+                .get(name)
+                .map(|members| members.iter().cloned().collect::<Vec<_>>().join(", "));
+
             LicenseInfo {
                 name: name.to_string(),
                 version: clean_version_string(version),
@@ -340,9 +355,132 @@ pub fn analyze_js_licenses_with_config(
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::get_osi_status(&license),
+                sub_project,
             }
         })
         .collect()
+}
+
+/// Build a map from dep name -> set of workspace member names that declare it.
+///
+/// Returns an empty map for non-workspace projects. The root package's own deps are
+/// attributed to the root package name (or "root" if unnamed).
+fn build_npm_workspace_attribution(
+    project_root: &Path,
+    package_json_path: &str,
+) -> HashMap<String, std::collections::BTreeSet<String>> {
+    let mut attribution: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
+
+    let root_content = match fs::read_to_string(package_json_path) {
+        Ok(c) => c,
+        Err(_) => return attribution,
+    };
+    let root_json: Value = match serde_json::from_str(&root_content) {
+        Ok(v) => v,
+        Err(_) => return attribution,
+    };
+
+    let workspaces = match root_json.get("workspaces") {
+        Some(w) => w,
+        None => return attribution,
+    };
+
+    log(LogLevel::Info, "Building npm workspace attribution map");
+
+    let patterns: Vec<&str> = if let Some(arr) = workspaces.as_array() {
+        arr.iter().filter_map(|v| v.as_str()).collect()
+    } else if let Some(obj) = workspaces.as_object() {
+        obj.get("packages")
+            .and_then(|p| p.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default()
+    } else {
+        return attribution;
+    };
+
+    let root_name = root_json
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| "root".to_string());
+    record_direct_deps_from_json(&root_json, &root_name, &mut attribution);
+
+    for pattern in patterns {
+        for dir in expand_workspace_pattern(project_root, pattern) {
+            let pkg_json = dir.join("package.json");
+            if !pkg_json.exists() {
+                continue;
+            }
+            let content = match fs::read_to_string(&pkg_json) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let json: Value = match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let member_name = json
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .unwrap_or_else(|| {
+                    dir.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                });
+
+            record_direct_deps_from_json(&json, &member_name, &mut attribution);
+        }
+    }
+
+    attribution
+}
+
+fn record_direct_deps_from_json(
+    json: &Value,
+    member_name: &str,
+    attribution: &mut HashMap<String, std::collections::BTreeSet<String>>,
+) {
+    for key in [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "optionalDependencies",
+    ] {
+        if let Some(deps) = json.get(key).and_then(|v| v.as_object()) {
+            for dep_name in deps.keys() {
+                attribution
+                    .entry(dep_name.clone())
+                    .or_default()
+                    .insert(member_name.to_string());
+            }
+        }
+    }
+}
+
+fn expand_workspace_pattern(project_root: &Path, pattern: &str) -> Vec<PathBuf> {
+    let mut result = Vec::new();
+    if let Some(stripped) = pattern.strip_suffix("/*") {
+        let parent = project_root.join(stripped);
+        if parent.is_dir() {
+            if let Ok(entries) = fs::read_dir(&parent) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        result.push(p);
+                    }
+                }
+            }
+        }
+    } else {
+        let p = project_root.join(pattern);
+        if p.is_dir() {
+            result.push(p);
+        }
+    }
+    result
 }
 
 fn try_all_dependency_detection_methods(
@@ -2591,5 +2729,109 @@ mod tests {
 
         let result = get_license_from_local_license_file(temp_dir.path(), "test-pkg");
         assert_eq!(result, Some("BSD".to_string()));
+    }
+
+    #[test]
+    fn test_npm_workspace_attribution_array_form() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+
+        let root_pkg = serde_json::json!({
+            "name": "monorepo-root",
+            "workspaces": ["packages/*"],
+            "dependencies": { "lodash": "^4.0.0" }
+        });
+        fs::write(
+            root.join("package.json"),
+            serde_json::to_string(&root_pkg).unwrap(),
+        )
+        .unwrap();
+
+        let pkg_a = root.join("packages/api");
+        fs::create_dir_all(&pkg_a).unwrap();
+        fs::write(
+            pkg_a.join("package.json"),
+            serde_json::json!({
+                "name": "@org/api",
+                "dependencies": { "express": "^4.0.0", "lodash": "^4.0.0" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let pkg_b = root.join("packages/cli");
+        fs::create_dir_all(&pkg_b).unwrap();
+        fs::write(
+            pkg_b.join("package.json"),
+            serde_json::json!({
+                "name": "@org/cli",
+                "dependencies": { "yargs": "^17.0.0" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let attribution =
+            build_npm_workspace_attribution(root, root.join("package.json").to_str().unwrap());
+
+        let lodash = attribution.get("lodash").expect("lodash attributed");
+        assert!(lodash.contains("monorepo-root"));
+        assert!(lodash.contains("@org/api"));
+        assert_eq!(lodash.len(), 2);
+
+        let express = attribution.get("express").expect("express attributed");
+        assert_eq!(express.iter().next().unwrap(), "@org/api");
+
+        let yargs = attribution.get("yargs").expect("yargs attributed");
+        assert_eq!(yargs.iter().next().unwrap(), "@org/cli");
+    }
+
+    #[test]
+    fn test_npm_workspace_attribution_object_form() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(
+            root.join("package.json"),
+            serde_json::json!({
+                "name": "root",
+                "workspaces": { "packages": ["apps/*"] }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let app = root.join("apps/web");
+        fs::create_dir_all(&app).unwrap();
+        fs::write(
+            app.join("package.json"),
+            serde_json::json!({
+                "name": "web",
+                "devDependencies": { "vitest": "^1.0.0" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let attribution =
+            build_npm_workspace_attribution(root, root.join("package.json").to_str().unwrap());
+        let vitest = attribution.get("vitest").expect("vitest attributed");
+        assert_eq!(vitest.iter().next().unwrap(), "web");
+    }
+
+    #[test]
+    fn test_npm_workspace_attribution_no_workspaces() {
+        let temp = tempfile::TempDir::new().unwrap();
+        fs::write(
+            temp.path().join("package.json"),
+            r#"{"name": "single", "dependencies": {"foo": "1.0"}}"#,
+        )
+        .unwrap();
+
+        let attribution = build_npm_workspace_attribution(
+            temp.path(),
+            temp.path().join("package.json").to_str().unwrap(),
+        );
+        assert!(attribution.is_empty());
     }
 }

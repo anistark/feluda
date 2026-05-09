@@ -80,19 +80,19 @@ Feluda currently supports projects written in these ecosystems:
      - Notes
    * - Rust
      - ``Cargo.toml``, ``Cargo.lock``
-     - Cargo package manager
+     - Cargo package manager; Cargo workspaces supported
    * - Go
-     - ``go.mod``, ``go.sum``
-     - Go modules
+     - ``go.mod``, ``go.sum``, ``go.work``
+     - Go modules and Go workspaces (``go.work``)
    * - Python
      - ``requirements.txt``, ``Pipfile``, ``pyproject.toml``
-     - pip, pipenv, poetry
+     - pip, pipenv, poetry; uv workspaces supported
    * - JavaScript / TypeScript
      - ``package.json``, ``package-lock.json``
-     - npm, pnpm, yarn, bun
+     - npm, pnpm, yarn, bun; npm/yarn/pnpm workspaces supported
    * - Node.js
      - ``package.json``, ``package-lock.json``
-     - npm, pnpm, yarn, bun
+     - npm, pnpm, yarn, bun; npm/yarn/pnpm workspaces supported
    * - C
      - ``conanfile.txt``, ``conanfile.py``
      - Conan package manager
