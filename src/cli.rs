@@ -117,6 +117,20 @@ pub enum Commands {
         #[arg(long)]
         clear: bool,
     },
+    /// Initialise Feluda in the current project (generates .feluda.toml and .pre-commit-config.yaml)
+    Init {
+        /// Path to the local project directory
+        #[arg(short, long, default_value = "./")]
+        path: String,
+
+        /// Overwrite existing config files without prompting
+        #[arg(long)]
+        force: bool,
+
+        /// Skip creating or updating .pre-commit-config.yaml
+        #[arg(long)]
+        no_pre_commit: bool,
+    },
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -538,10 +552,7 @@ mod tests {
                 assert_eq!(language, Some("rust".to_string()));
                 assert_eq!(project_license, Some("MIT".to_string()));
             }
-            Commands::Sbom { .. } => {
-                panic!("Expected Generate command");
-            }
-            Commands::Cache { .. } => {
+            Commands::Sbom { .. } | Commands::Cache { .. } | Commands::Init { .. } => {
                 panic!("Expected Generate command");
             }
         }
@@ -588,10 +599,7 @@ mod tests {
                 assert_eq!(language, None);
                 assert_eq!(project_license, None);
             }
-            Commands::Sbom { .. } => {
-                panic!("Expected Generate command");
-            }
-            Commands::Cache { .. } => {
+            Commands::Sbom { .. } | Commands::Cache { .. } | Commands::Init { .. } => {
                 panic!("Expected Generate command");
             }
         }
