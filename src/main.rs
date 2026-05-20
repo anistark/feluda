@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod debug;
 mod generate;
+mod init;
 mod languages;
 mod licenses;
 mod parser;
@@ -16,6 +17,7 @@ use clap::Parser;
 use cli::{print_version_info, Cli, Commands};
 use debug::{log, log_debug, set_debug_mode, FeludaError, FeludaResult, LogLevel};
 use generate::handle_generate_command;
+use init::handle_init_command;
 use licenses::{
     detect_project_license, is_license_compatible, set_github_token, LicenseCompatibility,
 };
@@ -202,6 +204,14 @@ fn run() -> FeludaResult<()> {
             }
             Commands::Cache { clear } => {
                 handle_cache_command(clear)?;
+                Ok(())
+            }
+            Commands::Init {
+                path,
+                force,
+                no_pre_commit,
+            } => {
+                handle_init_command(path, force, no_pre_commit);
                 Ok(())
             }
         }
