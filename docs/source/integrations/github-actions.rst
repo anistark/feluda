@@ -120,6 +120,48 @@ Full workflow with compliance artifacts and SBOM generation:
 
 ----
 
+GitHub Advanced Security (SARIF)
+---------------------------------
+
+Surface license findings directly in the repository's **Security** tab using
+`GitHub Advanced Security <https://docs.github.com/en/code-security>`_ code scanning.
+
+.. code-block:: yaml
+
+   name: Feluda SARIF Scan
+   on:
+     push:
+       branches: [ main ]
+     pull_request:
+       branches: [ main ]
+
+   jobs:
+     sarif:
+       runs-on: ubuntu-latest
+       permissions:
+         security-events: write
+       steps:
+         - uses: actions/checkout@v4
+
+         - name: Run Feluda license scan
+           run: feluda --ci-format sarif --output-file results.sarif
+
+         - name: Upload SARIF to GitHub Advanced Security
+           uses: github/codeql-action/upload-sarif@v3
+           with:
+             sarif_file: results.sarif
+
+Feluda maps **restrictive** licenses to SARIF ``warning`` level and **incompatible**
+licenses (when a project license is specified) to ``error`` level. A clean scan still
+produces a valid SARIF file with an empty ``results`` array, so the upload step never
+needs to be skipped.
+
+.. tip::
+   Pass ``--project-license MIT`` (or your actual license) to enable incompatibility
+   detection and get ``error``-level findings alongside ``warning``-level ones.
+
+----
+
 GitHub Token Configuration
 --------------------------
 

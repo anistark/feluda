@@ -103,9 +103,11 @@ single-line summary.
 CI/CD Integration
 ^^^^^^^^^^^^^^^^^
 
-Integrates seamlessly with **GitHub Actions** and **Jenkins** to automate
-license compliance in your pipeline. Fail builds early when problematic
-licenses are detected.
+Integrates seamlessly with **GitHub Actions**, **Jenkins**, and **GitHub Advanced
+Security** to automate license compliance in your pipeline. Fail builds early when
+problematic licenses are detected. Use ``--ci-format sarif`` to emit
+`SARIF 2.1.0 <https://sarifweb.azurewebsites.net/>`_ output for upload to GitHub
+Advanced Security code scanning or the VS Code Problems panel.
 
 Verbose Analysis
 ^^^^^^^^^^^^^^^^
