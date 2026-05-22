@@ -129,6 +129,7 @@ Have a session to share? `Open a PR <https://github.com/anistark/feluda/edit/mai
    integrations/index
    integrations/github-actions
    integrations/jenkins
+   integrations/claude-code
 
 .. toctree::
    :maxdepth: 1

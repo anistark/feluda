@@ -114,6 +114,7 @@ Feluda is a single Rust binary with a Sphinx documentation site:
 | **Documentation** | Sphinx (RST) | `docs/` | User-facing documentation |
 | **Examples** | Multi-language | `examples/` | Test projects for each supported language |
 | **GitHub Action** | YAML | `action.yml` | CI/CD integration for GitHub |
+| **Claude Code Skill** | Markdown | `skills/feluda/SKILL.md` | Publishable skill for license checks in any project |
 
 ### Source Layout (`src/`)
 
@@ -374,6 +375,7 @@ feluda --debug                            # Enable debug logging
 | `action.yml` | GitHub Action definition |
 | `justfile` | All development task commands |
 | `.feluda.toml` | User configuration (restrictive overrides, ignores) |
+| `skills/feluda/SKILL.md` | Claude Code skill — install in any project to get auto license checks |
 
 ---
 
