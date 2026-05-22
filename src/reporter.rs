@@ -215,6 +215,16 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
     );
     log_debug("Filtered license data", &filtered_data);
 
+    // SARIF always produces output (empty results = clean scan), so bypass the early return.
+    if matches!(config.ci_format, Some(CiFormat::Sarif)) {
+        output_sarif_format(
+            &filtered_data,
+            config.output_file.as_deref(),
+            config.project_license.as_deref(),
+        );
+        return (has_restrictive, has_incompatible);
+    }
+
     if filtered_data.is_empty() {
         println!(
             "\n{}\n",
@@ -237,6 +247,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
                 config.output_file.as_deref(),
                 config.project_license.as_deref(),
             ),
+            CiFormat::Sarif => unreachable!("handled above"),
         }
     } else if config.json {
         // JSON output
@@ -974,6 +985,142 @@ fn output_jenkins_format(
     }
 }
 
+fn output_sarif_format(
+    license_info: &[LicenseInfo],
+    output_path: Option<&str>,
+    project_license: Option<&str>,
+) {
+    log(LogLevel::Info, "Generating SARIF 2.1.0 output");
+
+    let version = env!("CARGO_PKG_VERSION");
+
+    let mut rules = vec![serde_json::json!({
+        "id": "feluda/restrictive-license",
+        "name": "RestrictiveLicense",
+        "shortDescription": { "text": "Dependency has a restrictive license" },
+        "fullDescription": {
+            "text": "This dependency uses a license that may impose restrictions on how the software can be used, modified, or distributed."
+        },
+        "helpUri": "https://github.com/anistark/feluda",
+        "defaultConfiguration": { "level": "warning" }
+    })];
+
+    if project_license.is_some() {
+        rules.push(serde_json::json!({
+            "id": "feluda/incompatible-license",
+            "name": "IncompatibleLicense",
+            "shortDescription": { "text": "Dependency license is incompatible with the project license" },
+            "fullDescription": {
+                "text": "This dependency's license may be incompatible with your project's license, potentially creating legal issues."
+            },
+            "helpUri": "https://github.com/anistark/feluda",
+            "defaultConfiguration": { "level": "error" }
+        }));
+    }
+
+    let mut results: Vec<serde_json::Value> = Vec::new();
+
+    for info in license_info {
+        if *info.is_restrictive() {
+            results.push(serde_json::json!({
+                "ruleId": "feluda/restrictive-license",
+                "level": "warning",
+                "message": {
+                    "text": format!(
+                        "Dependency '{}@{}' has restrictive license: {}",
+                        info.name(), info.version(), info.get_license()
+                    )
+                },
+                "locations": []
+            }));
+
+            log(
+                LogLevel::Info,
+                &format!(
+                    "Added SARIF warning for restrictive license: {}",
+                    info.name()
+                ),
+            );
+        }
+
+        if let Some(proj_license) = project_license {
+            if info.compatibility == LicenseCompatibility::Incompatible {
+                results.push(serde_json::json!({
+                    "ruleId": "feluda/incompatible-license",
+                    "level": "error",
+                    "message": {
+                        "text": format!(
+                            "Dependency '{}@{}' has license {} which is incompatible with project license {}",
+                            info.name(), info.version(), info.get_license(), proj_license
+                        )
+                    },
+                    "locations": []
+                }));
+
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Added SARIF error for incompatible license: {}",
+                        info.name()
+                    ),
+                );
+            }
+        }
+    }
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "SARIF: {} rule(s), {} result(s)",
+            rules.len(),
+            results.len()
+        ),
+    );
+
+    let sarif = serde_json::json!({
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "feluda",
+                    "version": version,
+                    "informationUri": "https://github.com/anistark/feluda",
+                    "rules": rules
+                }
+            },
+            "results": results
+        }]
+    });
+
+    let output = match serde_json::to_string_pretty(&sarif) {
+        Ok(s) => s,
+        Err(err) => {
+            log_error("Failed to serialize SARIF output", &err);
+            println!("Error: Failed to generate SARIF output");
+            return;
+        }
+    };
+
+    if let Some(path) = output_path {
+        log(
+            LogLevel::Info,
+            &format!("Writing SARIF output to file: {path}"),
+        );
+        match fs::write(path, &output) {
+            Ok(_) => println!("SARIF output written to: {path}"),
+            Err(err) => {
+                log_error(&format!("Failed to write SARIF output file: {path}"), &err);
+                println!("Error: Failed to write SARIF output file");
+                println!("{output}");
+            }
+        }
+    } else {
+        log(LogLevel::Info, "Writing SARIF output to stdout");
+        println!("{output}");
+    }
+}
+
 // Add gist report function to reporter.rs
 fn print_gist_summary(
     license_info: &[LicenseInfo],
@@ -1670,6 +1817,147 @@ mod tests {
         let (has_restrictive, has_incompatible) = generate_report(data, config);
         assert!(has_restrictive);
         assert!(has_incompatible);
+    }
+
+    #[test]
+    fn test_sarif_output_format_to_file() {
+        let data = get_test_data();
+        let temp_dir = setup();
+        let output_path = temp_dir.path().join("results.sarif");
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            Some(CiFormat::Sarif),
+            Some(output_path.to_str().unwrap().to_string()),
+            Some("MIT".to_string()),
+            false,
+            None,
+        );
+
+        let result = generate_report(data, config);
+        assert_eq!(result, (true, true));
+
+        let content = fs::read_to_string(&output_path).expect("Failed to read SARIF output file");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&content).expect("SARIF output is not valid JSON");
+
+        assert_eq!(parsed["version"], "2.1.0");
+        assert!(parsed["$schema"].as_str().unwrap().contains("sarif-schema"));
+        let runs = parsed["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 1);
+        let driver = &runs[0]["tool"]["driver"];
+        assert_eq!(driver["name"], "feluda");
+        let results = runs[0]["results"].as_array().unwrap();
+        assert!(!results.is_empty());
+
+        let rule_ids: Vec<&str> = results
+            .iter()
+            .map(|r| r["ruleId"].as_str().unwrap())
+            .collect();
+        assert!(rule_ids.contains(&"feluda/restrictive-license"));
+        assert!(rule_ids.contains(&"feluda/incompatible-license"));
+    }
+
+    #[test]
+    fn test_sarif_output_clean_scan() {
+        let data = vec![LicenseInfo {
+            name: "clean-pkg".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
+        }];
+        let temp_dir = setup();
+        let output_path = temp_dir.path().join("clean.sarif");
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            Some(CiFormat::Sarif),
+            Some(output_path.to_str().unwrap().to_string()),
+            Some("MIT".to_string()),
+            false,
+            None,
+        );
+
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+        assert!(!has_restrictive);
+        assert!(!has_incompatible);
+
+        let content = fs::read_to_string(&output_path).expect("Failed to read SARIF output");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&content).expect("SARIF output is not valid JSON");
+
+        assert_eq!(parsed["version"], "2.1.0");
+        let results = parsed["runs"][0]["results"].as_array().unwrap();
+        assert!(
+            results.is_empty(),
+            "Clean scan should produce zero SARIF results"
+        );
+    }
+
+    #[test]
+    fn test_sarif_output_stdout() {
+        let data = get_test_data();
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            Some(CiFormat::Sarif),
+            None,
+            Some("MIT".to_string()),
+            false,
+            None,
+        );
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+        assert!(has_restrictive);
+        assert!(has_incompatible);
+    }
+
+    #[test]
+    fn test_sarif_output_no_project_license() {
+        let data = get_test_data();
+        let temp_dir = setup();
+        let output_path = temp_dir.path().join("no_proj.sarif");
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            Some(CiFormat::Sarif),
+            Some(output_path.to_str().unwrap().to_string()),
+            None,
+            false,
+            None,
+        );
+
+        let (has_restrictive, _) = generate_report(data, config);
+        assert!(has_restrictive);
+
+        let content = fs::read_to_string(&output_path).expect("Failed to read SARIF output");
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
+            .as_array()
+            .unwrap();
+        let rule_ids: Vec<&str> = rules.iter().map(|r| r["id"].as_str().unwrap()).collect();
+        // Without a project license, incompatible-license rule should not be emitted
+        assert!(!rule_ids.contains(&"feluda/incompatible-license"));
+        assert!(rule_ids.contains(&"feluda/restrictive-license"));
+
+        let results = parsed["runs"][0]["results"].as_array().unwrap();
+        assert!(results
+            .iter()
+            .all(|r| r["ruleId"] != "feluda/incompatible-license"));
     }
 
     #[test]

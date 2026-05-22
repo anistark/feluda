@@ -515,13 +515,29 @@ feluda --gui
 
 Feluda provides several options for CI integration:
 
-- `--ci-format <github|jenkins>`: Generate output compatible with the specified CI system
+- `--ci-format <github|jenkins|sarif>`: Generate output compatible with the specified CI system
 - `--fail-on-restrictive`: Make the CI build fail when restrictive licenses are found
 - `--fail-on-incompatible`: Make the CI build fail when incompatible licenses are found
 - `--osi <approved|not-approved|unknown>`: Filter by OSI license approval status
 - `--output-file <path>`: Write the output to a file instead of stdout
 
-Feluda can be easily integrated into your CI/CD pipelines with built-in support for **GitHub Actions** and **Jenkins**.
+Feluda can be easily integrated into your CI/CD pipelines with built-in support for **GitHub Actions**, **Jenkins**, and **GitHub Advanced Security** via SARIF.
+
+### GitHub Advanced Security (SARIF)
+
+Feluda emits [SARIF 2.1.0](https://sarifweb.azurewebsites.net/) output that GitHub Advanced Security can ingest to surface license findings in the **Security** tab and in VS Code's Problems panel.
+
+```yaml
+      - name: Run Feluda license scan
+        run: feluda --ci-format sarif --output-file results.sarif
+
+      - name: Upload SARIF to GitHub Advanced Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+```
+
+Restrictive licenses are reported at `warning` level; licenses incompatible with your project license are reported at `error` level. A clean scan still produces a valid SARIF file (empty `results` array), so the upload step never needs to be skipped.
 
 ### GitHub Actions
 

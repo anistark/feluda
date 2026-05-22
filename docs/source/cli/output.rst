@@ -179,6 +179,24 @@ Feluda writes ``::error`` and ``::warning`` annotations that GitHub parses autom
 
 Feluda formats its output with Jenkins-style prefixes to improve log parsing and highlighting.
 
+**SARIF (GitHub Advanced Security / VS Code):**
+
+.. code-block:: bash
+
+   feluda --ci-format sarif --output-file results.sarif
+
+Feluda emits a `SARIF 2.1.0 <https://sarifweb.azurewebsites.net/>`_ document.
+Upload it to GitHub Advanced Security to surface findings in the Security tab and
+in VS Code's Problems panel. A clean scan still produces a valid SARIF file with an
+empty ``results`` array, so CI workflows can unconditionally upload the artifact.
+
+.. code-block:: yaml
+
+   - run: feluda --ci-format sarif --output-file results.sarif
+   - uses: github/codeql-action/upload-sarif@v3
+     with:
+       sarif_file: results.sarif
+
 **Options:**
 
 .. list-table::
@@ -190,4 +208,6 @@ Feluda formats its output with Jenkins-style prefixes to improve log parsing and
    * - ``github``
      - GitHub Actions annotation format
    * - ``jenkins``
-     - Jenkins-compatible log markers
+     - Jenkins-compatible log markers (JUnit XML)
+   * - ``sarif``
+     - SARIF 2.1.0 for GitHub Advanced Security and VS Code
