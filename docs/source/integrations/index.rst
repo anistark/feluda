@@ -33,6 +33,8 @@ Supported Platforms
      - ``--ci-format sarif`` → upload via ``github/codeql-action/upload-sarif``
    * - Jenkins
      - Shell commands with ``--ci-format jenkins``
+   * - Claude Code
+     - ``feluda`` skill via AgentHub — auto-runs on dep changes, inline warnings
    * - VS Code Problems panel
      - ``--ci-format sarif`` → open SARIF file with the SARIF Viewer extension
    * - GitLab CI
@@ -53,6 +55,12 @@ Quick Start
      with:
        fail-on-restrictive: true
        fail-on-incompatible: true
+
+**Claude Code:**
+
+.. code-block:: text
+
+   /plugin install feluda@agenthub
 
 **Jenkins:**
 
