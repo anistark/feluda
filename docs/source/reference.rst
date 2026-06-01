@@ -62,9 +62,9 @@ Use this table to double-check flag behavior before scripting.
    * - ``feluda --output-file <path>``
      - Save text output to a file.
      - Works with any format flag.
-   * - ``feluda --ci-format {github|jenkins}``
+   * - ``feluda --ci-format {github|jenkins|sarif}``
      - Emit annotations suited to CI platforms.
-     - Pairs with ``--fail-on-*`` for fully automated gates.
+     - ``sarif`` emits SARIF 2.1.0 for GitHub Advanced Security; pairs with ``--fail-on-*`` for automated gates.
    * - ``feluda --debug`` / ``-d``
      - Enable debug mode with detailed logging.
      - Useful for troubleshooting detection issues.

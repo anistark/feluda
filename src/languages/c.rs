@@ -84,6 +84,7 @@ pub fn analyze_c_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Lice
                     Some(l) => crate::licenses::get_osi_status(l),
                     None => crate::licenses::OsiStatus::Unknown,
                 },
+                sub_project: None,
             }
         })
         .collect()

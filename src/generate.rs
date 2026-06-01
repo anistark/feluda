@@ -1413,6 +1413,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "tokio".to_string(),
@@ -1421,6 +1422,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ]
     }
@@ -1658,6 +1660,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1666,6 +1669,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package3".to_string(),
@@ -1674,6 +1678,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1720,6 +1725,7 @@ mod tests {
             is_restrictive: true,
             compatibility: LicenseCompatibility::Unknown,
             osi_status: crate::licenses::OsiStatus::Unknown,
+            sub_project: None,
         }];
 
         let content = generate_notice_content(&test_data);
@@ -1759,6 +1765,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         generate_notice_file(&license_data, path);
@@ -1790,6 +1797,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         generate_notice_file(&license_data, path);
@@ -1813,6 +1821,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         generate_third_party_licenses_file(&license_data, path);

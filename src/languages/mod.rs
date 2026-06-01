@@ -49,6 +49,7 @@ impl Language {
             "Cargo.toml" => Some(Language::Rust("Cargo.toml")),
             "package.json" => Some(Language::Node("package.json")),
             "go.mod" => Some(Language::Go("go.mod")),
+            "go.work" => Some(Language::Go("go.work")),
             "pom.xml" => Some(Language::Java(&JAVA_PATHS[..])),
             "build.gradle" | "build.gradle.kts" => Some(Language::Java(&JAVA_PATHS[..])),
             "vcpkg.json" => Some(Language::Cpp(&CPP_PATHS[..])),

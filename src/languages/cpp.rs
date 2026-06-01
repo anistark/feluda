@@ -103,6 +103,7 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
                     Some(l) => crate::licenses::get_osi_status(l),
                     None => crate::licenses::OsiStatus::Unknown,
                 },
+                sub_project: None,
             }
         })
         .collect()

@@ -103,6 +103,7 @@ fn parse_renv_lock(
                                 Some(l) => crate::licenses::get_osi_status(l),
                                 None => crate::licenses::OsiStatus::Unknown,
                             },
+                            sub_project: None,
                         });
                     }
                 } else {
@@ -176,6 +177,7 @@ fn parse_description_file(
                         Some(l) => crate::licenses::get_osi_status(l),
                         None => crate::licenses::OsiStatus::Unknown,
                     },
+                    sub_project: None,
                 });
             }
         }

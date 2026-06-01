@@ -17,6 +17,8 @@ pub enum CiFormat {
     Github,
     /// Jenkins compatible format (JUnit XML)
     Jenkins,
+    /// SARIF 2.1.0 format (GitHub Advanced Security, VS Code Problems panel)
+    Sarif,
 }
 
 /// SBOM format options
@@ -117,6 +119,20 @@ pub enum Commands {
         #[arg(long)]
         clear: bool,
     },
+    /// Initialise Feluda in the current project (generates .feluda.toml and .pre-commit-config.yaml)
+    Init {
+        /// Path to the local project directory
+        #[arg(short, long, default_value = "./")]
+        path: String,
+
+        /// Overwrite existing config files without prompting
+        #[arg(long)]
+        force: bool,
+
+        /// Skip creating or updating .pre-commit-config.yaml
+        #[arg(long)]
+        no_pre_commit: bool,
+    },
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -190,7 +206,7 @@ pub struct Cli {
     #[arg(long, short)]
     pub language: Option<String>,
 
-    /// Output format for CI systems (github, jenkins)
+    /// Output format for CI systems (github, jenkins, sarif)
     #[arg(long, value_enum)]
     pub ci_format: Option<CiFormat>,
 
@@ -332,11 +348,11 @@ impl LoadingIndicator {
         let progress = self.progress.clone();
 
         // Clear the current line and move to beginning
-        print!("\x1B[2K\r");
+        eprint!("\x1B[2K\r");
 
         // Print initial message with spinner
-        print!("{} {} ", spinner_frames[0].cyan(), message);
-        io::stdout().flush().unwrap();
+        eprint!("{} {} ", spinner_frames[0].cyan(), message);
+        io::stderr().flush().unwrap();
 
         let handle = thread::spawn(move || {
             let mut frame_idx = 0;
@@ -344,29 +360,29 @@ impl LoadingIndicator {
                 frame_idx = (frame_idx + 1) % spinner_frames.len();
 
                 // Clear the current line and move to beginning
-                print!("\x1B[2K\r");
+                eprint!("\x1B[2K\r");
 
                 // Print spinner and message
                 let spinner_char = spinner_frames[frame_idx];
-                print!("{} {} ", spinner_char.cyan(), message);
+                eprint!("{} {} ", spinner_char.cyan(), message);
 
                 // Print progress info if available
                 if let Some(ref progress_text) = *progress.lock().unwrap() {
-                    print!("({progress_text})");
+                    eprint!("({progress_text})");
                 }
 
-                io::stdout().flush().unwrap();
+                io::stderr().flush().unwrap();
                 thread::sleep(Duration::from_millis(80));
             }
 
             // Clear line and print completion message
-            print!("\x1B[2K\r");
-            print!("{} {} ", "✓".green().bold(), message);
+            eprint!("\x1B[2K\r");
+            eprint!("{} {} ", "✓".green().bold(), message);
             if let Some(ref progress_text) = *progress.lock().unwrap() {
-                print!("({progress_text})");
+                eprint!("({progress_text})");
             }
-            println!(" ✅");
-            io::stdout().flush().unwrap();
+            eprintln!(" ✅");
+            io::stderr().flush().unwrap();
         });
 
         self.handle = Some(handle);
@@ -538,10 +554,7 @@ mod tests {
                 assert_eq!(language, Some("rust".to_string()));
                 assert_eq!(project_license, Some("MIT".to_string()));
             }
-            Commands::Sbom { .. } => {
-                panic!("Expected Generate command");
-            }
-            Commands::Cache { .. } => {
+            Commands::Sbom { .. } | Commands::Cache { .. } | Commands::Init { .. } => {
                 panic!("Expected Generate command");
             }
         }
@@ -588,10 +601,7 @@ mod tests {
                 assert_eq!(language, None);
                 assert_eq!(project_license, None);
             }
-            Commands::Sbom { .. } => {
-                panic!("Expected Generate command");
-            }
-            Commands::Cache { .. } => {
+            Commands::Sbom { .. } | Commands::Cache { .. } | Commands::Init { .. } => {
                 panic!("Expected Generate command");
             }
         }

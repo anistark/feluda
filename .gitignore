@@ -3,7 +3,11 @@ target
 .vscode
 *.json
 !docs/source/_static/field-reports.json
+!skills/feluda/.claude-plugin/plugin.json
 *.bak
 docs/build
 docs/_build
+docs/.venv
 plan/
+.claude
+.pi

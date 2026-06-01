@@ -66,6 +66,7 @@ pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::get_osi_status(&license),
+                sub_project: None,
             }
         })
         .collect()

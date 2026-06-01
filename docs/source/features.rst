@@ -60,6 +60,15 @@ Conflict Detection
 Highlights dependencies whose licenses may conflict with your project's terms.
 Get early warnings about incompatibilities before they affect your release.
 
+Workspace & Monorepo Support
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Detects Cargo workspaces, npm/yarn/pnpm workspaces, Go workspaces
+(``go.work``), and Python uv workspaces (``[tool.uv.workspace]``) and
+produces a single unified report across every sub-project. Each dependency
+is attributed to the workspace member(s) that pull it in, so you can see at
+a glance which package introduced a restrictive license.
+
 ----
 
 Compliance & Reporting
@@ -94,9 +103,11 @@ single-line summary.
 CI/CD Integration
 ^^^^^^^^^^^^^^^^^
 
-Integrates seamlessly with **GitHub Actions** and **Jenkins** to automate
-license compliance in your pipeline. Fail builds early when problematic
-licenses are detected.
+Integrates seamlessly with **GitHub Actions**, **Jenkins**, and **GitHub Advanced
+Security** to automate license compliance in your pipeline. Fail builds early when
+problematic licenses are detected. Use ``--ci-format sarif`` to emit
+`SARIF 2.1.0 <https://sarifweb.azurewebsites.net/>`_ output for upload to GitHub
+Advanced Security code scanning or the VS Code Problems panel.
 
 Verbose Analysis
 ^^^^^^^^^^^^^^^^

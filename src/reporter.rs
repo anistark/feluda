@@ -215,6 +215,16 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
     );
     log_debug("Filtered license data", &filtered_data);
 
+    // SARIF always produces output (empty results = clean scan), so bypass the early return.
+    if matches!(config.ci_format, Some(CiFormat::Sarif)) {
+        output_sarif_format(
+            &filtered_data,
+            config.output_file.as_deref(),
+            config.project_license.as_deref(),
+        );
+        return (has_restrictive, has_incompatible);
+    }
+
     if filtered_data.is_empty() {
         println!(
             "\n{}\n",
@@ -237,6 +247,7 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
                 config.output_file.as_deref(),
                 config.project_license.as_deref(),
             ),
+            CiFormat::Sarif => unreachable!("handled above"),
         }
     } else if config.json {
         // JSON output
@@ -286,6 +297,8 @@ fn print_verbose_table(
 ) {
     log(LogLevel::Info, "Printing verbose table");
 
+    let has_workspace = license_info.iter().any(|i| i.sub_project().is_some());
+
     let mut headers = vec![
         "Name".to_string(),
         "Version".to_string(),
@@ -300,6 +313,10 @@ fn print_verbose_table(
 
     // Always add OSI status column in verbose mode
     headers.push("OSI Status".to_string());
+
+    if has_workspace {
+        headers.push("Sub-project".to_string());
+    }
 
     let mut formatter = TableFormatter::new(headers);
 
@@ -320,6 +337,10 @@ fn print_verbose_table(
 
             // Always add OSI status in verbose mode
             row.push(info.osi_status().to_string());
+
+            if has_workspace {
+                row.push(info.sub_project().unwrap_or("-").to_string());
+            }
 
             row
         })
@@ -461,6 +482,8 @@ fn print_summary_table(
         format!("Total dependencies scanned: {total_packages}").bold()
     );
 
+    print_workspace_breakdown(license_info);
+
     if !restrictive_licenses.is_empty() {
         print_restrictive_licenses_table(&restrictive_licenses);
     } else {
@@ -480,6 +503,35 @@ fn print_summary_table(
             "\n{}\n",
             "✅ No incompatible licenses found! 🎉".green().bold()
         );
+    }
+}
+
+/// Print a breakdown of dep counts per workspace member when the scan covers a monorepo.
+/// Silent for single-project scans.
+fn print_workspace_breakdown(license_info: &[LicenseInfo]) {
+    let mut by_member: HashMap<String, usize> = HashMap::new();
+    for info in license_info {
+        if let Some(label) = info.sub_project() {
+            for member in label.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                *by_member.entry(member.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    if by_member.is_empty() {
+        return;
+    }
+
+    let mut entries: Vec<(String, usize)> = by_member.into_iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    println!(
+        "\n{} {}",
+        "🧩".bold(),
+        "Workspace breakdown:".bold().underline()
+    );
+    for (member, count) in entries {
+        println!("  • {} {}", count.to_string().cyan().bold(), member);
     }
 }
 
@@ -933,6 +985,142 @@ fn output_jenkins_format(
     }
 }
 
+fn output_sarif_format(
+    license_info: &[LicenseInfo],
+    output_path: Option<&str>,
+    project_license: Option<&str>,
+) {
+    log(LogLevel::Info, "Generating SARIF 2.1.0 output");
+
+    let version = env!("CARGO_PKG_VERSION");
+
+    let mut rules = vec![serde_json::json!({
+        "id": "feluda/restrictive-license",
+        "name": "RestrictiveLicense",
+        "shortDescription": { "text": "Dependency has a restrictive license" },
+        "fullDescription": {
+            "text": "This dependency uses a license that may impose restrictions on how the software can be used, modified, or distributed."
+        },
+        "helpUri": "https://github.com/anistark/feluda",
+        "defaultConfiguration": { "level": "warning" }
+    })];
+
+    if project_license.is_some() {
+        rules.push(serde_json::json!({
+            "id": "feluda/incompatible-license",
+            "name": "IncompatibleLicense",
+            "shortDescription": { "text": "Dependency license is incompatible with the project license" },
+            "fullDescription": {
+                "text": "This dependency's license may be incompatible with your project's license, potentially creating legal issues."
+            },
+            "helpUri": "https://github.com/anistark/feluda",
+            "defaultConfiguration": { "level": "error" }
+        }));
+    }
+
+    let mut results: Vec<serde_json::Value> = Vec::new();
+
+    for info in license_info {
+        if *info.is_restrictive() {
+            results.push(serde_json::json!({
+                "ruleId": "feluda/restrictive-license",
+                "level": "warning",
+                "message": {
+                    "text": format!(
+                        "Dependency '{}@{}' has restrictive license: {}",
+                        info.name(), info.version(), info.get_license()
+                    )
+                },
+                "locations": []
+            }));
+
+            log(
+                LogLevel::Info,
+                &format!(
+                    "Added SARIF warning for restrictive license: {}",
+                    info.name()
+                ),
+            );
+        }
+
+        if let Some(proj_license) = project_license {
+            if info.compatibility == LicenseCompatibility::Incompatible {
+                results.push(serde_json::json!({
+                    "ruleId": "feluda/incompatible-license",
+                    "level": "error",
+                    "message": {
+                        "text": format!(
+                            "Dependency '{}@{}' has license {} which is incompatible with project license {}",
+                            info.name(), info.version(), info.get_license(), proj_license
+                        )
+                    },
+                    "locations": []
+                }));
+
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Added SARIF error for incompatible license: {}",
+                        info.name()
+                    ),
+                );
+            }
+        }
+    }
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "SARIF: {} rule(s), {} result(s)",
+            rules.len(),
+            results.len()
+        ),
+    );
+
+    let sarif = serde_json::json!({
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "feluda",
+                    "version": version,
+                    "informationUri": "https://github.com/anistark/feluda",
+                    "rules": rules
+                }
+            },
+            "results": results
+        }]
+    });
+
+    let output = match serde_json::to_string_pretty(&sarif) {
+        Ok(s) => s,
+        Err(err) => {
+            log_error("Failed to serialize SARIF output", &err);
+            println!("Error: Failed to generate SARIF output");
+            return;
+        }
+    };
+
+    if let Some(path) = output_path {
+        log(
+            LogLevel::Info,
+            &format!("Writing SARIF output to file: {path}"),
+        );
+        match fs::write(path, &output) {
+            Ok(_) => println!("SARIF output written to: {path}"),
+            Err(err) => {
+                log_error(&format!("Failed to write SARIF output file: {path}"), &err);
+                println!("Error: Failed to write SARIF output file");
+                println!("{output}");
+            }
+        }
+    } else {
+        log(LogLevel::Info, "Writing SARIF output to stdout");
+        println!("{output}");
+    }
+}
+
 // Add gist report function to reporter.rs
 fn print_gist_summary(
     license_info: &[LicenseInfo],
@@ -1032,6 +1220,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "crate2".to_string(),
@@ -1040,6 +1229,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "crate3".to_string(),
@@ -1048,6 +1238,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "crate4".to_string(),
@@ -1056,6 +1247,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::OsiStatus::Unknown,
+                sub_project: None,
             },
         ]
     }
@@ -1069,6 +1261,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "crate2".to_string(),
@@ -1077,6 +1270,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ]
     }
@@ -1410,6 +1604,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1418,6 +1613,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1449,6 +1645,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "bad_package".to_string(),
@@ -1457,6 +1654,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1488,6 +1686,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "restrictive_package".to_string(),
@@ -1496,6 +1695,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1526,6 +1726,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let config = ReportConfig::new(
@@ -1546,6 +1747,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let config = ReportConfig::new(
@@ -1566,6 +1768,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let config = ReportConfig::new(
@@ -1595,6 +1798,7 @@ mod tests {
             is_restrictive: true,
             compatibility: LicenseCompatibility::Incompatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         let config = ReportConfig::new(
@@ -1616,6 +1820,147 @@ mod tests {
     }
 
     #[test]
+    fn test_sarif_output_format_to_file() {
+        let data = get_test_data();
+        let temp_dir = setup();
+        let output_path = temp_dir.path().join("results.sarif");
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            Some(CiFormat::Sarif),
+            Some(output_path.to_str().unwrap().to_string()),
+            Some("MIT".to_string()),
+            false,
+            None,
+        );
+
+        let result = generate_report(data, config);
+        assert_eq!(result, (true, true));
+
+        let content = fs::read_to_string(&output_path).expect("Failed to read SARIF output file");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&content).expect("SARIF output is not valid JSON");
+
+        assert_eq!(parsed["version"], "2.1.0");
+        assert!(parsed["$schema"].as_str().unwrap().contains("sarif-schema"));
+        let runs = parsed["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 1);
+        let driver = &runs[0]["tool"]["driver"];
+        assert_eq!(driver["name"], "feluda");
+        let results = runs[0]["results"].as_array().unwrap();
+        assert!(!results.is_empty());
+
+        let rule_ids: Vec<&str> = results
+            .iter()
+            .map(|r| r["ruleId"].as_str().unwrap())
+            .collect();
+        assert!(rule_ids.contains(&"feluda/restrictive-license"));
+        assert!(rule_ids.contains(&"feluda/incompatible-license"));
+    }
+
+    #[test]
+    fn test_sarif_output_clean_scan() {
+        let data = vec![LicenseInfo {
+            name: "clean-pkg".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
+        }];
+        let temp_dir = setup();
+        let output_path = temp_dir.path().join("clean.sarif");
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            Some(CiFormat::Sarif),
+            Some(output_path.to_str().unwrap().to_string()),
+            Some("MIT".to_string()),
+            false,
+            None,
+        );
+
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+        assert!(!has_restrictive);
+        assert!(!has_incompatible);
+
+        let content = fs::read_to_string(&output_path).expect("Failed to read SARIF output");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&content).expect("SARIF output is not valid JSON");
+
+        assert_eq!(parsed["version"], "2.1.0");
+        let results = parsed["runs"][0]["results"].as_array().unwrap();
+        assert!(
+            results.is_empty(),
+            "Clean scan should produce zero SARIF results"
+        );
+    }
+
+    #[test]
+    fn test_sarif_output_stdout() {
+        let data = get_test_data();
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            Some(CiFormat::Sarif),
+            None,
+            Some("MIT".to_string()),
+            false,
+            None,
+        );
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+        assert!(has_restrictive);
+        assert!(has_incompatible);
+    }
+
+    #[test]
+    fn test_sarif_output_no_project_license() {
+        let data = get_test_data();
+        let temp_dir = setup();
+        let output_path = temp_dir.path().join("no_proj.sarif");
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            Some(CiFormat::Sarif),
+            Some(output_path.to_str().unwrap().to_string()),
+            None,
+            false,
+            None,
+        );
+
+        let (has_restrictive, _) = generate_report(data, config);
+        assert!(has_restrictive);
+
+        let content = fs::read_to_string(&output_path).expect("Failed to read SARIF output");
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
+            .as_array()
+            .unwrap();
+        let rule_ids: Vec<&str> = rules.iter().map(|r| r["id"].as_str().unwrap()).collect();
+        // Without a project license, incompatible-license rule should not be emitted
+        assert!(!rule_ids.contains(&"feluda/incompatible-license"));
+        assert!(rule_ids.contains(&"feluda/restrictive-license"));
+
+        let results = parsed["runs"][0]["results"].as_array().unwrap();
+        assert!(results
+            .iter()
+            .all(|r| r["ruleId"] != "feluda/incompatible-license"));
+    }
+
+    #[test]
     fn test_output_github_format_file_write_error() {
         let data = vec![LicenseInfo {
             name: "test_package".to_string(),
@@ -1624,6 +1969,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         output_github_format(
@@ -1642,6 +1988,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
         }];
 
         output_jenkins_format(
@@ -1661,6 +2008,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
             LicenseInfo {
                 name: "restrictive2".to_string(),
@@ -1669,6 +2017,7 @@ mod tests {
                 is_restrictive: true,
                 compatibility: LicenseCompatibility::Incompatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: None,
             },
         ];
 
@@ -1713,5 +2062,64 @@ mod tests {
         assert!(debug_str.contains("json: true"));
         assert!(debug_str.contains("yaml: false"));
         assert!(debug_str.contains("Github"));
+    }
+
+    #[test]
+    fn test_workspace_breakdown_no_panic_on_empty() {
+        // Pure smoke test: with no sub_project entries, the breakdown printer should
+        // silently no-op rather than print or panic.
+        let data: Vec<LicenseInfo> = vec![LicenseInfo {
+            name: "foo".into(),
+            version: "1.0".into(),
+            license: Some("MIT".into()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: None,
+        }];
+        print_workspace_breakdown(&data);
+    }
+
+    #[test]
+    fn test_workspace_breakdown_prints_per_member() {
+        // Smoke test for the workspace breakdown path; just ensure it runs without panic
+        // when sub_project values are populated, including comma-joined multi-member values.
+        let data = vec![
+            LicenseInfo {
+                name: "shared-dep".into(),
+                version: "1.0".into(),
+                license: Some("MIT".into()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: Some("api, worker".into()),
+            },
+            LicenseInfo {
+                name: "api-only".into(),
+                version: "2.0".into(),
+                license: Some("Apache-2.0".into()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+                osi_status: crate::licenses::OsiStatus::Approved,
+                sub_project: Some("api".into()),
+            },
+        ];
+        print_workspace_breakdown(&data);
+    }
+
+    #[test]
+    fn test_verbose_table_includes_subproject_column_when_set() {
+        // Verbose table renders Sub-project column conditionally on data; just exercise
+        // the rendering paths without crashing.
+        let data = vec![LicenseInfo {
+            name: "hyper".into(),
+            version: "1.0".into(),
+            license: Some("MIT".into()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+            osi_status: crate::licenses::OsiStatus::Approved,
+            sub_project: Some("api".into()),
+        }];
+        print_verbose_table(&data, false, Some("MIT"));
     }
 }

@@ -1,0 +1,8 @@
+{
+  "name": "feluda",
+  "description": "License compliance skill for Claude Code. Automatically runs feluda before committing new dependencies and surfaces restrictive license warnings (GPL, AGPL, SSPL, etc.) inline.",
+  "author": {
+    "name": "Kumar Anirudha",
+    "email": "anirudhastark@gmail.com"
+  }
+}

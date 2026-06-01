@@ -29,8 +29,14 @@ Supported Platforms
      - Integration Method
    * - GitHub Actions
      - Official Feluda Action (``anistark/feluda@v1``)
+   * - GitHub Advanced Security
+     - ``--ci-format sarif`` → upload via ``github/codeql-action/upload-sarif``
    * - Jenkins
      - Shell commands with ``--ci-format jenkins``
+   * - Claude Code
+     - ``feluda`` skill via AgentHub — auto-runs on dep changes, inline warnings
+   * - VS Code Problems panel
+     - ``--ci-format sarif`` → open SARIF file with the SARIF Viewer extension
    * - GitLab CI
      - Shell commands with standard output
    * - Other CI/CD
@@ -49,6 +55,12 @@ Quick Start
      with:
        fail-on-restrictive: true
        fail-on-incompatible: true
+
+**Claude Code:**
+
+.. code-block:: text
+
+   /plugin install feluda@agenthub
 
 **Jenkins:**
 
@@ -74,8 +86,11 @@ Feluda adjusts its output to match the CI platform's annotation system.
    # GitHub Actions annotations
    feluda --ci-format github
 
-   # Jenkins log markers
+   # Jenkins log markers (JUnit XML)
    feluda --ci-format jenkins
+
+   # SARIF 2.1.0 for GitHub Advanced Security and VS Code
+   feluda --ci-format sarif --output-file results.sarif
 
 ----
 
