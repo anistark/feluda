@@ -2,9 +2,10 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 use rayon::prelude::*;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_error, LogLevel};
@@ -42,7 +43,21 @@ pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
 
     log(
         LogLevel::Info,
-        &format!("Found {} Java dependencies", deps.len()),
+        &format!("Found {} direct Java dependencies", deps.len()),
+    );
+
+    // Expand to the full transitive set by walking POMs from Maven Central,
+    // mirroring the transitive resolution done for Rust/Go/Node. Bounded by the
+    // configured max dependency depth; falls back to the direct dependencies if
+    // the registry is unreachable.
+    let deps = resolve_transitive_dependencies(deps, config.dependencies.max_depth);
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Resolved {} Java dependencies (including transitive)",
+            deps.len()
+        ),
     );
 
     let known_licenses = match fetch_licenses_from_github() {
@@ -87,7 +102,7 @@ fn parse_maven_pom(pom_path: &str) -> Vec<JavaDependency> {
 
     let properties = extract_pom_properties(&content);
     let managed_versions = extract_dependency_management(&content, &properties);
-    let mut deps = extract_pom_dependencies(&content, &properties, &managed_versions);
+    let mut deps = extract_pom_dependencies(&content, &properties, &managed_versions, false);
 
     // Deduplicate
     deps.sort_by(|a, b| {
@@ -174,10 +189,17 @@ fn extract_dependency_management(
     managed
 }
 
+/// Extract dependencies from a POM's `<dependencies>` blocks.
+///
+/// When `transitive` is set the caller is reading a *dependency's* POM rather
+/// than the project's own, so the scopes Maven does not propagate (`provided`,
+/// `system`) and `optional` dependencies are dropped. `test` scope is always
+/// dropped.
 fn extract_pom_dependencies(
     content: &str,
     properties: &HashMap<String, String>,
     managed_versions: &HashMap<String, String>,
+    transitive: bool,
 ) -> Vec<JavaDependency> {
     let mut deps = Vec::new();
 
@@ -189,10 +211,24 @@ fn extract_pom_dependencies(
     for cap in dep_re.captures_iter(&content_stripped) {
         let block = &cap[1];
 
-        // Skip test-scoped dependencies
         if let Some(scope) = extract_xml_tag(block, "scope") {
+            let scope = scope.to_ascii_lowercase();
+            // `test` scope is never a runtime concern.
             if scope == "test" {
                 continue;
+            }
+            // `provided` and `system` are not inherited by downstream projects.
+            if transitive && (scope == "provided" || scope == "system") {
+                continue;
+            }
+        }
+
+        // Optional dependencies are not propagated transitively.
+        if transitive {
+            if let Some(optional) = extract_xml_tag(block, "optional") {
+                if optional.eq_ignore_ascii_case("true") {
+                    continue;
+                }
             }
         }
 
@@ -215,6 +251,13 @@ fn extract_pom_dependencies(
         } else {
             resolve_property(&version_raw, properties)
         };
+
+        // A transitive version we still cannot resolve (e.g. a property defined
+        // only in a parent POM we did not fetch) is not actionable — skip it
+        // rather than emit a bogus coordinate.
+        if transitive && version.contains("${") {
+            continue;
+        }
 
         deps.push(JavaDependency {
             group_id,
@@ -373,6 +416,70 @@ fn resolve_gradle_variable(value: &str, props: &HashMap<String, String>) -> Stri
 }
 
 // =============================================================================
+// TRANSITIVE DEPENDENCY RESOLUTION
+// =============================================================================
+
+/// Resolve the full transitive dependency set for a list of direct deps by
+/// walking POMs from Maven Central breadth-first, up to `max_depth` levels.
+///
+/// This mirrors the transitive resolution performed for Rust/Go/Node. Java has
+/// no universal lockfile and the build tool may be absent, so the graph is
+/// reconstructed from published POMs. If the registry is unreachable a POM
+/// fetch simply yields no children, so the result degrades to the direct deps.
+fn resolve_transitive_dependencies(
+    direct: Vec<JavaDependency>,
+    max_depth: u32,
+) -> Vec<JavaDependency> {
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut resolved: Vec<JavaDependency> = Vec::new();
+    let mut queue: VecDeque<(JavaDependency, u32)> = VecDeque::new();
+
+    // Seed with the direct dependencies at depth 0.
+    for dep in direct {
+        let key = format!("{}:{}", dep.group_id, dep.artifact_id);
+        if visited.insert(key) {
+            queue.push_back((dep.clone(), 0));
+            resolved.push(dep);
+        }
+    }
+
+    while let Some((dep, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+
+        for child in fetch_pom_transitive_deps(&dep.group_id, &dep.artifact_id, &dep.version) {
+            let key = format!("{}:{}", child.group_id, child.artifact_id);
+            // First occurrence wins, approximating Maven's nearest-first order.
+            if visited.insert(key) {
+                resolved.push(child.clone());
+                queue.push_back((child, depth + 1));
+            }
+        }
+    }
+
+    resolved
+}
+
+/// Fetch an artifact's POM and extract the dependencies it propagates
+/// transitively (compile/runtime scope, non-optional), resolving `${properties}`
+/// and `<dependencyManagement>` declared within that POM.
+fn fetch_pom_transitive_deps(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+) -> Vec<JavaDependency> {
+    let content = match fetch_pom_content(group_id, artifact_id, version) {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+
+    let properties = extract_pom_properties(&content);
+    let managed_versions = extract_dependency_management(&content, &properties);
+    extract_pom_dependencies(&content, &properties, &managed_versions, true)
+}
+
+// =============================================================================
 // MAVEN CENTRAL LICENSE LOOKUP
 // =============================================================================
 
@@ -390,7 +497,72 @@ fn fetch_maven_license(group_id: &str, artifact_id: &str, version: &str) -> Stri
     "Unknown".to_string()
 }
 
+/// Maximum number of parent POMs to follow when resolving a license. Guards
+/// against cycles and unbounded chains in malformed metadata.
+const MAX_POM_PARENT_DEPTH: usize = 5;
+
 fn fetch_license_from_pom(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
+    resolve_pom_license(group_id, artifact_id, version, 0)
+}
+
+/// Resolve a license from an artifact's POM, walking up the `<parent>` chain
+/// when the artifact's own POM declares no `<licenses>`. Many widely used
+/// libraries (Guava, Apache Commons, slf4j, logback) inherit their license
+/// from a parent POM rather than declaring it directly.
+fn resolve_pom_license(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+    depth: usize,
+) -> Option<String> {
+    if depth > MAX_POM_PARENT_DEPTH {
+        return None;
+    }
+
+    let pom_content = fetch_pom_content(group_id, artifact_id, version)?;
+
+    // A license declared directly on this POM takes precedence.
+    if let Some(license) = extract_license_from_pom_content(&pom_content) {
+        return Some(license);
+    }
+
+    // Otherwise follow the parent POM, where the license is often declared.
+    let parent = extract_parent_from_pom_content(&pom_content)?;
+    resolve_pom_license(
+        &parent.group_id,
+        &parent.artifact_id,
+        &parent.version,
+        depth + 1,
+    )
+}
+
+/// Process-wide cache of fetched POM bodies, keyed by `group:artifact:version`.
+/// The transitive walk and the license lookup both fetch the same POMs, so
+/// caching roughly halves the network traffic for a scan.
+fn pom_content_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn fetch_pom_content(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
+    let key = format!("{group_id}:{artifact_id}:{version}");
+
+    if let Ok(cache) = pom_content_cache().lock() {
+        if let Some(cached) = cache.get(&key) {
+            return cached.clone();
+        }
+    }
+
+    let result = fetch_pom_content_uncached(group_id, artifact_id, version);
+
+    if let Ok(mut cache) = pom_content_cache().lock() {
+        cache.insert(key, result.clone());
+    }
+
+    result
+}
+
+fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
     let group_path = group_id.replace('.', "/");
     let effective_version = if version == "RELEASE" || version.is_empty() {
         fetch_latest_version(group_id, artifact_id)?
@@ -409,13 +581,37 @@ fn fetch_license_from_pom(group_id: &str, artifact_id: &str, version: &str) -> O
         return None;
     }
 
-    let pom_content = response.text().ok()?;
-    extract_license_from_pom_content(&pom_content)
+    response.text().ok()
 }
 
 fn extract_license_from_pom_content(content: &str) -> Option<String> {
     // Extract <licenses><license><name>...</name>
     let re = Regex::new(r"(?s)<licenses>.*?<license>.*?<name>(.*?)</name>.*?</license>").ok()?;
+    re.captures(content)
+        .map(|c| c[1].trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Maven `<parent>` coordinate, used to follow the POM inheritance chain.
+struct ParentCoordinate {
+    group_id: String,
+    artifact_id: String,
+    version: String,
+}
+
+fn extract_parent_from_pom_content(content: &str) -> Option<ParentCoordinate> {
+    let parent_re = Regex::new(r"(?s)<parent>(.*?)</parent>").ok()?;
+    let parent_block = parent_re.captures(content)?.get(1)?.as_str();
+
+    Some(ParentCoordinate {
+        group_id: extract_pom_tag(parent_block, "groupId")?,
+        artifact_id: extract_pom_tag(parent_block, "artifactId")?,
+        version: extract_pom_tag(parent_block, "version")?,
+    })
+}
+
+fn extract_pom_tag(content: &str, tag: &str) -> Option<String> {
+    let re = Regex::new(&format!(r"(?s)<{tag}>(.*?)</{tag}>")).ok()?;
     re.captures(content)
         .map(|c| c[1].trim().to_string())
         .filter(|s| !s.is_empty())
@@ -665,6 +861,116 @@ dependencies {
 
         let license = extract_license_from_pom_content(content);
         assert_eq!(license, Some("Apache License, Version 2.0".to_string()));
+    }
+
+    #[test]
+    fn test_transitive_filters_optional_and_provided() {
+        let content = r#"<project>
+  <dependencies>
+    <dependency>
+      <groupId>com.example</groupId>
+      <artifactId>compile-dep</artifactId>
+      <version>1.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.example</groupId>
+      <artifactId>optional-dep</artifactId>
+      <version>1.0.0</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>com.example</groupId>
+      <artifactId>provided-dep</artifactId>
+      <version>1.0.0</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>"#;
+
+        let props = HashMap::new();
+        let managed = HashMap::new();
+
+        // Transitive resolution drops optional and provided/system deps.
+        let transitive = extract_pom_dependencies(content, &props, &managed, true);
+        let ids: Vec<&str> = transitive.iter().map(|d| d.artifact_id.as_str()).collect();
+        assert_eq!(ids, vec!["compile-dep"]);
+
+        // Direct parsing keeps them (only `test` scope is dropped).
+        let direct = extract_pom_dependencies(content, &props, &managed, false);
+        assert_eq!(direct.len(), 3);
+    }
+
+    #[test]
+    fn test_transitive_skips_unresolved_property_version() {
+        let content = r#"<project>
+  <dependencies>
+    <dependency>
+      <groupId>com.example</groupId>
+      <artifactId>resolved</artifactId>
+      <version>1.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.example</groupId>
+      <artifactId>unresolved</artifactId>
+      <version>${some.parent.version}</version>
+    </dependency>
+  </dependencies>
+</project>"#;
+
+        let props = HashMap::new();
+        let managed = HashMap::new();
+
+        let transitive = extract_pom_dependencies(content, &props, &managed, true);
+        let ids: Vec<&str> = transitive.iter().map(|d| d.artifact_id.as_str()).collect();
+        assert_eq!(ids, vec!["resolved"]);
+    }
+
+    #[test]
+    fn test_extract_parent_from_pom_content() {
+        let content = r#"<project>
+  <parent>
+    <groupId>com.google.guava</groupId>
+    <artifactId>guava-parent</artifactId>
+    <version>31.1-jre</version>
+  </parent>
+  <artifactId>guava</artifactId>
+</project>"#;
+
+        let parent = extract_parent_from_pom_content(content).unwrap();
+        assert_eq!(parent.group_id, "com.google.guava");
+        assert_eq!(parent.artifact_id, "guava-parent");
+        assert_eq!(parent.version, "31.1-jre");
+    }
+
+    #[test]
+    fn test_extract_parent_from_pom_content_none() {
+        let content = r#"<project>
+  <artifactId>standalone</artifactId>
+</project>"#;
+        assert!(extract_parent_from_pom_content(content).is_none());
+    }
+
+    #[test]
+    fn test_extract_license_prefers_direct_over_parent() {
+        // A POM that declares both a direct license and a parent: the direct
+        // license wins, so resolution never needs to follow the parent.
+        let content = r#"<project>
+  <parent>
+    <groupId>org.example</groupId>
+    <artifactId>example-parent</artifactId>
+    <version>1.0.0</version>
+  </parent>
+  <licenses>
+    <license>
+      <name>MIT License</name>
+    </license>
+  </licenses>
+</project>"#;
+
+        assert_eq!(
+            extract_license_from_pom_content(content),
+            Some("MIT License".to_string())
+        );
     }
 
     #[test]
