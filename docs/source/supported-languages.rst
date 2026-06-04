@@ -58,6 +58,7 @@ Supported Languages
      <img src="../_static/icons/javascript.svg" alt="JavaScript">
      <img src="../_static/icons/typescript.svg" alt="TypeScript">
      <img src="../_static/icons/nodejs.svg" alt="Node.js">
+     <img src="../_static/icons/java.png" alt="Java">
      <img src="../_static/icons/c.svg" alt="C">
      <img src="../_static/icons/c++.svg" alt="C++">
      <img src="../_static/icons/r.svg" alt="R">
@@ -102,6 +103,12 @@ Feluda currently supports projects written in these ecosystems:
    * - R
      - ``DESCRIPTION``, ``renv.lock``
      - CRAN packages
+   * - Java (Maven)
+     - ``pom.xml``
+     - Maven Central; resolves ``<dependencyManagement>`` and ``${properties}``
+   * - Java (Gradle)
+     - ``build.gradle``, ``build.gradle.kts``
+     - Maven Central; supports Groovy and Kotlin DSL, reads ``gradle.properties``
    * - .NET (C#/F#/VB)
      - ``*.csproj``, ``*.fsproj``, ``packages.config``
      - NuGet packages
@@ -119,6 +126,9 @@ Filter scans to a specific ecosystem using the ``--language`` flag:
    feluda --language python
    feluda --language go
    feluda --language node
+   feluda --language java      # Maven or Gradle auto-detected
+   feluda --language maven     # Maven only
+   feluda --language gradle    # Gradle only
    feluda --language c
    feluda --language cpp
    feluda --language dotnet
@@ -129,7 +139,6 @@ Filter scans to a specific ecosystem using the ``--language`` flag:
 Coming Soon
 -----------
 
-- `Java <https://github.com/anistark/feluda/issues/54>`_
 - `Ruby <https://github.com/anistark/feluda/issues/53>`_
 
 ----

@@ -107,6 +107,14 @@ Different language ecosystems require different approaches. Here are some exampl
 - R-universe API integration for license fetching
 - Handles Imports, Depends, Suggests, and LinkingTo fields
 
+**Java Module Features** (``src/languages/java.rs``):
+
+- Maven ``pom.xml`` parsing via ``quick-xml`` with full ``<dependencyManagement>`` and ``${property}`` resolution
+- Gradle ``build.gradle`` / ``build.gradle.kts`` parsing (Groovy and Kotlin DSL) via regex
+- ``gradle.properties`` variable resolution
+- Test-scoped dependency exclusion (``scope=test``, ``testImplementation``)
+- License fetching from Maven Central POM files and search API as fallback
+
 Updating Language Detection
 ---------------------------
 

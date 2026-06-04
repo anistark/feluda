@@ -4,6 +4,7 @@ pub mod c;
 pub mod cpp;
 pub mod dotnet;
 pub mod go;
+pub mod java;
 pub mod node;
 pub mod python;
 pub mod r;
@@ -34,6 +35,7 @@ pub enum Language {
     C(&'static [&'static str]),
     Cpp(&'static [&'static str]),
     DotNet(&'static [&'static str]),
+    Java(&'static [&'static str]),
     Rust(&'static str),
     Node(&'static str),
     Go(&'static str),
@@ -48,6 +50,8 @@ impl Language {
             "package.json" => Some(Language::Node("package.json")),
             "go.mod" => Some(Language::Go("go.mod")),
             "go.work" => Some(Language::Go("go.work")),
+            "pom.xml" => Some(Language::Java(&JAVA_PATHS[..])),
+            "build.gradle" | "build.gradle.kts" => Some(Language::Java(&JAVA_PATHS[..])),
             "vcpkg.json" => Some(Language::Cpp(&CPP_PATHS[..])),
             "conanfile.txt" | "conanfile.py" => Some(Language::Cpp(&CPP_PATHS[..])),
             "MODULE.bazel" => Some(Language::Cpp(&CPP_PATHS[..])),
@@ -71,6 +75,9 @@ impl Language {
         }
     }
 }
+
+/// Java project file patterns (Maven and Gradle)
+pub const JAVA_PATHS: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
 
 /// C project file patterns
 pub const C_PATHS: [&str; 3] = ["configure.ac", "configure.in", "Makefile"];

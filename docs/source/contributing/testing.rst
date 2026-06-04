@@ -21,9 +21,11 @@ Available Example Projects
 2. **Node.js Example** (``examples/node-example/``): Uses express, axios, lodash, and moment
 3. **Go Example** (``examples/go-example/``): Uses gin, cobra, testify, and zap
 4. **Python Example** (``examples/python-example/``): Uses flask, requests, numpy, and pytest
-5. **C Example** (``examples/c-example/``): Uses openssl, libcurl, and zlib
-6. **C++ Example** (``examples/cpp-example/``): Uses boost, fmt, nlohmann-json, and spdlog
-7. **R Example** (``examples/r-example/``): Uses dplyr, ggplot2, and tidyr
+5. **Java/Maven Example** (``examples/java-example/maven-example/``): Uses guava, commons-lang3, jackson-databind, slf4j, logback, and spring-core
+6. **Java/Gradle Example** (``examples/java-example/gradle-example/``): Uses guava, commons-lang3, jackson-databind, slf4j, logback, httpclient5, spring-boot-starter, and h2
+7. **C Example** (``examples/c-example/``): Uses openssl, libcurl, and zlib
+8. **C++ Example** (``examples/cpp-example/``): Uses boost, fmt, nlohmann-json, and spdlog
+9. **R Example** (``examples/r-example/``): Uses dplyr, ggplot2, and tidyr
 
 Running Example Projects
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -43,6 +45,8 @@ Use the ``just`` command to run and test examples:
    feluda --path examples/node-example
    feluda --path examples/go-example
    feluda --path examples/python-example
+   feluda --path examples/java-example/maven-example
+   feluda --path examples/java-example/gradle-example
    feluda --path examples/c-example
    feluda --path examples/cpp-example
    feluda --path examples/r-example
