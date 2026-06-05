@@ -8,5 +8,8 @@ license = "MIT"
 # These dependencies have transient dependencies
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.50", features = ["full"] }
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", default-features = false, features = [
+    "json",
+    "rustls",
+] }
 clap = { version = "4.6", features = ["derive"] }
