@@ -50,6 +50,9 @@ Use this table to double-check flag behavior before scripting.
    * - ``feluda --github-token <token>``
      - Pass a GitHub token inline.
      - Overridden by ``GITHUB_TOKEN`` env var when both are present.
+   * - ``feluda watch``
+     - Re-scan continuously when dependency files change.
+     - Report-only; accepts ``--path`` and ``--debounce``. See :ref:`cli-watch`.
    * - ``feluda cache`` / ``feluda cache --clear``
      - Inspect or delete the GitHub license cache.
      - Default cache path: ``.feluda/cache/github_licenses.json``.

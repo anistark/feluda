@@ -50,6 +50,7 @@ tempfile = "3.27"
 dirs = "6.0"
 semver = "1.0"
 quick-xml = { version = "0.37", features = ["serialize"] }
+notify = "8.2.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -106,6 +106,7 @@ Have a session to share? `Open a PR <https://github.com/anistark/feluda/edit/mai
 
    cli/index
    cli/scan
+   cli/watch
    cli/filter
    cli/cache
    cli/generate

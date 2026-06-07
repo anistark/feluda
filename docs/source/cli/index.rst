@@ -24,6 +24,8 @@ Command Overview
      - Description
    * - ``feluda``
      - Scan dependencies and detect licenses
+   * - ``feluda watch``
+     - Continuously re-scan when dependency files change
    * - ``feluda cache``
      - View and manage the license cache
    * - ``feluda generate``
