@@ -6,12 +6,14 @@ mod generate;
 mod init;
 mod languages;
 mod licenses;
+mod manifest;
 mod parser;
 mod reporter;
 mod sbom;
 mod spdx;
 mod table;
 mod utils;
+mod watch;
 
 use clap::Parser;
 use cli::{print_version_info, Cli, Commands};
@@ -20,6 +22,7 @@ use generate::handle_generate_command;
 use init::handle_init_command;
 use licenses::{
     detect_project_license, is_license_compatible, set_github_token, LicenseCompatibility,
+    LicenseInfo,
 };
 use parser::parse_root;
 use reporter::{generate_report, ReportConfig};
@@ -214,11 +217,65 @@ fn run() -> FeludaResult<()> {
                 handle_init_command(path, force, no_pre_commit);
                 Ok(())
             }
+            Commands::Watch { path, debounce } => {
+                if args.gui {
+                    eprintln!(
+                        "❌ Watch mode does not support --gui (TUI) output. \
+                        Run `feluda watch` without --gui."
+                    );
+                    return Err(FeludaError::InvalidData(
+                        "Watch mode does not support --gui (TUI) output".to_string(),
+                    ));
+                }
+                if args.repo.is_some() {
+                    eprintln!("❌ Watch mode operates on a local path; --repo is not supported.");
+                    return Err(FeludaError::InvalidData(
+                        "Watch mode operates on a local path; --repo is not supported".to_string(),
+                    ));
+                }
+
+                let config = CheckConfig {
+                    path,
+                    json: args.json,
+                    yaml: args.yaml,
+                    verbose: args.verbose,
+                    restrictive: args.restrictive,
+                    gui: false,
+                    language: args.language.clone(),
+                    ci_format: args.ci_format.clone(),
+                    output_file: args.output_file.clone(),
+                    fail_on_restrictive: false,
+                    incompatible: args.incompatible,
+                    fail_on_incompatible: false,
+                    project_license: args.project_license.clone(),
+                    gist: args.gist,
+                    osi: args.osi.clone(),
+                    strict: args.strict,
+                    no_local: args.no_local,
+                };
+                watch::handle_watch_command(config, debounce)
+            }
         }
     }
 }
 
-fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
+/// Outcome of a single license analysis run.
+///
+/// Returned by [`report_analysis`] so callers (single-shot or watch) can decide
+/// what to do — e.g. set an exit code — without the analysis itself terminating
+/// the process.
+#[derive(Debug, Default, Clone, Copy)]
+struct ScanSummary {
+    has_restrictive: bool,
+    has_incompatible: bool,
+}
+
+/// Detect the project license and parse + analyze dependencies.
+///
+/// This is the shared front half of the check pipeline, reused by both the
+/// single-shot command and `feluda watch`. It performs no terminal I/O beyond
+/// logging and never exits the process.
+fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>, Option<String>)> {
     log(
         LogLevel::Info,
         &format!("Executing check command with path: {}", config.path),
@@ -230,7 +287,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
         &format!("Parsing dependencies in path: {}", config.path),
     );
 
-    let mut project_license = config.project_license;
+    let mut project_license = config.project_license.clone();
 
     // If no project license is provided via CLI, try to detect it
     if let Some(ref license) = project_license {
@@ -264,7 +321,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     }
 
     // Parse and analyze dependencies
-    let mut analyzed_data = parse_root(
+    let analyzed_data = parse_root(
         &config.path,
         config.language.as_deref(),
         config.strict,
@@ -274,22 +331,26 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
     log_debug("Analyzed dependencies", &analyzed_data);
 
-    if analyzed_data.is_empty() {
-        log(LogLevel::Warn, "No dependencies found to analyze. Exiting.");
-        return Ok(());
-    }
+    Ok((analyzed_data, project_license))
+}
 
+/// Annotate each dependency with license-compatibility information relative to
+/// the project license. Mutates `analyzed_data` in place.
+fn annotate_compatibility(
+    analyzed_data: &mut [LicenseInfo],
+    project_license: &Option<String>,
+    strict: bool,
+) {
     // Update each dependency with compatibility information if project license is known
-    if let Some(ref proj_license) = project_license {
+    if let Some(proj_license) = project_license {
         log(
             LogLevel::Info,
             &format!("Checking license compatibility against project license: {proj_license}"),
         );
 
-        for info in &mut analyzed_data {
+        for info in analyzed_data.iter_mut() {
             if let Some(ref dep_license) = info.license {
-                info.compatibility =
-                    is_license_compatible(dep_license, proj_license, config.strict);
+                info.compatibility = is_license_compatible(dep_license, proj_license, strict);
 
                 log(
                     LogLevel::Info,
@@ -299,7 +360,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
                     ),
                 );
             } else {
-                info.compatibility = if config.strict {
+                info.compatibility = if strict {
                     LicenseCompatibility::Incompatible
                 } else {
                     LicenseCompatibility::Unknown
@@ -310,11 +371,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
                     &format!(
                         "License compatibility for {} {} (no license info)",
                         info.name,
-                        if config.strict {
-                            "incompatible"
-                        } else {
-                            "unknown"
-                        }
+                        if strict { "incompatible" } else { "unknown" }
                     ),
                 );
             }
@@ -326,171 +383,213 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             "No project license specified or detected, marking all dependencies as unknown compatibility",
         );
 
-        for info in &mut analyzed_data {
+        for info in analyzed_data.iter_mut() {
             info.compatibility = LicenseCompatibility::Unknown;
         }
     }
+}
 
-    // Either run the GUI or generate a report
-    if config.gui {
-        let original_count = analyzed_data.len();
+/// Render the interactive TUI table for the analyzed dependencies.
+///
+/// GUI mode is single-shot only (it takes over the terminal and `color_eyre`
+/// can only be installed once per process), so it is intentionally not used by
+/// `feluda watch`.
+fn run_gui(
+    mut analyzed_data: Vec<LicenseInfo>,
+    project_license: Option<String>,
+    config: &CheckConfig,
+) -> FeludaResult<()> {
+    let original_count = analyzed_data.len();
 
-        // Filter for restrictive and incompatible
-        if config.restrictive || config.incompatible {
-            if project_license.is_some() {
-                log(
+    // Filter for restrictive and incompatible
+    if config.restrictive || config.incompatible {
+        if project_license.is_some() {
+            log(
                 LogLevel::Info,
                 "Restrictive and incompatible mode enabled, filtering for restrictive and incompatible licenses",
             );
-                analyzed_data.retain(|info| {
-                    (config.restrictive && *info.is_restrictive())
-                        || (config.incompatible
-                            && info.compatibility == LicenseCompatibility::Incompatible)
-                });
-
-                log(
-                    LogLevel::Info,
-                    &format!(
-                        "Filtered for restrictive and incompatible licenses: {} of {} dependencies",
-                        analyzed_data.len(),
-                        original_count
-                    ),
-                );
-            } else {
-                log(
-                LogLevel::Warn,
-                "Incompatible mode enabled but no project license specified, cannot filter for incompatible licenses",
-            );
-            }
-        } else if config.restrictive {
-            // Filter for restrictive
-            log(
-                LogLevel::Info,
-                "Restrictive mode enabled, filtering for restrictive licenses",
-            );
-            analyzed_data.retain(|info| *info.is_restrictive());
+            analyzed_data.retain(|info| {
+                (config.restrictive && *info.is_restrictive())
+                    || (config.incompatible
+                        && info.compatibility == LicenseCompatibility::Incompatible)
+            });
 
             log(
                 LogLevel::Info,
                 &format!(
-                    "Filtered for restrictive licenses: {} of {} dependencies",
+                    "Filtered for restrictive and incompatible licenses: {} of {} dependencies",
                     analyzed_data.len(),
                     original_count
                 ),
             );
-        } else if config.incompatible {
-            // Filter for incompatible if requested
-            if project_license.is_some() {
-                log(
-                    LogLevel::Info,
-                    "Incompatible mode enabled, filtering for incompatible licenses",
-                );
-                analyzed_data
-                    .retain(|info| info.compatibility == LicenseCompatibility::Incompatible);
-
-                log(
-                    LogLevel::Info,
-                    &format!(
-                        "Filtered for incompatible licenses: {} of {} dependencies",
-                        analyzed_data.len(),
-                        original_count
-                    ),
-                );
-            } else {
-                log(
+        } else {
+            log(
                 LogLevel::Warn,
                 "Incompatible mode enabled but no project license specified, cannot filter for incompatible licenses",
             );
-            }
         }
-
-        // Apply OSI filtering
-        if let Some(osi_filter) = &config.osi {
-            let before_count = analyzed_data.len();
-            match osi_filter {
-                cli::OsiFilter::Approved => {
-                    analyzed_data.retain(|info| info.osi_status == licenses::OsiStatus::Approved);
-                    log(
-                        LogLevel::Info,
-                        &format!(
-                            "Filtered for OSI approved licenses: {} of {} dependencies",
-                            analyzed_data.len(),
-                            before_count
-                        ),
-                    );
-                }
-                cli::OsiFilter::NotApproved => {
-                    analyzed_data
-                        .retain(|info| info.osi_status == licenses::OsiStatus::NotApproved);
-                    log(
-                        LogLevel::Info,
-                        &format!(
-                            "Filtered for non-OSI approved licenses: {} of {} dependencies",
-                            analyzed_data.len(),
-                            before_count
-                        ),
-                    );
-                }
-                cli::OsiFilter::Unknown => {
-                    analyzed_data.retain(|info| info.osi_status == licenses::OsiStatus::Unknown);
-                    log(
-                        LogLevel::Info,
-                        &format!(
-                            "Filtered for unknown OSI status licenses: {} of {} dependencies",
-                            analyzed_data.len(),
-                            before_count
-                        ),
-                    );
-                }
-            }
-        }
-
-        log(LogLevel::Info, "Starting TUI mode");
-
-        // Initialize the terminal
-        color_eyre::install()
-            .map_err(|e| FeludaError::TuiInit(format!("Failed to initialize color_eyre: {e}")))?;
-
-        let terminal = ratatui::init();
-        log(LogLevel::Info, "Terminal initialized for TUI");
-
-        // TUI app with project license info
-        let app_result = App::new(analyzed_data, project_license).run(terminal);
-        ratatui::restore();
-
-        // Handle any errors from the TUI
-        app_result.map_err(|e| FeludaError::TuiRuntime(format!("TUI error: {e}")))?;
-
-        log(LogLevel::Info, "TUI session completed successfully");
-    } else {
-        log(LogLevel::Info, "Generating dependency report");
-
-        // Create ReportConfig from CLI arguments
-        let report_config = ReportConfig::new(
-            config.json,
-            config.yaml,
-            config.verbose,
-            config.restrictive,
-            config.incompatible,
-            config.ci_format,
-            config.output_file,
-            project_license,
-            config.gist,
-            config.osi,
+    } else if config.restrictive {
+        // Filter for restrictive
+        log(
+            LogLevel::Info,
+            "Restrictive mode enabled, filtering for restrictive licenses",
         );
-
-        // Generate a report based on the analyzed data
-        let (has_restrictive, has_incompatible) = generate_report(analyzed_data, report_config);
+        analyzed_data.retain(|info| *info.is_restrictive());
 
         log(
             LogLevel::Info,
             &format!(
-                "Report generated, has_restrictive: {has_restrictive}, has_incompatible: {has_incompatible}"
+                "Filtered for restrictive licenses: {} of {} dependencies",
+                analyzed_data.len(),
+                original_count
             ),
         );
+    } else if config.incompatible {
+        // Filter for incompatible if requested
+        if project_license.is_some() {
+            log(
+                LogLevel::Info,
+                "Incompatible mode enabled, filtering for incompatible licenses",
+            );
+            analyzed_data.retain(|info| info.compatibility == LicenseCompatibility::Incompatible);
 
-        if (config.fail_on_restrictive && has_restrictive)
-            || (config.fail_on_incompatible && has_incompatible)
+            log(
+                LogLevel::Info,
+                &format!(
+                    "Filtered for incompatible licenses: {} of {} dependencies",
+                    analyzed_data.len(),
+                    original_count
+                ),
+            );
+        } else {
+            log(
+                LogLevel::Warn,
+                "Incompatible mode enabled but no project license specified, cannot filter for incompatible licenses",
+            );
+        }
+    }
+
+    // Apply OSI filtering
+    if let Some(osi_filter) = &config.osi {
+        let before_count = analyzed_data.len();
+        match osi_filter {
+            cli::OsiFilter::Approved => {
+                analyzed_data.retain(|info| info.osi_status == licenses::OsiStatus::Approved);
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Filtered for OSI approved licenses: {} of {} dependencies",
+                        analyzed_data.len(),
+                        before_count
+                    ),
+                );
+            }
+            cli::OsiFilter::NotApproved => {
+                analyzed_data.retain(|info| info.osi_status == licenses::OsiStatus::NotApproved);
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Filtered for non-OSI approved licenses: {} of {} dependencies",
+                        analyzed_data.len(),
+                        before_count
+                    ),
+                );
+            }
+            cli::OsiFilter::Unknown => {
+                analyzed_data.retain(|info| info.osi_status == licenses::OsiStatus::Unknown);
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "Filtered for unknown OSI status licenses: {} of {} dependencies",
+                        analyzed_data.len(),
+                        before_count
+                    ),
+                );
+            }
+        }
+    }
+
+    log(LogLevel::Info, "Starting TUI mode");
+
+    // Initialize the terminal
+    color_eyre::install()
+        .map_err(|e| FeludaError::TuiInit(format!("Failed to initialize color_eyre: {e}")))?;
+
+    let terminal = ratatui::init();
+    log(LogLevel::Info, "Terminal initialized for TUI");
+
+    // TUI app with project license info
+    let app_result = App::new(analyzed_data, project_license).run(terminal);
+    ratatui::restore();
+
+    // Handle any errors from the TUI
+    app_result.map_err(|e| FeludaError::TuiRuntime(format!("TUI error: {e}")))?;
+
+    log(LogLevel::Info, "TUI session completed successfully");
+
+    Ok(())
+}
+
+/// Generate a (non-interactive) dependency report and return the outcome.
+///
+/// Unlike the previous inline implementation, this never calls `process::exit`;
+/// the caller inspects the returned [`ScanSummary`] to decide on exit codes.
+/// This makes it safe to call repeatedly from `feluda watch`.
+fn report_analysis(
+    analyzed_data: Vec<LicenseInfo>,
+    project_license: Option<String>,
+    config: &CheckConfig,
+) -> ScanSummary {
+    log(LogLevel::Info, "Generating dependency report");
+
+    // Create ReportConfig from CLI arguments
+    let report_config = ReportConfig::new(
+        config.json,
+        config.yaml,
+        config.verbose,
+        config.restrictive,
+        config.incompatible,
+        config.ci_format.clone(),
+        config.output_file.clone(),
+        project_license,
+        config.gist,
+        config.osi.clone(),
+    );
+
+    // Generate a report based on the analyzed data
+    let (has_restrictive, has_incompatible) = generate_report(analyzed_data, report_config);
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Report generated, has_restrictive: {has_restrictive}, has_incompatible: {has_incompatible}"
+        ),
+    );
+
+    ScanSummary {
+        has_restrictive,
+        has_incompatible,
+    }
+}
+
+fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
+    let (mut analyzed_data, project_license) = analyze_dependencies(&config)?;
+
+    if analyzed_data.is_empty() {
+        log(LogLevel::Warn, "No dependencies found to analyze. Exiting.");
+        return Ok(());
+    }
+
+    annotate_compatibility(&mut analyzed_data, &project_license, config.strict);
+
+    // Either run the GUI or generate a report
+    if config.gui {
+        run_gui(analyzed_data, project_license, &config)?;
+    } else {
+        let summary = report_analysis(analyzed_data, project_license, &config);
+
+        if (config.fail_on_restrictive && summary.has_restrictive)
+            || (config.fail_on_incompatible && summary.has_incompatible)
         {
             log(
                 LogLevel::Warn,

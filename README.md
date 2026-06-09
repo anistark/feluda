@@ -278,6 +278,50 @@ feluda cache --clear
 - Cache is automatically loaded on subsequent analysis runs
 - Reduces GitHub API calls and improves analysis speed
 
+### Watch Mode
+
+Continuously re-scan your project whenever a dependency file changes. Feluda watches the project tree for filesystem events and re-runs the license check automatically — handy while adding or upgrading dependencies, especially with AI coding tools that pull in packages on the fly.
+
+```sh
+# Watch the current directory and re-scan on dependency changes
+feluda watch
+
+# Watch a specific path
+feluda watch --path /path/to/project/
+
+# Adjust the debounce window (ms to wait after a change before re-scanning)
+feluda watch --debounce 800
+```
+
+Watch mode reuses the same flags as a normal scan — pass them before the `watch` subcommand:
+
+```sh
+# Watch and report only restrictive licenses, as JSON
+feluda --restrictive --json watch
+
+# Watch in strict mode against a specific project license
+feluda --strict --project-license MIT watch
+```
+
+**What it watches:** every dependency manifest and lockfile Feluda understands (`Cargo.toml`/`Cargo.lock`, `package.json`/`package-lock.json`/`yarn.lock`/`pnpm-lock.yaml`, `go.mod`/`go.sum`, `pyproject.toml`/`requirements.txt`/`uv.lock`, `pom.xml`/`build.gradle`, `*.csproj`, and more), discovered recursively while honouring `.gitignore` and skipping vendored directories like `node_modules/` and `target/`.
+
+> **Note:** Watch mode is report-only — it does not support the interactive TUI (`--gui`) or remote repositories (`--repo`). Press `Ctrl-C` to stop.
+
+#### Scheduled & looped scanning
+
+When a long-running watcher isn't a good fit (CI, network filesystems, periodic audits), run Feluda's single-shot scan on a timer instead. Add `--fail-on-restrictive` (or `--fail-on-incompatible`) so the exit code gates your pipeline:
+
+```sh
+# cron — scan every 30 minutes and fail if a restrictive license appears
+*/30 * * * * cd /path/to/project && feluda --fail-on-restrictive
+
+# Claude Code /loop — re-run the check every 30 minutes
+/loop 30m feluda --restrictive
+
+# CI gate — non-zero exit stops the build
+feluda --fail-on-restrictive --json
+```
+
 ### GitHub API Authentication
 
 Feluda uses the GitHub API to fetch license information. Unauthenticated requests are limited to 60 requests/hour, which may be insufficient for large projects or frequent scans.

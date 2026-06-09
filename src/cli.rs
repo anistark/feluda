@@ -133,6 +133,16 @@ pub enum Commands {
         #[arg(long)]
         no_pre_commit: bool,
     },
+    /// Continuously re-scan when dependency files change (filesystem watch)
+    Watch {
+        /// Path to the local project directory
+        #[arg(short, long, default_value = "./")]
+        path: String,
+
+        /// Milliseconds to wait after a change before re-scanning (debounce window)
+        #[arg(long, default_value_t = 500)]
+        debounce: u64,
+    },
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -554,7 +564,10 @@ mod tests {
                 assert_eq!(language, Some("rust".to_string()));
                 assert_eq!(project_license, Some("MIT".to_string()));
             }
-            Commands::Sbom { .. } | Commands::Cache { .. } | Commands::Init { .. } => {
+            Commands::Sbom { .. }
+            | Commands::Cache { .. }
+            | Commands::Init { .. }
+            | Commands::Watch { .. } => {
                 panic!("Expected Generate command");
             }
         }
@@ -601,7 +614,10 @@ mod tests {
                 assert_eq!(language, None);
                 assert_eq!(project_license, None);
             }
-            Commands::Sbom { .. } | Commands::Cache { .. } | Commands::Init { .. } => {
+            Commands::Sbom { .. }
+            | Commands::Cache { .. }
+            | Commands::Init { .. }
+            | Commands::Watch { .. } => {
                 panic!("Expected Generate command");
             }
         }
