@@ -125,6 +125,8 @@ examples:
     @echo "Run: feluda --path examples/c-example"
     @echo "\n📦 C++ Example:"
     @echo "Run: feluda --path examples/cpp-example"
+    @echo "\n📦 Ruby Example:"
+    @echo "Run: feluda --path examples/ruby-example"
 
 # Test Feluda on all example projects
 test-examples:
@@ -141,6 +143,8 @@ test-examples:
     ./target/debug/feluda --path examples/c-example || cargo run -- --path examples/c-example
     @echo "\n📦 Testing C++ Example:"
     ./target/debug/feluda --path examples/cpp-example || cargo run -- --path examples/cpp-example
+    @echo "\n📦 Testing Ruby Example:"
+    ./target/debug/feluda --path examples/ruby-example || cargo run -- --path examples/ruby-example
 
 # Documentation variables
 DOCS_DIR := "docs"

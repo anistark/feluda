@@ -5,11 +5,11 @@ use crate::debug::{log, log_debug, FeludaResult, LogLevel};
 use crate::languages::{
     c::analyze_c_licenses, cpp::analyze_cpp_licenses, dotnet::analyze_dotnet_licenses,
     go::analyze_go_licenses, java::analyze_java_licenses, node::analyze_js_licenses_with_no_local,
-    python::analyze_python_licenses, r::analyze_r_licenses,
+    python::analyze_python_licenses, r::analyze_r_licenses, ruby::analyze_ruby_licenses,
     rust::analyze_rust_licenses_with_metadata,
 };
 use crate::languages::{
-    Language, CPP_PATHS, C_PATHS, DOTNET_PATHS, JAVA_PATHS, PYTHON_PATHS, R_PATHS,
+    Language, CPP_PATHS, C_PATHS, DOTNET_PATHS, JAVA_PATHS, PYTHON_PATHS, RUBY_PATHS, R_PATHS,
 };
 use crate::licenses::{
     detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
@@ -200,6 +200,28 @@ fn check_which_java_file_exists(project_path: impl AsRef<Path>) -> Option<String
         LogLevel::Warn,
         &format!(
             "No Java project file found in: {}",
+            project_path.as_ref().display()
+        ),
+    );
+    None
+}
+
+fn check_which_ruby_file_exists(project_path: impl AsRef<Path>) -> Option<String> {
+    for &path in RUBY_PATHS.iter() {
+        let full_path = Path::new(project_path.as_ref()).join(path);
+        if full_path.exists() {
+            log(
+                LogLevel::Info,
+                &format!("Found Ruby project file: {}", full_path.display()),
+            );
+            return Some(path.to_string());
+        }
+    }
+
+    log(
+        LogLevel::Warn,
+        &format!(
+            "No Ruby project file found in: {}",
             project_path.as_ref().display()
         ),
     );
@@ -406,6 +428,7 @@ fn matches_language(project_type: Language, language: &str) -> bool {
             | (Language::Go(_), "go")
             | (Language::Python(_), "python")
             | (Language::R(_), "r")
+            | (Language::Ruby(_), "ruby")
     )
 }
 
@@ -679,6 +702,34 @@ fn parse_dependencies(
                 }
                 None => {
                     log(LogLevel::Error, "R package file not found");
+                    Vec::new()
+                }
+            },
+            Language::Ruby(_) => match check_which_ruby_file_exists(project_path) {
+                Some(ruby_file) => {
+                    let project_path = Path::new(project_path).join(&ruby_file);
+                    log(
+                        LogLevel::Info,
+                        &format!("Parsing Ruby project: {}", project_path.display()),
+                    );
+
+                    indicator.update_progress(&format!("analyzing {ruby_file}"));
+
+                    match project_path.to_str() {
+                        Some(path_str) => {
+                            let deps = analyze_ruby_licenses(path_str, config);
+                            indicator
+                                .update_progress(&format!("found {} dependencies", deps.len()));
+                            deps
+                        }
+                        None => {
+                            log(LogLevel::Error, "Failed to convert Ruby path to string");
+                            Vec::new()
+                        }
+                    }
+                }
+                None => {
+                    log(LogLevel::Error, "Ruby project file not found");
                     Vec::new()
                 }
             },

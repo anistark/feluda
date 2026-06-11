@@ -112,6 +112,9 @@ Feluda currently supports projects written in these ecosystems:
    * - .NET (C#/F#/VB)
      - ``*.csproj``, ``*.fsproj``, ``packages.config``
      - NuGet packages
+   * - Ruby
+     - ``Gemfile.lock``, ``Gemfile``
+     - Bundler; ``Gemfile.lock`` carries the full resolved transitive set, licenses from RubyGems
 
 ----
 
@@ -133,13 +136,7 @@ Filter scans to a specific ecosystem using the ``--language`` flag:
    feluda --language cpp
    feluda --language dotnet
    feluda --language r
-
-----
-
-Coming Soon
------------
-
-- `Ruby <https://github.com/anistark/feluda/issues/53>`_
+   feluda --language ruby
 
 ----
 

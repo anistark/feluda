@@ -163,7 +163,7 @@ feluda
 feluda --path /path/to/project/
 
 # Check with specific language
-feluda --language {rust|node|go|python|java|maven|gradle|c|cpp|r}
+feluda --language {rust|node|go|python|java|maven|gradle|c|cpp|r|ruby}
 
 # Skip local file checks and force network lookup only
 feluda --no-local

@@ -8,6 +8,7 @@ pub mod java;
 pub mod node;
 pub mod python;
 pub mod r;
+pub mod ruby;
 pub mod rust;
 
 use crate::licenses::LicenseInfo;
@@ -41,6 +42,7 @@ pub enum Language {
     Go(&'static str),
     Python(&'static [&'static str]),
     R(&'static [&'static str]),
+    Ruby(&'static [&'static str]),
 }
 
 impl Language {
@@ -57,6 +59,7 @@ impl Language {
             "MODULE.bazel" => Some(Language::Cpp(&CPP_PATHS[..])),
             "configure.ac" | "configure.in" | "Makefile" => Some(Language::C(&C_PATHS[..])),
             "CMakeLists.txt" => Some(Language::Cpp(&CPP_PATHS[..])),
+            "Gemfile" | "Gemfile.lock" => Some(Language::Ruby(&RUBY_PATHS[..])),
             _ => {
                 if file_name.ends_with(".csproj")
                     || file_name.ends_with(".fsproj")
@@ -101,6 +104,9 @@ pub const PYTHON_PATHS: [&str; 4] = [
 
 /// R project file patterns
 pub const R_PATHS: [&str; 2] = ["DESCRIPTION", "renv.lock"];
+
+/// Ruby project file patterns
+pub const RUBY_PATHS: [&str; 2] = ["Gemfile.lock", "Gemfile"];
 
 /// .NET project file patterns
 pub const DOTNET_PATHS: [&str; 4] = [".csproj", ".fsproj", ".vbproj", ".slnx"];

@@ -11,6 +11,7 @@ This directory contains example projects for all supported languages in Feluda. 
 5. C Example (`c-example/`)
 6. C++ Example (`cpp-example/`)
 7. R Example (`r-example/`)
+8. Ruby Example (`ruby-example/`)
 
 ## Using Just Commands
 
@@ -47,6 +48,9 @@ feluda --path examples/cpp-example --project-license MIT
 
 # R project analysis
 feluda --path examples/r-example --verbose
+
+# Ruby project analysis (Gemfile.lock)
+feluda --path examples/ruby-example --verbose
 ```
 
 ## Contributing
