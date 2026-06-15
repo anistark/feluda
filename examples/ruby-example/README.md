@@ -8,7 +8,7 @@ capabilities for Ruby/Bundler projects.
 This project declares a small Sinatra web app whose dependencies pull in several
 transitive gems:
 
-- **sinatra** — web framework (brings in `mustermann`, `rack`, `rack-protection`, `tilt`)
+- **sinatra** — web framework (brings in `mustermann`, `rack`, `rack-protection`, `rack-session`, `tilt`, `logger`, `base64`)
 - **puma** — web server (brings in `nio4r`)
 - **nokogiri** — HTML/XML parsing (brings in `mini_portile2`, `racc`)
 - **rake** — build tool
