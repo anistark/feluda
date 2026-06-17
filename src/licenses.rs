@@ -1144,6 +1144,15 @@ static LICENSE_CONTENT_RULES: &[LicenseContentRule] = &[
         spdx_id: "ISC",
         marker_groups: &[&["ISC License"]],
     },
+    // Unlicense text is distinctive and shares no preamble with the licenses above,
+    // so ordering relative to them does not matter.
+    LicenseContentRule {
+        spdx_id: "Unlicense",
+        marker_groups: &[
+            &["This is free and unencumbered software released into the public domain"],
+            &["unlicense.org"],
+        ],
+    },
 ];
 
 /// Return the SPDX ID for the first content rule that matches `content`, or `None`.
@@ -1156,6 +1165,17 @@ fn match_license_content(content: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+/// Detect a license's SPDX identifier from the **text content** of a license file
+/// (`LICENSE`, `COPYING`, …) or any blob of license text.
+///
+/// Returns a canonical SPDX id (e.g. `"MIT"`, `"Apache-2.0"`) when the content matches a
+/// known license, or `None` otherwise. This is the single shared implementation that every
+/// language analyzer's local-license-file fallback routes through, so detection stays
+/// consistent (and SPDX-correct) across ecosystems.
+pub fn detect_license_from_content(content: &str) -> Option<String> {
+    match_license_content(content).map(str::to_string)
 }
 
 /// Detect the project's license
@@ -1538,5 +1558,47 @@ mod tests {
     fn test_is_license_ignored_empty_license() {
         // Empty string should return false
         assert!(!is_license_ignored(Some("")));
+    }
+
+    #[test]
+    fn test_detect_license_from_content_returns_spdx_ids() {
+        // The shared detector returns canonical SPDX ids, not free-form labels.
+        assert_eq!(
+            detect_license_from_content("MIT License\n\nCopyright (c) 2024"),
+            Some("MIT".to_string())
+        );
+        assert_eq!(
+            detect_license_from_content("Apache License\nVersion 2.0"),
+            Some("Apache-2.0".to_string())
+        );
+        assert_eq!(
+            detect_license_from_content("GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991"),
+            Some("GPL-2.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_from_content_lgpl_not_gpl() {
+        // Regression guard: the old per-language detectors matched the bare "GPL"
+        // substring before "LGPL", so an LGPL file was reported as GPL.
+        let lgpl = "GNU LESSER GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007";
+        assert_eq!(
+            detect_license_from_content(lgpl),
+            Some("LGPL-3.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_from_content_unlicense() {
+        let unlicense = "This is free and unencumbered software released into the public domain.";
+        assert_eq!(
+            detect_license_from_content(unlicense),
+            Some("Unlicense".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_from_content_no_match() {
+        assert_eq!(detect_license_from_content("Some random content"), None);
     }
 }
