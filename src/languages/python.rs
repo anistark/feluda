@@ -10,7 +10,8 @@ use toml::Value as TomlValue;
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
+    detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
+    LicenseCompatibility, LicenseInfo,
 };
 
 /// Represents an environment marker in a Python requirement
@@ -518,29 +519,6 @@ fn check_site_package_license_file(site_packages: &Path, package_name: &str) -> 
             }
         }
     }
-    None
-}
-
-fn detect_license_from_content(content: &str) -> Option<String> {
-    let content_upper = content.to_uppercase();
-
-    let patterns = vec![
-        ("MIT", "MIT License"),
-        ("APACHE", "Apache License"),
-        ("GPL", "GPL"),
-        ("BSD", "BSD"),
-        ("ISC", "ISC License"),
-        ("LGPL", "LGPL"),
-        ("UNLICENSE", "Unlicense"),
-        ("MPL", "Mozilla Public License"),
-    ];
-
-    for (pattern, label) in patterns {
-        if content_upper.contains(pattern) {
-            return Some(label.to_string());
-        }
-    }
-
     None
 }
 

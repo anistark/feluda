@@ -11,7 +11,8 @@ use std::time::Duration;
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
+    detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
+    LicenseCompatibility, LicenseInfo,
 };
 
 /// Go module names to exclude from dependency analysis
@@ -748,29 +749,6 @@ fn find_license_in_any_version(root: &Path, module: &str) -> Option<String> {
             }
         }
     }
-    None
-}
-
-fn detect_license_from_content(content: &str) -> Option<String> {
-    let content_upper = content.to_uppercase();
-
-    let patterns = vec![
-        ("MIT", "MIT License"),
-        ("APACHE", "Apache License"),
-        ("GPL", "GPL"),
-        ("BSD", "BSD"),
-        ("ISC", "ISC License"),
-        ("LGPL", "LGPL"),
-        ("UNLICENSE", "Unlicense"),
-        ("MPL", "Mozilla Public License"),
-    ];
-
-    for (pattern, label) in patterns {
-        if content_upper.contains(pattern) {
-            return Some(label.to_string());
-        }
-    }
-
     None
 }
 

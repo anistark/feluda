@@ -8,7 +8,8 @@ use std::process::Command;
 
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
+    detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
+    LicenseCompatibility, LicenseInfo,
 };
 
 /// Type alias for dependency detection
@@ -1742,29 +1743,6 @@ fn get_license_from_local_license_file(project_root: &Path, package_name: &str) 
     None
 }
 
-fn detect_license_from_content(content: &str) -> Option<String> {
-    let content_upper = content.to_uppercase();
-
-    let patterns = vec![
-        ("MIT", "MIT License"),
-        ("APACHE", "Apache License"),
-        ("GPL", "GPL"),
-        ("BSD", "BSD"),
-        ("ISC", "ISC License"),
-        ("LGPL", "LGPL"),
-        ("UNLICENSE", "Unlicense"),
-        ("MPL", "Mozilla Public License"),
-    ];
-
-    for (pattern, label) in patterns {
-        if content_upper.contains(pattern) {
-            return Some(label.to_string());
-        }
-    }
-
-    None
-}
-
 fn get_nested_json_value<'a>(json: &'a Value, path: &[&str]) -> Option<&'a Value> {
     let mut current = json;
     for key in path {
@@ -2644,39 +2622,6 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_detect_license_from_content_mit() {
-        let mit_content = "MIT License\n\nCopyright (c) 2024";
-        assert_eq!(
-            detect_license_from_content(mit_content),
-            Some("MIT License".to_string())
-        );
-    }
-
-    #[test]
-    fn test_detect_license_from_content_apache() {
-        let apache_content = "Apache License\nVersion 2.0";
-        assert_eq!(
-            detect_license_from_content(apache_content),
-            Some("Apache License".to_string())
-        );
-    }
-
-    #[test]
-    fn test_detect_license_from_content_gpl() {
-        let gpl_content = "GNU GPL License\n\nVersion 2";
-        assert_eq!(
-            detect_license_from_content(gpl_content),
-            Some("GPL".to_string())
-        );
-    }
-
-    #[test]
-    fn test_detect_license_from_content_no_match() {
-        let unknown = "Some random content";
-        assert_eq!(detect_license_from_content(unknown), None);
-    }
-
-    #[test]
     fn test_get_license_from_local_license_file_mit() {
         let temp_dir = TempDir::new().unwrap();
         let package_dir = temp_dir.path().join("node_modules").join("test-pkg");
@@ -2686,7 +2631,7 @@ mod tests {
         fs::write(&license_path, "MIT License\n\nCopyright (c) 2024").unwrap();
 
         let result = get_license_from_local_license_file(temp_dir.path(), "test-pkg");
-        assert_eq!(result, Some("MIT License".to_string()));
+        assert_eq!(result, Some("MIT".to_string()));
     }
 
     #[test]
@@ -2700,10 +2645,10 @@ mod tests {
         fs::create_dir_all(&package_dir).unwrap();
 
         let license_path = package_dir.join("LICENSE.md");
-        fs::write(&license_path, "Apache License").unwrap();
+        fs::write(&license_path, "Apache License\nVersion 2.0, January 2004").unwrap();
 
         let result = get_license_from_local_license_file(temp_dir.path(), "@scope/package");
-        assert_eq!(result, Some("Apache License".to_string()));
+        assert_eq!(result, Some("Apache-2.0".to_string()));
     }
 
     #[test]
@@ -2725,10 +2670,14 @@ mod tests {
         fs::create_dir_all(&package_dir).unwrap();
 
         let license_path = package_dir.join("LICENSE.txt");
-        fs::write(&license_path, "BSD License").unwrap();
+        fs::write(
+            &license_path,
+            "BSD 2-Clause License\n\nRedistribution and use in source and binary forms",
+        )
+        .unwrap();
 
         let result = get_license_from_local_license_file(temp_dir.path(), "test-pkg");
-        assert_eq!(result, Some("BSD".to_string()));
+        assert_eq!(result, Some("BSD-2-Clause".to_string()));
     }
 
     #[test]
