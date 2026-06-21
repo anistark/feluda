@@ -4,7 +4,8 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
+    detect_license_from_content, detect_license_in_dir, fetch_licenses_from_github,
+    is_license_restrictive, LicenseCompatibility, LicenseInfo,
 };
 
 /// Analyze the licenses of Rust dependencies from Cargo packages
@@ -222,23 +223,53 @@ fn get_license_from_manifest<P: AsRef<std::path::Path>>(manifest_path: P) -> Opt
         return None;
     }
 
-    match fs::read_to_string(manifest_path) {
-        Ok(content) => match toml::from_str::<Value>(&content) {
-            Ok(manifest) => manifest
-                .get("package")
-                .and_then(|pkg| pkg.get("license"))
-                .and_then(|license| license.as_str())
-                .map(|s| {
-                    log(
-                        crate::debug::LogLevel::Info,
-                        &format!("Found license in manifest: {s}"),
-                    );
-                    s.to_string()
-                }),
-            Err(_) => None,
-        },
-        Err(_) => None,
+    let content = fs::read_to_string(manifest_path).ok()?;
+    let manifest = toml::from_str::<Value>(&content).ok()?;
+    let package = manifest.get("package");
+
+    // 1. Explicit SPDX expression in the `license` field.
+    if let Some(license) = package
+        .and_then(|pkg| pkg.get("license"))
+        .and_then(|license| license.as_str())
+    {
+        log(
+            crate::debug::LogLevel::Info,
+            &format!("Found license in manifest: {license}"),
+        );
+        return Some(license.to_string());
     }
+
+    let crate_dir = manifest_path.parent();
+
+    // 2. `license-file` field: a relative path to a bundled license text, which may use a
+    //    non-standard filename (e.g. `LICENSE-MIT`), so read it directly and content-detect.
+    if let (Some(dir), Some(rel)) = (
+        crate_dir,
+        package
+            .and_then(|pkg| pkg.get("license-file"))
+            .and_then(|license_file| license_file.as_str()),
+    ) {
+        if let Ok(text) = fs::read_to_string(dir.join(rel)) {
+            if let Some(spdx) = detect_license_from_content(&text) {
+                log(
+                    crate::debug::LogLevel::Info,
+                    &format!("Detected {spdx} license from license-file: {rel}"),
+                );
+                return Some(spdx);
+            }
+        }
+    }
+
+    // 3. Probe conventional license files (LICENSE, COPYING, …) in the crate root.
+    if let Some(spdx) = crate_dir.and_then(detect_license_in_dir) {
+        log(
+            crate::debug::LogLevel::Info,
+            &format!("Detected {spdx} license from crate license file"),
+        );
+        return Some(spdx);
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -349,5 +380,73 @@ version = "0.1.0"
 
         let result = get_license_from_manifest(&manifest_path);
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_get_license_from_manifest_license_file_field() {
+        let temp_dir = TempDir::new().unwrap();
+        let manifest_path = temp_dir.path().join("Cargo.toml");
+
+        // A crate with no `license` field, only a `license-file` pointing at a
+        // non-standard filename — previously this resolved to "No License".
+        let manifest_content = r#"[package]
+name = "test-crate"
+version = "0.1.0"
+license-file = "LICENSE-MIT"
+"#;
+        std::fs::write(&manifest_path, manifest_content).unwrap();
+        std::fs::write(
+            temp_dir.path().join("LICENSE-MIT"),
+            "MIT License\n\nPermission is hereby granted, free of charge, to any person",
+        )
+        .unwrap();
+
+        let result = get_license_from_manifest(&manifest_path);
+        assert_eq!(result, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_get_license_from_manifest_crate_dir_fallback() {
+        let temp_dir = TempDir::new().unwrap();
+        let manifest_path = temp_dir.path().join("Cargo.toml");
+
+        // No `license` and no `license-file` field, but a conventional LICENSE file
+        // ships in the crate root.
+        let manifest_content = r#"[package]
+name = "test-crate"
+version = "0.1.0"
+"#;
+        std::fs::write(&manifest_path, manifest_content).unwrap();
+        std::fs::write(
+            temp_dir.path().join("LICENSE"),
+            "Apache License\nVersion 2.0, January 2004",
+        )
+        .unwrap();
+
+        let result = get_license_from_manifest(&manifest_path);
+        assert_eq!(result, Some("Apache-2.0".to_string()));
+    }
+
+    #[test]
+    fn test_get_license_from_manifest_license_field_wins_over_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let manifest_path = temp_dir.path().join("Cargo.toml");
+
+        // When both are present the explicit SPDX expression takes precedence.
+        let manifest_content = r#"[package]
+name = "test-crate"
+version = "0.1.0"
+license = "MIT"
+license-file = "LICENSE"
+"#;
+        std::fs::write(&manifest_path, manifest_content).unwrap();
+        std::fs::write(
+            temp_dir.path().join("LICENSE"),
+            "Apache License\nVersion 2.0, January 2004",
+        )
+        .unwrap();
+
+        let result = get_license_from_manifest(&manifest_path);
+        assert_eq!(result, Some("MIT".to_string()));
     }
 }

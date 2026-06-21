@@ -3,11 +3,14 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
+    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
+    LicenseCompatibility, LicenseInfo,
 };
 
 #[derive(Debug, Clone)]
@@ -189,7 +192,82 @@ fn fetch_ruby_license(name: &str, version: &str) -> String {
         }
     }
 
-    fetch_license_latest(name).unwrap_or_else(|| "Unknown".to_string())
+    if let Some(license) = fetch_license_latest(name) {
+        return license;
+    }
+
+    // Local fallback: probe the installed gem's bundled LICENSE/COPYING files.
+    fetch_from_local_gem(name, version).unwrap_or_else(|| "Unknown".to_string())
+}
+
+/// Probe locally installed gems for a bundled license file.
+///
+/// Gems unpack to `<gem path>/gems/<name>-<version>/`, so we read the gem paths reported by
+/// `gem env gempath` (falling back to `GEM_HOME`) and route each candidate dir through the
+/// shared [`detect_license_in_dir`] engine.
+fn fetch_from_local_gem(name: &str, version: &str) -> Option<String> {
+    for gem_path in gem_paths() {
+        let gems_dir = gem_path.join("gems");
+
+        if !version.is_empty() {
+            let exact = gems_dir.join(format!("{name}-{version}"));
+            if let Some(license) = detect_license_in_dir(&exact) {
+                return Some(license);
+            }
+        }
+
+        if let Some(license) = find_gem_in_any_version(&gems_dir, name) {
+            return Some(license);
+        }
+    }
+    None
+}
+
+/// Gem install roots, from `gem env gempath` (path-separated) plus the `GEM_HOME` env var.
+fn gem_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    if let Ok(output) = Command::new("gem").args(["env", "gempath"]).output() {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for part in stdout.trim().split([':', ';']) {
+                if !part.is_empty() {
+                    paths.push(PathBuf::from(part));
+                }
+            }
+        }
+    }
+
+    if let Ok(gem_home) = std::env::var("GEM_HOME") {
+        let path = PathBuf::from(gem_home);
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+
+    paths
+}
+
+/// Find any installed version of `name` under `gems_dir` and detect its license.
+///
+/// Directories are named `<name>-<version>`; we require the suffix after `<name>-` to start
+/// with a digit so a gem like `rails` doesn't match `rails-html-sanitizer`.
+fn find_gem_in_any_version(gems_dir: &Path, name: &str) -> Option<String> {
+    let prefix = format!("{name}-");
+    let entries = fs::read_dir(gems_dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+            if let Some(rest) = file_name.strip_prefix(&prefix) {
+                if rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                    if let Some(license) = detect_license_in_dir(&path) {
+                        return Some(license);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn fetch_license_for_version(name: &str, version: &str) -> Option<String> {
@@ -340,5 +418,40 @@ gem "redis", require: false
     fn test_parse_gemfile_lock_empty() {
         assert!(parse_gemfile_lock("").is_empty());
         assert!(parse_gemfile("").is_empty());
+    }
+
+    #[test]
+    fn test_find_gem_in_any_version_detects_license() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let gems_dir = temp_dir.path().join("gems");
+        let gem_dir = gems_dir.join("nokogiri-1.13.10");
+        fs::create_dir_all(&gem_dir).unwrap();
+        fs::write(gem_dir.join("LICENSE"), "MIT License\n\nCopyright (c) 2024").unwrap();
+
+        assert_eq!(
+            find_gem_in_any_version(&gems_dir, "nokogiri"),
+            Some("MIT".to_string())
+        );
+    }
+
+    #[test]
+    fn test_find_gem_in_any_version_no_name_collision() {
+        // "rails" must not match "rails-html-sanitizer".
+        let temp_dir = tempfile::tempdir().unwrap();
+        let gems_dir = temp_dir.path().join("gems");
+        let other = gems_dir.join("rails-html-sanitizer-1.4.4");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("LICENSE"), "MIT License").unwrap();
+
+        assert_eq!(find_gem_in_any_version(&gems_dir, "rails"), None);
+    }
+
+    #[test]
+    fn test_find_gem_in_any_version_missing_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            find_gem_in_any_version(&temp_dir.path().join("gems"), "nokogiri"),
+            None
+        );
     }
 }

@@ -9,7 +9,8 @@ use std::process::Command;
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
+    detect_license_from_content, detect_license_in_dir, fetch_licenses_from_github,
+    is_license_restrictive, LicenseCompatibility, LicenseInfo,
 };
 
 #[derive(Debug, Clone)]
@@ -377,20 +378,23 @@ fn fetch_from_local_nuget_cache(name: &str, version: &str) -> Result<String, Str
         .or_else(|_| std::env::var("USERPROFILE"))
         .map_err(|_| "Cannot determine home directory")?;
 
-    let nuget_cache = PathBuf::from(home)
+    let package_dir = PathBuf::from(home)
         .join(".nuget")
         .join("packages")
         .join(name.to_lowercase())
-        .join(version)
-        .join(format!("{}.nuspec", name.to_lowercase()));
+        .join(version);
 
-    if nuget_cache.exists() {
+    let nuspec_path = package_dir.join(format!("{}.nuspec", name.to_lowercase()));
+    if nuspec_path.exists() {
         let content =
-            fs::read_to_string(&nuget_cache).map_err(|e| format!("Failed to read nuspec: {e}"))?;
-        return parse_license_from_nuspec(&content);
+            fs::read_to_string(&nuspec_path).map_err(|e| format!("Failed to read nuspec: {e}"))?;
+        if let Some(license) = resolve_nuspec_license(&content, Some(&package_dir)) {
+            return Ok(license);
+        }
     }
 
-    Err("Not found in local cache".to_string())
+    // Final local fallback: probe the package dir for a bundled LICENSE/COPYING file.
+    detect_license_in_dir(&package_dir).ok_or_else(|| "Not found in local cache".to_string())
 }
 
 fn fetch_from_nuget_api(name: &str, version: &str) -> Result<String, String> {
@@ -424,13 +428,46 @@ fn fetch_from_nuget_api(name: &str, version: &str) -> Result<String, String> {
         .text()
         .map_err(|e| format!("Failed to read response: {e}"))?;
 
-    parse_license_from_nuspec(&content)
+    // No local package dir over the API, so file-type licenses can't be resolved here.
+    resolve_nuspec_license(&content, None).ok_or_else(|| "No license found in nuspec".to_string())
 }
 
-fn parse_license_from_nuspec(content: &str) -> Result<String, String> {
-    if let Ok(re) = Regex::new(r"<license[^>]*>([^<]+)</license>") {
+/// A `<license>` declaration in a nuspec.
+enum NuspecLicense {
+    /// An SPDX expression (`<license type="expression">` or a recognized `<licenseUrl>`).
+    Expression(String),
+    /// `<license type="file">` — the value is a path to a bundled license file, relative to
+    /// the package root, which must be read and content-detected.
+    File(String),
+    None,
+}
+
+/// Resolve a nuspec's license to a canonical value.
+///
+/// `package_dir` is the local package root, used to read `type="file"` licenses; pass `None`
+/// when parsing a nuspec fetched over the network (file licenses then resolve to `None`).
+fn resolve_nuspec_license(content: &str, package_dir: Option<&Path>) -> Option<String> {
+    match parse_license_from_nuspec(content) {
+        NuspecLicense::Expression(spdx) => Some(spdx),
+        NuspecLicense::File(rel) => {
+            let dir = package_dir?;
+            let text = fs::read_to_string(dir.join(&rel)).ok()?;
+            detect_license_from_content(&text)
+        }
+        NuspecLicense::None => None,
+    }
+}
+
+fn parse_license_from_nuspec(content: &str) -> NuspecLicense {
+    if let Ok(re) = Regex::new(r"<license([^>]*)>([^<]+)</license>") {
         if let Some(cap) = re.captures(content) {
-            return Ok(cap[1].trim().to_string());
+            let attrs = &cap[1];
+            let value = cap[2].trim().to_string();
+            // `type="file"` means the value is a filename, not an SPDX id.
+            if attrs.contains(r#"type="file""#) {
+                return NuspecLicense::File(value);
+            }
+            return NuspecLicense::Expression(value);
         }
     }
 
@@ -438,19 +475,19 @@ fn parse_license_from_nuspec(content: &str) -> Result<String, String> {
         if let Some(cap) = re.captures(content) {
             let url = cap[1].trim();
             if url.contains("MIT") {
-                return Ok("MIT".to_string());
+                return NuspecLicense::Expression("MIT".to_string());
             } else if url.contains("Apache") {
-                return Ok("Apache-2.0".to_string());
+                return NuspecLicense::Expression("Apache-2.0".to_string());
             } else if url.contains("BSD") {
-                return Ok("BSD".to_string());
+                return NuspecLicense::Expression("BSD".to_string());
             } else if url.contains("GPL") {
-                return Ok("GPL".to_string());
+                return NuspecLicense::Expression("GPL".to_string());
             }
-            return Ok(url.to_string());
+            return NuspecLicense::Expression(url.to_string());
         }
     }
 
-    Err("No license found in nuspec".to_string())
+    NuspecLicense::None
 }
 
 fn find_file_in_dir(dir: &Path, filename: &str) -> Result<String, String> {
@@ -462,5 +499,64 @@ fn find_file_in_dir(dir: &Path, filename: &str) -> Result<String, String> {
             .ok_or_else(|| "Invalid path".to_string())
     } else {
         Err(format!("{filename} not found in directory"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_resolve_nuspec_license_expression() {
+        let nuspec =
+            r#"<package><metadata><license type="expression">MIT</license></metadata></package>"#;
+        assert_eq!(
+            resolve_nuspec_license(nuspec, None),
+            Some("MIT".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_nuspec_license_file_resolves_from_package_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::write(
+            temp_dir.path().join("LICENSE.txt"),
+            "Apache License\nVersion 2.0, January 2004",
+        )
+        .unwrap();
+
+        // type="file" points at a bundled license; its content is detected, not the filename.
+        let nuspec =
+            r#"<package><metadata><license type="file">LICENSE.txt</license></metadata></package>"#;
+        assert_eq!(
+            resolve_nuspec_license(nuspec, Some(temp_dir.path())),
+            Some("Apache-2.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_nuspec_license_file_without_package_dir() {
+        // Over the API we have no package dir, so a file-type license can't be resolved.
+        let nuspec =
+            r#"<package><metadata><license type="file">LICENSE.txt</license></metadata></package>"#;
+        assert_eq!(resolve_nuspec_license(nuspec, None), None);
+    }
+
+    #[test]
+    fn test_resolve_nuspec_license_url() {
+        let nuspec = r#"<package><metadata><licenseUrl>https://opensource.org/licenses/MIT</licenseUrl></metadata></package>"#;
+        assert_eq!(
+            resolve_nuspec_license(nuspec, None),
+            Some("MIT".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_nuspec_license_none() {
+        assert_eq!(
+            resolve_nuspec_license("<package><metadata></metadata></package>", None),
+            None
+        );
     }
 }

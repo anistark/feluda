@@ -4,13 +4,15 @@ use rayon::prelude::*;
 use regex::Regex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::path::Path;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
+    detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
+    LicenseCompatibility, LicenseInfo,
 };
 
 #[derive(Debug, Clone)]
@@ -494,7 +496,77 @@ fn fetch_maven_license(group_id: &str, artifact_id: &str, version: &str) -> Stri
         return license;
     }
 
+    // Local fallback: read the license text bundled inside the cached jar.
+    if let Some(license) = fetch_license_from_local_jar(group_id, artifact_id, version) {
+        return license;
+    }
+
     "Unknown".to_string()
+}
+
+/// License files conventionally bundled inside a jar, in priority order. Maven artifacts
+/// place them under `META-INF/`; some older jars keep them at the archive root.
+const JAR_LICENSE_ENTRIES: &[&str] = &[
+    "META-INF/LICENSE",
+    "META-INF/LICENSE.txt",
+    "META-INF/LICENSE.md",
+    "META-INF/COPYING",
+    "LICENSE",
+    "LICENSE.txt",
+    "LICENSE.md",
+    "COPYING",
+];
+
+/// Probe the locally cached jar for a bundled license file and content-detect it.
+///
+/// The jar lives at `<repo>/<group as path>/<artifact>/<version>/<artifact>-<version>.jar`,
+/// where the repo is `MAVEN_REPO_LOCAL` or the default `~/.m2/repository`.
+fn fetch_license_from_local_jar(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+) -> Option<String> {
+    // A concrete version is required to locate the jar on disk.
+    if version.is_empty() || version == "RELEASE" {
+        return None;
+    }
+
+    let repo = maven_local_repo()?;
+    let jar_path = repo
+        .join(group_id.replace('.', "/"))
+        .join(artifact_id)
+        .join(version)
+        .join(format!("{artifact_id}-{version}.jar"));
+
+    detect_license_in_jar(&jar_path)
+}
+
+fn maven_local_repo() -> Option<PathBuf> {
+    if let Ok(repo) = std::env::var("MAVEN_REPO_LOCAL") {
+        return Some(PathBuf::from(repo));
+    }
+    dirs::home_dir().map(|home| home.join(".m2").join("repository"))
+}
+
+fn detect_license_in_jar(jar_path: &Path) -> Option<String> {
+    let file = fs::File::open(jar_path).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+
+    for entry_name in JAR_LICENSE_ENTRIES {
+        if let Ok(mut entry) = archive.by_name(entry_name) {
+            let mut content = String::new();
+            if entry.read_to_string(&mut content).is_ok() {
+                if let Some(spdx) = detect_license_from_content(&content) {
+                    log(
+                        LogLevel::Info,
+                        &format!("Detected {spdx} from jar entry {entry_name}"),
+                    );
+                    return Some(spdx);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Maximum number of parent POMs to follow when resolving a license. Guards
@@ -674,6 +746,60 @@ mod tests {
         assert_eq!(dep.group_id, "com.google.guava");
         assert_eq!(dep.artifact_id, "guava");
         assert_eq!(dep.version, "31.1-jre");
+    }
+
+    #[test]
+    fn test_detect_license_in_jar() {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+
+        let temp_dir = TempDir::new().unwrap();
+        let jar_path = temp_dir.path().join("guava-32.0.jar");
+        let file = fs::File::create(&jar_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("META-INF/LICENSE", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"Apache License\nVersion 2.0, January 2004")
+            .unwrap();
+        zip.finish().unwrap();
+
+        assert_eq!(
+            detect_license_in_jar(&jar_path),
+            Some("Apache-2.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_in_jar_no_license_entry() {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+
+        let temp_dir = TempDir::new().unwrap();
+        let jar_path = temp_dir.path().join("nolicense-1.0.jar");
+        let file = fs::File::create(&jar_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("com/example/Main.class", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"not a license").unwrap();
+        zip.finish().unwrap();
+
+        assert_eq!(detect_license_in_jar(&jar_path), None);
+    }
+
+    #[test]
+    fn test_detect_license_in_jar_missing_file() {
+        let temp_dir = TempDir::new().unwrap();
+        assert_eq!(
+            detect_license_in_jar(&temp_dir.path().join("does-not-exist.jar")),
+            None
+        );
+    }
+
+    #[test]
+    fn test_fetch_license_from_local_jar_requires_concrete_version() {
+        // Without a concrete version the jar can't be located, so no probing happens.
+        assert_eq!(fetch_license_from_local_jar("g", "a", ""), None);
+        assert_eq!(fetch_license_from_local_jar("g", "a", "RELEASE"), None);
     }
 
     #[test]

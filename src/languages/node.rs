@@ -8,7 +8,7 @@ use std::process::Command;
 
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
+    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
     LicenseCompatibility, LicenseInfo,
 };
 
@@ -1711,32 +1711,13 @@ fn get_license_from_local_license_file(project_root: &Path, package_name: &str) 
         ]
     };
 
-    let license_filenames = [
-        "LICENSE",
-        "LICENSE.md",
-        "LICENSE.txt",
-        "COPYING",
-        "COPYING.md",
-    ];
-
     for dir in package_dirs {
-        if !dir.exists() {
-            continue;
-        }
-
-        for filename in &license_filenames {
-            let license_path = dir.join(filename);
-            if license_path.exists() {
-                if let Ok(content) = fs::read_to_string(&license_path) {
-                    if !content.trim().is_empty() {
-                        log(
-                            LogLevel::Info,
-                            &format!("Found license file for {package_name}: {filename}"),
-                        );
-                        return detect_license_from_content(&content);
-                    }
-                }
-            }
+        if let Some(license) = detect_license_in_dir(&dir) {
+            log(
+                LogLevel::Info,
+                &format!("Found license file for {package_name} in {}", dir.display()),
+            );
+            return Some(license);
         }
     }
 

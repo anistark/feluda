@@ -1,11 +1,14 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
 
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, License, LicenseCompatibility, LicenseInfo,
+    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive, License,
+    LicenseCompatibility, LicenseInfo,
 };
 
 pub fn analyze_r_licenses(package_file_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
@@ -249,77 +252,107 @@ fn process_dependency_field(field: &str, value: &str, deps: &mut Vec<(String, St
 }
 
 pub fn fetch_license_for_r_dependency(name: &str, version: &str) -> String {
+    if let Some(license) = fetch_license_from_r_universe(name) {
+        return license;
+    }
+
+    // Local fallback: probe the installed package's bundled LICENSE/COPYING files.
+    if let Some(license) = fetch_from_local_r_library(name) {
+        return license;
+    }
+
+    log(
+        LogLevel::Warn,
+        &format!("No license found for {name} ({version})"),
+    );
+    format!("Unknown license for {name}: {version}")
+}
+
+fn fetch_license_from_r_universe(name: &str) -> Option<String> {
     let search_url = format!("https://r-universe.dev/api/search?q={name}&limit=1");
     log(
         LogLevel::Info,
         &format!("Fetching license from R-universe: {search_url}"),
     );
 
-    match reqwest::blocking::get(&search_url) {
-        Ok(response) => {
-            let status = response.status();
-            log(
-                LogLevel::Info,
-                &format!("R-universe API response status: {status}"),
-            );
+    let response = reqwest::blocking::get(&search_url).ok()?;
+    if !response.status().is_success() {
+        log(
+            LogLevel::Error,
+            &format!(
+                "Failed to fetch metadata for {name}: HTTP {}",
+                response.status()
+            ),
+        );
+        return None;
+    }
 
-            if status.is_success() {
-                match response.json::<Value>() {
-                    Ok(json) => {
-                        if let Some(results) = json["results"].as_array() {
-                            if let Some(first_result) = results.first() {
-                                if let Some(user) = first_result["_user"].as_str() {
-                                    let package_url = format!(
-                                        "https://{user}.r-universe.dev/api/packages/{name}"
-                                    );
-                                    log(
-                                        LogLevel::Info,
-                                        &format!("Fetching package details from: {package_url}"),
-                                    );
+    let json = response.json::<Value>().ok()?;
+    let user = json["results"].as_array()?.first()?["_user"].as_str()?;
 
-                                    if let Ok(pkg_response) = reqwest::blocking::get(&package_url) {
-                                        if let Ok(pkg_json) = pkg_response.json::<Value>() {
-                                            if let Some(license) = pkg_json["License"].as_str() {
-                                                if !license.is_empty() {
-                                                    log(
-                                                        LogLevel::Info,
-                                                        &format!(
-                                                            "License found for {name}: {license}"
-                                                        ),
-                                                    );
-                                                    return license.to_string();
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+    let package_url = format!("https://{user}.r-universe.dev/api/packages/{name}");
+    log(
+        LogLevel::Info,
+        &format!("Fetching package details from: {package_url}"),
+    );
 
-                        log(
-                            LogLevel::Warn,
-                            &format!("No license found for {name} ({version})"),
-                        );
-                        format!("Unknown license for {name}: {version}")
-                    }
-                    Err(err) => {
-                        log_error(&format!("Failed to parse JSON for {name}: {version}"), &err);
-                        String::from("Unknown")
-                    }
+    let pkg_json = reqwest::blocking::get(&package_url)
+        .ok()?
+        .json::<Value>()
+        .ok()?;
+    let license = pkg_json["License"].as_str()?;
+    if license.is_empty() {
+        return None;
+    }
+
+    log(
+        LogLevel::Info,
+        &format!("License found for {name}: {license}"),
+    );
+    Some(license.to_string())
+}
+
+/// Probe installed R packages for a bundled license file.
+///
+/// Installed packages live at `<lib>/<name>/`, where the library paths come from R's
+/// `.libPaths()` (via `Rscript`) plus the `R_LIBS_USER`/`R_LIBS`/`R_LIBS_SITE` env vars.
+fn fetch_from_local_r_library(name: &str) -> Option<String> {
+    r_library_paths()
+        .iter()
+        .find_map(|lib| detect_license_in_dir(&lib.join(name)))
+}
+
+/// R library directories, from `.libPaths()` and the standard `R_LIBS*` env vars.
+fn r_library_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    if let Ok(output) = Command::new("Rscript")
+        .args(["-e", "cat(.libPaths(), sep=\"\\n\")"])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    paths.push(PathBuf::from(line));
                 }
-            } else {
-                log(
-                    LogLevel::Error,
-                    &format!("Failed to fetch metadata for {name}: HTTP {status}"),
-                );
-                String::from("Unknown")
             }
         }
-        Err(err) => {
-            log_error(&format!("Failed to fetch metadata for {name}"), &err);
-            String::from("Unknown")
+    }
+
+    for var in ["R_LIBS_USER", "R_LIBS", "R_LIBS_SITE"] {
+        if let Ok(value) = std::env::var(var) {
+            for part in value.split([':', ';']) {
+                let path = PathBuf::from(part);
+                if !part.is_empty() && !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
         }
     }
+
+    paths
 }
 
 #[cfg(test)]
@@ -367,6 +400,26 @@ Suggests:
         let deps = parse_dcf_dependencies(content);
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].0, "dplyr");
+    }
+
+    #[test]
+    fn test_fetch_from_local_r_library_via_env() {
+        // A package name that won't collide with anything actually installed on the machine.
+        let pkg_name = "feludaTestPkg";
+        let temp_dir = TempDir::new().unwrap();
+        let lib_dir = temp_dir.path();
+        let pkg_dir = lib_dir.join(pkg_name);
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("LICENSE"), "MIT License\n\nCopyright (c) 2024").unwrap();
+
+        // R_LIBS_USER points the probe at our temp library directory.
+        temp_env::with_var("R_LIBS_USER", Some(lib_dir.to_str().unwrap()), || {
+            assert_eq!(
+                fetch_from_local_r_library(pkg_name),
+                Some("MIT".to_string())
+            );
+            assert_eq!(fetch_from_local_r_library("feludaNonexistentPkg"), None);
+        });
     }
 
     #[test]

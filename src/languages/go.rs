@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
+    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
     LicenseCompatibility, LicenseInfo,
 };
 
@@ -657,7 +657,7 @@ fn get_license_from_local_go_mod(package_name: &str) -> Option<String> {
 fn get_license_from_go_module_cache(package_name: &str, version: &str) -> Option<String> {
     let module_cache = get_gomodcache_path()?;
     let exact_path = build_module_cache_path(&module_cache, package_name, version);
-    if let Some(license) = read_license_from_dir(&exact_path) {
+    if let Some(license) = detect_license_in_dir(&exact_path) {
         return Some(license);
     }
     find_license_in_any_version(&module_cache, package_name)
@@ -709,31 +709,6 @@ fn build_module_cache_path(root: &Path, module: &str, version: &str) -> PathBuf 
     root.join(format!("{escaped}@{version}"))
 }
 
-fn read_license_from_dir(dir: &Path) -> Option<String> {
-    if !dir.exists() {
-        return None;
-    }
-
-    let license_files = [
-        "LICENSE",
-        "LICENSE.txt",
-        "LICENSE.md",
-        "COPYING",
-        "COPYING.md",
-    ];
-    for license_file in &license_files {
-        let license_path = dir.join(license_file);
-        if license_path.exists() {
-            if let Ok(content) = fs::read_to_string(&license_path) {
-                if let Some(license) = detect_license_from_content(&content) {
-                    return Some(license);
-                }
-            }
-        }
-    }
-    None
-}
-
 fn find_license_in_any_version(root: &Path, module: &str) -> Option<String> {
     let escaped = escape_go_module_path(module);
     let prefix = format!("{escaped}@");
@@ -742,7 +717,7 @@ fn find_license_in_any_version(root: &Path, module: &str) -> Option<String> {
             let path = entry.path();
             if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
                 if file_name.starts_with(&prefix) {
-                    if let Some(license) = read_license_from_dir(&path) {
+                    if let Some(license) = detect_license_in_dir(&path) {
                         return Some(license);
                     }
                 }

@@ -10,7 +10,7 @@ use toml::Value as TomlValue;
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
+    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
     LicenseCompatibility, LicenseInfo,
 };
 
@@ -490,36 +490,12 @@ fn check_site_package_metadata(site_packages: &Path, package_name: &str) -> Opti
 }
 
 fn check_site_package_license_file(site_packages: &Path, package_name: &str) -> Option<String> {
-    let package_dirs = vec![
+    [
         site_packages.join(package_name),
         site_packages.join(package_name.replace('-', "_")),
-    ];
-
-    let license_files = [
-        "LICENSE",
-        "LICENSE.txt",
-        "LICENSE.md",
-        "COPYING",
-        "COPYING.md",
-    ];
-
-    for package_dir in package_dirs {
-        if !package_dir.exists() {
-            continue;
-        }
-
-        for license_file in &license_files {
-            let license_path = package_dir.join(license_file);
-            if license_path.exists() {
-                if let Ok(content) = fs::read_to_string(&license_path) {
-                    if let Some(license) = detect_license_from_content(&content) {
-                        return Some(license);
-                    }
-                }
-            }
-        }
-    }
-    None
+    ]
+    .iter()
+    .find_map(|package_dir| detect_license_in_dir(package_dir))
 }
 
 fn fetch_license_from_pypi(name: &str, version: &str) -> String {
