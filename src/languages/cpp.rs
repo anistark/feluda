@@ -2,13 +2,14 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
+    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
+    LicenseCompatibility, LicenseInfo,
 };
 
 #[derive(Debug, Clone)]
@@ -651,7 +652,34 @@ fn fetch_license_from_vcpkg_registry(package_name: &str) -> String {
         }
     }
 
+    // Local fallback: vcpkg installs a copyright file at
+    // <VCPKG_ROOT>/installed/<triplet>/share/<port>/copyright.
+    if let Some(root) = vcpkg_root() {
+        if let Some(license) = detect_license_in_vcpkg_install(&root, package_name) {
+            return license;
+        }
+    }
+
     format!("Unknown license (vcpkg: {package_name})")
+}
+
+/// The vcpkg root, from the `VCPKG_ROOT` env var.
+fn vcpkg_root() -> Option<PathBuf> {
+    std::env::var("VCPKG_ROOT").ok().map(PathBuf::from)
+}
+
+/// Probe a vcpkg tree for an installed port's bundled license file. The triplet
+/// (e.g. `x64-linux`) varies, so every `installed/<triplet>/share/<port>/` dir is tried.
+fn detect_license_in_vcpkg_install(vcpkg_root: &Path, port: &str) -> Option<String> {
+    let installed = vcpkg_root.join("installed");
+    let entries = fs::read_dir(&installed).ok()?;
+    for entry in entries.flatten() {
+        let share_pkg = entry.path().join("share").join(port);
+        if let Some(license) = detect_license_in_dir(&share_pkg) {
+            return Some(license);
+        }
+    }
+    None
 }
 
 fn fetch_license_from_conan_center(package_name: &str, version: &str) -> String {
@@ -667,6 +695,8 @@ fn fetch_license_from_conan_center(package_name: &str, version: &str) -> String 
         }
     }
 
+    // No local fallback for Conan: its content-addressed cache (~/.conan2/p/<hash>) can't be
+    // mapped to a package name without the `conan` CLI, so file probing isn't reliable here.
     format!("Unknown license (conan: {package_name})")
 }
 
@@ -683,6 +713,11 @@ fn fetch_license_from_system_package(package_name: &str) -> String {
         }
     }
 
+    // Local fallback: Debian-style installs ship a license at /usr/share/doc/<pkg>/copyright.
+    if let Some(license) = detect_license_in_dir(&Path::new("/usr/share/doc").join(package_name)) {
+        return license;
+    }
+
     format!("Unknown license (system: {package_name})")
 }
 
@@ -690,6 +725,33 @@ fn fetch_license_from_system_package(package_name: &str) -> String {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_detect_license_in_vcpkg_install() {
+        let temp_dir = TempDir::new().unwrap();
+        // <root>/installed/x64-linux/share/zlib/copyright
+        let share_pkg = temp_dir
+            .path()
+            .join("installed")
+            .join("x64-linux")
+            .join("share")
+            .join("zlib");
+        fs::create_dir_all(&share_pkg).unwrap();
+        fs::write(
+            share_pkg.join("copyright"),
+            "zlib License\n\nApache License\nVersion 2.0, January 2004",
+        )
+        .unwrap();
+
+        assert_eq!(
+            detect_license_in_vcpkg_install(temp_dir.path(), "zlib"),
+            Some("Apache-2.0".to_string())
+        );
+        assert_eq!(
+            detect_license_in_vcpkg_install(temp_dir.path(), "nonexistent"),
+            None
+        );
+    }
 
     #[test]
     fn test_parse_vcpkg_dependencies() {

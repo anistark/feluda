@@ -1059,6 +1059,15 @@ static LICENSE_FILENAMES: &[LicenseFilename] = &[
         filename: "COPYING",
         implied_spdx: None,
     },
+    LicenseFilename {
+        filename: "COPYING.md",
+        implied_spdx: None,
+    },
+    // `copyright` is the Debian/vcpkg convention (e.g. /usr/share/doc/<pkg>/copyright).
+    LicenseFilename {
+        filename: "copyright",
+        implied_spdx: None,
+    },
     // OFL.txt is the conventional license file for font projects (e.g. Google Fonts).
     LicenseFilename {
         filename: "OFL.txt",
@@ -1178,6 +1187,41 @@ pub fn detect_license_from_content(content: &str) -> Option<String> {
     match_license_content(content).map(str::to_string)
 }
 
+/// Probe a directory for a conventional license file (`LICENSE`, `COPYING`, …) and return
+/// its canonical SPDX id, or `None` if no recognizable license file is found.
+///
+/// This is the directory-level companion to [`detect_license_from_content`]: every language
+/// analyzer's local-license-file fallback routes through it, so the filename list and the
+/// filename → SPDX shortcuts (e.g. `OFL.txt` → `OFL-1.1`) stay defined in exactly one place.
+pub fn detect_license_in_dir(dir: &Path) -> Option<String> {
+    for entry in LICENSE_FILENAMES {
+        let license_path = dir.join(entry.filename);
+        if !license_path.exists() {
+            continue;
+        }
+
+        // Filename alone is sufficient (e.g. OFL.txt → OFL-1.1).
+        if let Some(spdx) = entry.implied_spdx {
+            return Some(spdx.to_string());
+        }
+
+        match fs::read_to_string(&license_path) {
+            Ok(content) => {
+                if let Some(spdx) = match_license_content(&content) {
+                    return Some(spdx.to_string());
+                }
+            }
+            Err(err) => {
+                log_debug(
+                    &format!("Failed to read license file: {}", license_path.display()),
+                    &err,
+                );
+            }
+        }
+    }
+    None
+}
+
 /// Detect the project's license
 pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>> {
     log(
@@ -1185,45 +1229,12 @@ pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>
         &format!("Detecting license for project at path: {project_path}"),
     );
 
-    for entry in LICENSE_FILENAMES {
-        let license_path = Path::new(project_path).join(entry.filename);
-        if !license_path.exists() {
-            continue;
-        }
-
+    if let Some(spdx) = detect_license_in_dir(Path::new(project_path)) {
         log(
             LogLevel::Info,
-            &format!("Found license file: {}", license_path.display()),
+            &format!("Detected {spdx} license from project license file"),
         );
-
-        // Filename alone is sufficient (e.g. OFL.txt → OFL-1.1).
-        if let Some(spdx) = entry.implied_spdx {
-            log(
-                LogLevel::Info,
-                &format!("Detected {spdx} license from filename"),
-            );
-            return Ok(Some(spdx.to_string()));
-        }
-
-        match fs::read_to_string(&license_path) {
-            Ok(content) => {
-                if let Some(spdx) = match_license_content(&content) {
-                    log(LogLevel::Info, &format!("Detected {spdx} license"));
-                    return Ok(Some(spdx.to_string()));
-                }
-                log(
-                    LogLevel::Warn,
-                    "License file found but could not determine license type",
-                );
-            }
-            Err(err) => {
-                log(
-                    LogLevel::Error,
-                    &format!("Failed to read license file: {}", license_path.display()),
-                );
-                log_debug("Error details", &err);
-            }
-        }
+        return Ok(Some(spdx));
     }
 
     // Check package.json for Node.js projects
@@ -1600,5 +1611,50 @@ mod tests {
     #[test]
     fn test_detect_license_from_content_no_match() {
         assert_eq!(detect_license_from_content("Some random content"), None);
+    }
+
+    #[test]
+    fn test_detect_license_in_dir_content() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("LICENSE"),
+            "Apache License\nVersion 2.0, January 2004",
+        )
+        .unwrap();
+        assert_eq!(
+            detect_license_in_dir(dir.path()),
+            Some("Apache-2.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_in_dir_implied_from_filename() {
+        // OFL.txt resolves from the filename alone, even with empty content.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("OFL.txt"), "").unwrap();
+        assert_eq!(
+            detect_license_in_dir(dir.path()),
+            Some("OFL-1.1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_in_dir_copying() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("COPYING"),
+            "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007",
+        )
+        .unwrap();
+        assert_eq!(
+            detect_license_in_dir(dir.path()),
+            Some("GPL-3.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_in_dir_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(detect_license_in_dir(dir.path()), None);
     }
 }

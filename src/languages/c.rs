@@ -7,7 +7,8 @@ use std::process::Command;
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
+    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
+    LicenseCompatibility, LicenseInfo,
 };
 
 pub fn analyze_c_licenses(project_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
@@ -552,7 +553,22 @@ fn fetch_license_for_c_dependency(name: &str, version: &str) -> String {
         }
     }
 
+    // Local fallback: Debian-style installs ship a license at /usr/share/doc/<pkg>/copyright.
+    if let Some(license) = detect_license_in_system_doc_dir(name) {
+        return license;
+    }
+
     format!("Unknown license for {name}: {version}")
+}
+
+/// Probe `/usr/share/doc/<pkg>/` for a bundled license file (Debian's `copyright`
+/// convention), routing through the shared [`detect_license_in_dir`] engine.
+fn detect_license_in_system_doc_dir(package_name: &str) -> Option<String> {
+    detect_license_in_doc_root(Path::new("/usr/share/doc"), package_name)
+}
+
+fn detect_license_in_doc_root(doc_root: &Path, package_name: &str) -> Option<String> {
+    detect_license_in_dir(&doc_root.join(package_name))
 }
 
 fn get_system_package_license(package_name: &str) -> Result<String, String> {
@@ -589,6 +605,28 @@ fn get_system_package_license(package_name: &str) -> Result<String, String> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_detect_license_in_doc_root() {
+        let temp_dir = TempDir::new().unwrap();
+        let pkg_doc = temp_dir.path().join("zlib1g");
+        fs::create_dir_all(&pkg_doc).unwrap();
+        // Debian ships license text in a `copyright` file.
+        fs::write(
+            pkg_doc.join("copyright"),
+            "BSD 2-Clause License\n\nRedistribution and use in source and binary forms",
+        )
+        .unwrap();
+
+        assert_eq!(
+            detect_license_in_doc_root(temp_dir.path(), "zlib1g"),
+            Some("BSD-2-Clause".to_string())
+        );
+        assert_eq!(
+            detect_license_in_doc_root(temp_dir.path(), "nonexistent"),
+            None
+        );
+    }
 
     #[test]
     fn test_parse_autotools_dependencies() {
