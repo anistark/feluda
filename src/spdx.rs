@@ -48,6 +48,30 @@ pub fn parse(input: &str) -> SpdxExpression {
     parse_or_expr(&tokens, &mut pos).unwrap_or_else(|| SpdxExpression::License(input.to_string()))
 }
 
+/// Strictly parse an SPDX expression, returning `None` when the input is not a
+/// well-formed expression — unlike [`parse`], which degrades to a literal `License`
+/// so lenient call sites never error.
+///
+/// "Well-formed" requires every token to be consumed, so bare prose such as
+/// `header value` (two ids with no operator between them) is rejected. That makes
+/// this the right validator for source-header tag values, where the text after the
+/// `SPDX-License-Identifier:` marker might be a real expression or just a sentence
+/// that happens to mention it.
+pub fn parse_strict(input: &str) -> Option<SpdxExpression> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let tokens = tokenize(trimmed);
+    let mut pos = 0;
+    let expr = parse_or_expr(&tokens, &mut pos)?;
+
+    // Reject when the parser stopped before consuming every token: leftover tokens
+    // mean the input was prose or otherwise malformed, not a valid expression.
+    (pos == tokens.len()).then_some(expr)
+}
+
 /// Returns `true` when `input` looks like a compound SPDX expression (contains
 /// ` OR `, ` AND `, ` WITH `, or parentheses) rather than a plain license ID.
 pub fn is_compound(input: &str) -> bool {
@@ -294,6 +318,23 @@ mod tests {
                 Box::new(SpdxExpression::License("Apache-2.0".to_string())),
             )
         );
+    }
+
+    #[test]
+    fn test_parse_strict_accepts_valid() {
+        assert!(parse_strict("MIT").is_some());
+        assert!(parse_strict("MIT OR Apache-2.0").is_some());
+        assert!(parse_strict("(MIT OR Apache-2.0)").is_some());
+        assert!(parse_strict("GPL-2.0-only WITH Classpath-exception-2.0").is_some());
+    }
+
+    #[test]
+    fn test_parse_strict_rejects_prose_and_empty() {
+        // Two bare ids with no operator leave tokens unconsumed → rejected.
+        assert!(parse_strict("header value").is_none());
+        assert!(parse_strict("this is not a license").is_none());
+        assert!(parse_strict("").is_none());
+        assert!(parse_strict("   ").is_none());
     }
 
     #[test]
