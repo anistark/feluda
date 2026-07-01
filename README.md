@@ -384,6 +384,7 @@ A **THIRD_PARTY_LICENSES file** provides comprehensive license documentation:
 
 - **Purpose**: Complete legal documentation for all dependencies
 - **Content**: Full license texts, compatibility analysis, package URLs, and copyright information
+- **Offline-friendly**: Reads full license text from your local package caches (Cargo `registry/src`, Go module cache, `node_modules`, Python `site-packages`) first, falling back to the network only when a package isn't cached locally — so it works on locked-down or air-gapped machines
 - **Use Cases**:
   - Commercial software distribution requirements
   - Legal compliance for enterprise applications

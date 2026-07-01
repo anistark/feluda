@@ -96,6 +96,15 @@ Generated Files
 
 ----
 
+License Text Sources
+--------------------
+
+For ``THIRD_PARTY_LICENSES``, Feluda reads each dependency's full license text from your local toolchain caches first — the Go module cache, Cargo ``registry/src``, Python ``site-packages``, and the project's ``node_modules`` — and only falls back to the network (crates.io, npm, PyPI, the Go proxy, GitHub) when a package isn't cached locally.
+
+Because the dependencies were already downloaded to build the project, their license files are on disk, so generation works on locked-down or offline workstations instead of leaving entries blank. Populated caches also make generation faster.
+
+----
+
 CI/CD Usage
 -----------
 
