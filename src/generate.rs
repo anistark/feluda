@@ -1,7 +1,8 @@
 use crate::cli::with_spinner;
 use crate::debug::{log, log_debug, LogLevel};
 use crate::licenses::{
-    detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
+    detect_project_license, is_license_compatible, read_license_text_in_dir, LicenseCompatibility,
+    LicenseInfo,
 };
 use crate::parser::parse_root;
 use colored::*;
@@ -11,7 +12,7 @@ use std::io::{self, Write};
 use std::io::{stdin, Read};
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Key input handling for cross-platform compatibility
@@ -535,7 +536,7 @@ pub fn generate_third_party_licenses_file(license_data: &[LicenseInfo], path: &s
             "Fetching license content for {} dependencies",
             license_data.len()
         ),
-        |indicator| generate_third_party_licenses_content(license_data, indicator),
+        |indicator| generate_third_party_licenses_content(license_data, Path::new(path), indicator),
     );
 
     // Write to file
@@ -599,12 +600,158 @@ fn rate_limit_delay() {
     std::thread::sleep(Duration::from_millis(500));
 }
 
+/// Read a dependency's license text from the local toolchain caches, without any network access.
+///
+/// Probes each ecosystem's on-disk cache in turn and returns the first license file found.
+/// [`LicenseInfo`] carries no ecosystem tag, so — like the network path — we try each source and
+/// take the first hit; a cache directory only exists for the ecosystem that actually installed
+/// the package, so cross-ecosystem name collisions are effectively impossible in practice.
+fn fetch_license_from_local_cache(
+    name: &str,
+    version: &str,
+    project_root: &Path,
+) -> Option<String> {
+    // Go module cache: $GOMODCACHE/<escaped-module>@<version>/
+    if let Some(text) = local_license_from_go_cache(name, version) {
+        return Some(text);
+    }
+    // Cargo registry sources: $CARGO_HOME/registry/src/<index>/<name>-<version>/
+    if let Some(text) = local_license_from_cargo_cache(name, version) {
+        return Some(text);
+    }
+    // Python site-packages: <site-packages>/<name>/ or <name>-<version>.dist-info/
+    if let Some(text) = local_license_from_python_cache(name, version) {
+        return Some(text);
+    }
+    // Node modules: <project>/node_modules/<name>/
+    if let Some(text) = local_license_from_node_modules(name, project_root) {
+        return Some(text);
+    }
+    None
+}
+
+/// Locate a Go module in the local module cache and read its license text.
+///
+/// Reuses the same cache-path resolution and case-escaping the Go analyzer uses, so the two stay
+/// in lockstep. Go module paths always contain a slash (e.g. `github.com/gin-gonic/gin`), which
+/// cheaply rules out non-Go names before touching the filesystem.
+fn local_license_from_go_cache(name: &str, version: &str) -> Option<String> {
+    if !name.contains('/') {
+        return None;
+    }
+
+    let cache = crate::languages::go::get_gomodcache_path()?;
+
+    let exact = crate::languages::go::build_module_cache_path(&cache, name, version);
+    if let Some(text) = read_license_text_in_dir(&exact) {
+        return Some(text);
+    }
+
+    // The requested version may not be cached (e.g. a replace directive); fall back to any
+    // cached version of the same module.
+    let prefix = format!("{}@", crate::languages::go::escape_go_module_path(name));
+    for entry in fs::read_dir(&cache).ok()?.flatten() {
+        let path = entry.path();
+        let is_match = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with(&prefix));
+        if is_match {
+            if let Some(text) = read_license_text_in_dir(&path) {
+                return Some(text);
+            }
+        }
+    }
+
+    None
+}
+
+/// Locate a crate in the local Cargo registry cache and read its license text.
+///
+/// `registry/src` holds one subdirectory per registry index (e.g. `index.crates.io-<hash>`), so
+/// we scan each for a `<name>-<version>` crate source directory.
+fn local_license_from_cargo_cache(name: &str, version: &str) -> Option<String> {
+    let src_root = cargo_home_dir()?.join("registry").join("src");
+    let crate_dir = format!("{name}-{version}");
+
+    for entry in fs::read_dir(&src_root).ok()?.flatten() {
+        let candidate = entry.path().join(&crate_dir);
+        if candidate.is_dir() {
+            if let Some(text) = read_license_text_in_dir(&candidate) {
+                return Some(text);
+            }
+        }
+    }
+
+    None
+}
+
+/// Resolve `CARGO_HOME`, falling back to `~/.cargo` (mirroring Cargo's own default).
+fn cargo_home_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("CARGO_HOME") {
+        return Some(PathBuf::from(dir));
+    }
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".cargo"))
+}
+
+/// Locate a Python package in the local site-packages and read its license text.
+///
+/// Tries the importable package directory (with the usual `-`/`_` normalization) and the wheel
+/// metadata directory (`<name>-<version>.dist-info/`), which is where `pip` drops the bundled
+/// `LICENSE` file.
+fn local_license_from_python_cache(name: &str, version: &str) -> Option<String> {
+    let underscored = name.replace('-', "_");
+
+    for site in crate::languages::python::get_python_site_packages_paths() {
+        let candidates = [
+            site.join(name),
+            site.join(&underscored),
+            site.join(format!("{name}-{version}.dist-info")),
+            site.join(format!("{underscored}-{version}.dist-info")),
+        ];
+        for dir in candidates {
+            if dir.is_dir() {
+                if let Some(text) = read_license_text_in_dir(&dir) {
+                    return Some(text);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Locate a Node package in the project's `node_modules` and read its license text.
+///
+/// Scoped names (`@scope/pkg`) map to `node_modules/@scope/pkg`, which `Path::join` produces
+/// correctly from the slash in the name.
+fn local_license_from_node_modules(name: &str, project_root: &Path) -> Option<String> {
+    let dir = project_root.join("node_modules").join(name);
+    if dir.is_dir() {
+        return read_license_text_in_dir(&dir);
+    }
+    None
+}
+
 /// Fetch the actual license content for a dependency
-fn fetch_actual_license_content(name: &str, version: &str) -> Option<String> {
+fn fetch_actual_license_content(name: &str, version: &str, project_root: &Path) -> Option<String> {
     log(
         LogLevel::Info,
         &format!("Attempting to fetch actual license content for {name} v{version}"),
     );
+
+    // Prefer license text already present in the local toolchain caches. It's faster than any
+    // network round-trip and, crucially, is the only source that works on locked-down/offline
+    // workstations where every registry and GitHub request fails (issue #191). The dependency
+    // had to be downloaded to build, so its license file is already on disk.
+    if let Some(content) = fetch_license_from_local_cache(name, version, project_root) {
+        log(
+            LogLevel::Info,
+            &format!("Using local cache license text for {name} v{version}"),
+        );
+        return Some(content);
+    }
 
     // Fetch from crates.io for Rust packages
     if let Some(content) = fetch_license_from_crates_io(name, version) {
@@ -916,6 +1063,7 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
 /// Generate the content for a THIRD_PARTY_LICENSES file
 fn generate_third_party_licenses_content(
     license_data: &[LicenseInfo],
+    project_root: &Path,
     indicator: &crate::cli::LoadingIndicator,
 ) -> (String, (usize, usize)) {
     let mut content = String::new();
@@ -987,7 +1135,7 @@ fn generate_third_party_licenses_content(
         content.push_str("\n### License Text\n\n");
 
         // Try to fetch the actual license content
-        match fetch_actual_license_content(&dep.name, &dep.version) {
+        match fetch_actual_license_content(&dep.name, &dep.version, project_root) {
             Some(actual_license_content) => {
                 successfully_fetched += 1;
                 log(
@@ -1865,7 +2013,52 @@ mod tests {
     #[test]
     fn test_fetch_actual_license_content_invalid_package() {
         // This should return None for invalid packages
-        let result = fetch_actual_license_content("definitely_nonexistent_package_12345", "1.0.0");
+        let result = fetch_actual_license_content(
+            "definitely_nonexistent_package_12345",
+            "1.0.0",
+            Path::new("."),
+        );
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_local_license_from_node_modules_reads_license_file() {
+        let temp = TempDir::new().unwrap();
+        let pkg_dir = temp.path().join("node_modules").join("left-pad");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("LICENSE"), "The MIT License\n\nCopyright (c)").unwrap();
+
+        let text = local_license_from_node_modules("left-pad", temp.path());
+        assert!(text.is_some());
+        assert!(text.unwrap().contains("MIT License"));
+    }
+
+    #[test]
+    fn test_local_license_from_node_modules_scoped_package() {
+        let temp = TempDir::new().unwrap();
+        let pkg_dir = temp.path().join("node_modules").join("@scope").join("pkg");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("LICENSE"), "Apache License\nVersion 2.0").unwrap();
+
+        let text = local_license_from_node_modules("@scope/pkg", temp.path());
+        assert!(text.is_some());
+        assert!(text.unwrap().contains("Apache License"));
+    }
+
+    #[test]
+    fn test_local_license_from_node_modules_missing_returns_none() {
+        let temp = TempDir::new().unwrap();
+        assert!(local_license_from_node_modules("absent", temp.path()).is_none());
+    }
+
+    #[test]
+    fn test_fetch_license_from_local_cache_prefers_node_modules() {
+        let temp = TempDir::new().unwrap();
+        let pkg_dir = temp.path().join("node_modules").join("some-pkg");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("LICENSE"), "BSD 3-Clause License").unwrap();
+
+        let text = fetch_license_from_local_cache("some-pkg", "1.0.0", temp.path());
+        assert_eq!(text.as_deref(), Some("BSD 3-Clause License"));
     }
 }

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -1385,6 +1385,70 @@ pub fn detect_license_in_dir(dir: &Path) -> Option<String> {
     detect_spdx_header_in_dir(dir)
 }
 
+/// Read the raw text of the first license file found in `dir`, or `None` if the directory has no
+/// readable license file.
+///
+/// This is the text-returning companion to [`detect_license_in_dir`]: that function resolves a
+/// canonical SPDX id, whereas this one returns the verbatim license text for inclusion in a
+/// generated `THIRD_PARTY_LICENSES` document. It first tries the canonical [`LICENSE_FILENAMES`]
+/// in priority order, then falls back to scanning for variant filenames — dual-licensed crates
+/// routinely ship `LICENSE-MIT`/`LICENSE-APACHE`, and others use `LICENCE`, `LICENSE.rst`,
+/// `COPYING.LESSER`, etc. Empty/whitespace-only files are skipped so a stray placeholder doesn't
+/// shadow a real license.
+pub fn read_license_text_in_dir(dir: &Path) -> Option<String> {
+    for entry in LICENSE_FILENAMES {
+        let license_path = dir.join(entry.filename);
+        match fs::read_to_string(&license_path) {
+            Ok(content) if !content.trim().is_empty() => return Some(content),
+            _ => continue,
+        }
+    }
+
+    // Fallback: scan the directory for variant license filenames the canonical list misses.
+    let mut candidates: Vec<PathBuf> = fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && looks_like_license_file(path))
+        .collect();
+    // Deterministic order so a fixed choice is made among e.g. LICENSE-APACHE / LICENSE-MIT.
+    candidates.sort();
+
+    for path in candidates {
+        match fs::read_to_string(&path) {
+            Ok(content) if !content.trim().is_empty() => return Some(content),
+            _ => continue,
+        }
+    }
+
+    None
+}
+
+/// Whether a path's filename looks like a license file (`LICENSE*`, `LICENCE*`, `COPYING*`),
+/// excluding source files so we never mistake code (e.g. `license.go`) for license text.
+fn looks_like_license_file(path: &Path) -> bool {
+    const CODE_EXTENSIONS: &[&str] = &[
+        "rs", "go", "py", "js", "ts", "c", "h", "cpp", "cc", "hpp", "java", "rb", "cs", "php",
+        "sh", "toml", "json", "yaml", "yml", "lock",
+    ];
+
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if CODE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) {
+            return false;
+        }
+    }
+
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| {
+            let upper = name.to_ascii_uppercase();
+            upper.starts_with("LICENSE")
+                || upper.starts_with("LICENCE")
+                || upper.starts_with("COPYING")
+        })
+        .unwrap_or(false)
+}
+
 /// Detect the project's license
 pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>> {
     log(
@@ -1819,6 +1883,62 @@ mod tests {
     fn test_detect_license_in_dir_none() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(detect_license_in_dir(dir.path()), None);
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_returns_raw_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = "MIT License\n\nCopyright (c) 2026 Someone\n\nPermission is hereby granted";
+        fs::write(dir.path().join("LICENSE"), body).unwrap();
+        assert_eq!(read_license_text_in_dir(dir.path()).as_deref(), Some(body));
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_none_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(read_license_text_in_dir(dir.path()), None);
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_skips_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        // An empty LICENSE must not shadow a real COPYING further down the priority list.
+        fs::write(dir.path().join("LICENSE"), "   \n\t\n").unwrap();
+        fs::write(dir.path().join("COPYING"), "GNU GENERAL PUBLIC LICENSE").unwrap();
+        assert_eq!(
+            read_license_text_in_dir(dir.path()).as_deref(),
+            Some("GNU GENERAL PUBLIC LICENSE")
+        );
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_variant_filenames() {
+        // Dual-licensed crates (e.g. serde) ship LICENSE-APACHE / LICENSE-MIT, which the
+        // canonical filename list doesn't contain; the fallback scan must find them.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("LICENSE-APACHE"),
+            "Apache License\nVersion 2.0",
+        )
+        .unwrap();
+        fs::write(dir.path().join("LICENSE-MIT"), "MIT License").unwrap();
+        // Sorted order picks LICENSE-APACHE deterministically.
+        assert_eq!(
+            read_license_text_in_dir(dir.path()).as_deref(),
+            Some("Apache License\nVersion 2.0")
+        );
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_ignores_source_files() {
+        // A source file named license.go must never be returned as license text.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("license.go"),
+            "package main\n// not a license",
+        )
+        .unwrap();
+        assert_eq!(read_license_text_in_dir(dir.path()), None);
     }
 
     #[test]
