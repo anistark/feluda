@@ -1,10 +1,13 @@
 //! Core license analysis functionality and types
 
 use crate::spdx;
+use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -1187,12 +1190,170 @@ pub fn detect_license_from_content(content: &str) -> Option<String> {
     match_license_content(content).map(str::to_string)
 }
 
+/// The standardised SPDX source-header marker (SPDX spec, Annex E).
+const SPDX_HEADER_MARKER: &str = "SPDX-License-Identifier:";
+
+/// Maximum number of leading lines scanned for an `SPDX-License-Identifier:` tag.
+/// Headers sit at the top of a file (optionally after a shebang or copyright banner), so
+/// bounding the scan keeps large source files from being read in full and stops a tag buried
+/// deep in the body from producing a false match.
+const SOURCE_HEADER_SCAN_LINES: usize = 30;
+
+/// Maximum directory depth descended when scanning a package's source for SPDX headers.
+const SOURCE_HEADER_MAX_DEPTH: usize = 3;
+
+/// Maximum number of source files inspected per directory before giving up. Caps the cost of
+/// the fallback on large packages; when present, the header is conventionally on every file.
+const SOURCE_HEADER_MAX_FILES: usize = 50;
+
+/// File extensions whose leading comments are scanned for an SPDX header.
+const SOURCE_HEADER_EXTENSIONS: &[&str] = &[
+    "rs", "js", "jsx", "ts", "tsx", "mjs", "cjs", "py", "go", "rb", "java", "kt", "kts", "c", "h",
+    "cc", "cpp", "cxx", "hpp", "hh", "cs", "php", "swift", "scala", "r",
+];
+
+/// Strip a trailing block-comment terminator (`*/`, `-->`) from a header line so the extracted
+/// tag value isn't polluted by the comment syntax that closes it.
+fn strip_comment_terminator(s: &str) -> &str {
+    let s = s.trim_end();
+    for terminator in ["*/", "-->"] {
+        if let Some(stripped) = s.strip_suffix(terminator) {
+            return stripped.trim_end();
+        }
+    }
+    s
+}
+
+/// Extract an SPDX license expression from the leading comment region of a source file's
+/// `content`.
+///
+/// Scans only the first [`SOURCE_HEADER_SCAN_LINES`] lines for the `SPDX-License-Identifier:`
+/// marker (matched as a substring, so every comment style — `//`, `#`, `/* */`, `--`,
+/// `<!-- -->` — works), strips a trailing block-comment terminator, and validates the value
+/// through [`spdx::parse_strict`]. Returns the canonical expression string — so compounds like
+/// `(MIT OR Apache-2.0)` flow through intact rather than as a literal — or `None` when no valid
+/// tag is found, including when the marker appears only as prose (strict parsing rejects
+/// anything that isn't a well-formed expression).
+pub fn detect_license_from_source_header(content: &str) -> Option<String> {
+    for line in content.lines().take(SOURCE_HEADER_SCAN_LINES) {
+        let Some((_, after)) = line.split_once(SPDX_HEADER_MARKER) else {
+            continue;
+        };
+        let expr = strip_comment_terminator(after).trim();
+        if spdx::parse_strict(expr).is_some() {
+            return Some(expr.to_string());
+        }
+    }
+    None
+}
+
+/// Read at most [`SOURCE_HEADER_SCAN_LINES`] lines from `path` without loading the whole file,
+/// so the header scan stays cheap on large sources. Returns `None` on any read error (e.g. a
+/// non-UTF-8 file), which simply skips that file.
+fn read_header_region(path: &Path) -> Option<String> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) => {
+            log_debug(
+                &format!(
+                    "Failed to open source file for header scan: {}",
+                    path.display()
+                ),
+                &err,
+            );
+            return None;
+        }
+    };
+
+    let mut reader = BufReader::new(file);
+    let mut header = String::new();
+    let mut line = String::new();
+    for _ in 0..SOURCE_HEADER_SCAN_LINES {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => header.push_str(&line),
+            Err(err) => {
+                log_debug(
+                    &format!(
+                        "Failed to read source file for header scan: {}",
+                        path.display()
+                    ),
+                    &err,
+                );
+                return None;
+            }
+        }
+    }
+    Some(header)
+}
+
+/// Scan a directory's source files for an `SPDX-License-Identifier:` header, returning the
+/// first valid expression found, or `None`.
+///
+/// This is the source-header companion to the license-file probe in [`detect_license_in_dir`],
+/// applied only as a last resort. The walk is bounded — it honours `.gitignore`, descends at
+/// most [`SOURCE_HEADER_MAX_DEPTH`] levels, inspects at most [`SOURCE_HEADER_MAX_FILES`] files,
+/// considers only recognised source extensions, and reads only each file's leading region — so
+/// it stays cheap and is unlikely to pick up a vendored file's foreign header. Entries are
+/// visited in a stable order so the result is deterministic.
+fn detect_spdx_header_in_dir(dir: &Path) -> Option<String> {
+    let walker = WalkBuilder::new(dir)
+        .max_depth(Some(SOURCE_HEADER_MAX_DEPTH))
+        .sort_by_file_path(|a, b| a.cmp(b))
+        .build();
+
+    let mut files_scanned = 0;
+    for entry in walker.flatten() {
+        if files_scanned >= SOURCE_HEADER_MAX_FILES {
+            break;
+        }
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+            continue;
+        }
+
+        let path = entry.path();
+        let is_source = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                SOURCE_HEADER_EXTENSIONS
+                    .iter()
+                    .any(|known| known.eq_ignore_ascii_case(ext))
+            });
+        if !is_source {
+            continue;
+        }
+
+        files_scanned += 1;
+        let Some(header) = read_header_region(path) else {
+            continue;
+        };
+        if let Some(spdx) = detect_license_from_source_header(&header) {
+            log(
+                LogLevel::Info,
+                &format!(
+                    "Detected {spdx} license from SPDX header in {}",
+                    path.display()
+                ),
+            );
+            return Some(spdx);
+        }
+    }
+    None
+}
+
 /// Probe a directory for a conventional license file (`LICENSE`, `COPYING`, …) and return
-/// its canonical SPDX id, or `None` if no recognizable license file is found.
+/// its canonical SPDX id, or `None` if no recognizable license is found.
 ///
 /// This is the directory-level companion to [`detect_license_from_content`]: every language
 /// analyzer's local-license-file fallback routes through it, so the filename list and the
 /// filename → SPDX shortcuts (e.g. `OFL.txt` → `OFL-1.1`) stay defined in exactly one place.
+///
+/// Detection runs in two stages, strictly in priority order: first the conventional license
+/// files, then — only if none resolves — a bounded scan of the directory's source files for an
+/// `SPDX-License-Identifier:` header (see [`detect_spdx_header_in_dir`]). The header scan is a
+/// last resort, so a real license file always wins.
 pub fn detect_license_in_dir(dir: &Path) -> Option<String> {
     for entry in LICENSE_FILENAMES {
         let license_path = dir.join(entry.filename);
@@ -1219,7 +1380,9 @@ pub fn detect_license_in_dir(dir: &Path) -> Option<String> {
             }
         }
     }
-    None
+
+    // Fallback: no conventional license file resolved — scan source headers.
+    detect_spdx_header_in_dir(dir)
 }
 
 /// Detect the project's license
@@ -1655,6 +1818,114 @@ mod tests {
     #[test]
     fn test_detect_license_in_dir_none() {
         let dir = tempfile::tempdir().unwrap();
+        assert_eq!(detect_license_in_dir(dir.path()), None);
+    }
+
+    #[test]
+    fn test_source_header_single_identifier() {
+        assert_eq!(
+            detect_license_from_source_header("// SPDX-License-Identifier: MIT\nfn main() {}"),
+            Some("MIT".to_string())
+        );
+    }
+
+    #[test]
+    fn test_source_header_comment_styles() {
+        // The marker is matched as a substring, so every comment style resolves.
+        for header in [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "/* SPDX-License-Identifier: Apache-2.0 */",
+            " * SPDX-License-Identifier: Apache-2.0",
+            "-- SPDX-License-Identifier: Apache-2.0",
+            "<!-- SPDX-License-Identifier: Apache-2.0 -->",
+        ] {
+            assert_eq!(
+                detect_license_from_source_header(header),
+                Some("Apache-2.0".to_string()),
+                "failed for header: {header}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_source_header_compound_expression() {
+        // A compound tag flows through as the expression string, not a literal label.
+        assert_eq!(
+            detect_license_from_source_header("// SPDX-License-Identifier: (MIT OR Apache-2.0)"),
+            Some("(MIT OR Apache-2.0)".to_string())
+        );
+        assert_eq!(
+            detect_license_from_source_header(
+                "/* SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0 */"
+            ),
+            Some("GPL-2.0-only WITH Classpath-exception-2.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_source_header_missing_tag() {
+        assert_eq!(
+            detect_license_from_source_header("fn main() {\n    println!(\"hello\");\n}"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_source_header_tag_outside_leading_region() {
+        // A tag buried past the leading scan window must not match.
+        let mut content = String::new();
+        for i in 0..SOURCE_HEADER_SCAN_LINES + 5 {
+            content.push_str(&format!("// filler line {i}\n"));
+        }
+        content.push_str("// SPDX-License-Identifier: MIT\n");
+        assert_eq!(detect_license_from_source_header(&content), None);
+    }
+
+    #[test]
+    fn test_source_header_rejects_prose_mention() {
+        // The marker appearing in prose (no well-formed expression after it) is rejected
+        // by strict SPDX parsing, so it doesn't produce a false match.
+        assert_eq!(
+            detect_license_from_source_header(
+                "// see the SPDX-License-Identifier: header value for details"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn test_detect_license_in_dir_source_header_fallback() {
+        // No LICENSE file, but a source file carries an SPDX header.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("lib.rs"),
+            "// SPDX-License-Identifier: BSD-3-Clause\npub fn f() {}",
+        )
+        .unwrap();
+        assert_eq!(
+            detect_license_in_dir(dir.path()),
+            Some("BSD-3-Clause".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_in_dir_license_file_beats_header() {
+        // A real license file always wins over a source header.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("LICENSE"), "MIT License\n\nCopyright (c)").unwrap();
+        fs::write(
+            dir.path().join("lib.rs"),
+            "// SPDX-License-Identifier: GPL-3.0-only\npub fn f() {}",
+        )
+        .unwrap();
+        assert_eq!(detect_license_in_dir(dir.path()), Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_detect_license_in_dir_ignores_non_source_files() {
+        // A header-like marker in a non-source file is not scanned.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("notes.txt"), "SPDX-License-Identifier: MIT").unwrap();
         assert_eq!(detect_license_in_dir(dir.path()), None);
     }
 }
