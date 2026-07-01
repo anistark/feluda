@@ -601,19 +601,21 @@ fn is_single_license_restrictive(
     strict: bool,
 ) -> bool {
     if let Some(license_data) = known_licenses.get(license_str) {
-        let conditions = if strict {
-            vec![
-                "source-disclosure",
-                "network-use-disclosure",
-                "disclose-source",
-                "same-license",
-            ]
+        // Match against GitHub/choosealicense.com's own `conditions` vocabulary. These keys must
+        // be spelled exactly as the API emits them — the correct key is `disclose-source`, NOT
+        // `source-disclosure` (a non-existent key that silently matched nothing, so copyleft
+        // licenses present in the registry were classified as non-restrictive; issue #31):
+        //   - `disclose-source`        → strong copyleft source disclosure (GPL family)
+        //   - `network-use-disclosure` → network/SaaS copyleft (AGPL)
+        //   - `same-license`           → share-alike / weak copyleft (LGPL, MPL, EPL); strict only
+        let restrictive_conditions: &[&str] = if strict {
+            &["disclose-source", "network-use-disclosure", "same-license"]
         } else {
-            vec!["source-disclosure", "network-use-disclosure"]
+            &["disclose-source", "network-use-disclosure"]
         };
-        return conditions
+        return restrictive_conditions
             .iter()
-            .any(|&c| license_data.conditions.contains(&c.to_string()));
+            .any(|&c| license_data.conditions.iter().any(|cond| cond == c));
     }
 
     let is_restrictive = config
@@ -1939,6 +1941,103 @@ mod tests {
         )
         .unwrap();
         assert_eq!(read_license_text_in_dir(dir.path()), None);
+    }
+
+    fn license_with_conditions(spdx: &str, conditions: &[&str]) -> License {
+        License {
+            title: spdx.to_string(),
+            spdx_id: spdx.to_string(),
+            permissions: Vec::new(),
+            conditions: conditions.iter().map(|c| c.to_string()).collect(),
+            limitations: Vec::new(),
+        }
+    }
+
+    fn registry_with(entries: &[(&str, &[&str])]) -> HashMap<String, License> {
+        entries
+            .iter()
+            .map(|(spdx, conds)| (spdx.to_string(), license_with_conditions(spdx, conds)))
+            .collect()
+    }
+
+    #[test]
+    fn test_registry_gpl_is_restrictive_in_default_mode() {
+        // Regression for #31: a GPL-family license present in the registry was classified as
+        // non-restrictive in the default (non-strict) mode because the code matched a
+        // non-existent condition key (`source-disclosure`). GitHub reports GPL-3.0 with the
+        // real key `disclose-source`.
+        let registry = registry_with(&[(
+            "GPL-3.0",
+            &[
+                "include-copyright",
+                "document-changes",
+                "disclose-source",
+                "same-license",
+            ],
+        )]);
+        assert!(is_license_restrictive(
+            &Some("GPL-3.0".to_string()),
+            &registry,
+            false
+        ));
+        assert!(is_license_restrictive(
+            &Some("GPL-3.0".to_string()),
+            &registry,
+            true
+        ));
+    }
+
+    #[test]
+    fn test_registry_agpl_is_restrictive_via_network_disclosure() {
+        let registry = registry_with(&[(
+            "AGPL-3.0",
+            &[
+                "include-copyright",
+                "disclose-source",
+                "network-use-disclosure",
+                "same-license",
+            ],
+        )]);
+        assert!(is_license_restrictive(
+            &Some("AGPL-3.0".to_string()),
+            &registry,
+            false
+        ));
+    }
+
+    #[test]
+    fn test_registry_permissive_not_restrictive() {
+        let registry = registry_with(&[
+            ("MIT", &["include-copyright"]),
+            ("Apache-2.0", &["include-copyright", "document-changes"]),
+        ]);
+        assert!(!is_license_restrictive(
+            &Some("MIT".to_string()),
+            &registry,
+            false
+        ));
+        assert!(!is_license_restrictive(
+            &Some("Apache-2.0".to_string()),
+            &registry,
+            false
+        ));
+    }
+
+    #[test]
+    fn test_registry_share_alike_only_restrictive_in_strict_mode() {
+        // A share-alike license carrying no source-disclosure obligation is treated as
+        // restrictive only under strict mode.
+        let registry = registry_with(&[("CC-BY-SA-4.0", &["include-copyright", "same-license"])]);
+        assert!(!is_license_restrictive(
+            &Some("CC-BY-SA-4.0".to_string()),
+            &registry,
+            false
+        ));
+        assert!(is_license_restrictive(
+            &Some("CC-BY-SA-4.0".to_string()),
+            &registry,
+            true
+        ));
     }
 
     #[test]
