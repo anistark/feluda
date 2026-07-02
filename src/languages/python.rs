@@ -407,7 +407,7 @@ fn get_license_from_local_site_packages(package_name: &str) -> Option<String> {
     None
 }
 
-fn get_python_site_packages_paths() -> Vec<std::path::PathBuf> {
+pub(crate) fn get_python_site_packages_paths() -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
 
     if let Ok(output) = Command::new("python3")

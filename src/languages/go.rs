@@ -663,7 +663,7 @@ fn get_license_from_go_module_cache(package_name: &str, version: &str) -> Option
     find_license_in_any_version(&module_cache, package_name)
 }
 
-fn get_gomodcache_path() -> Option<PathBuf> {
+pub(crate) fn get_gomodcache_path() -> Option<PathBuf> {
     if let Ok(output) = Command::new("go").args(["env", "GOMODCACHE"]).output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -689,7 +689,7 @@ fn get_gomodcache_path() -> Option<PathBuf> {
     }
 }
 
-fn escape_go_module_path(module: &str) -> String {
+pub(crate) fn escape_go_module_path(module: &str) -> String {
     let mut escaped = String::with_capacity(module.len());
     for ch in module.chars() {
         match ch {
@@ -704,7 +704,7 @@ fn escape_go_module_path(module: &str) -> String {
     escaped
 }
 
-fn build_module_cache_path(root: &Path, module: &str, version: &str) -> PathBuf {
+pub(crate) fn build_module_cache_path(root: &Path, module: &str, version: &str) -> PathBuf {
     let escaped = escape_go_module_path(module);
     root.join(format!("{escaped}@{version}"))
 }

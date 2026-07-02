@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -601,19 +601,21 @@ fn is_single_license_restrictive(
     strict: bool,
 ) -> bool {
     if let Some(license_data) = known_licenses.get(license_str) {
-        let conditions = if strict {
-            vec![
-                "source-disclosure",
-                "network-use-disclosure",
-                "disclose-source",
-                "same-license",
-            ]
+        // Match against GitHub/choosealicense.com's own `conditions` vocabulary. These keys must
+        // be spelled exactly as the API emits them — the correct key is `disclose-source`, NOT
+        // `source-disclosure` (a non-existent key that silently matched nothing, so copyleft
+        // licenses present in the registry were classified as non-restrictive; issue #31):
+        //   - `disclose-source`        → strong copyleft source disclosure (GPL family)
+        //   - `network-use-disclosure` → network/SaaS copyleft (AGPL)
+        //   - `same-license`           → share-alike / weak copyleft (LGPL, MPL, EPL); strict only
+        let restrictive_conditions: &[&str] = if strict {
+            &["disclose-source", "network-use-disclosure", "same-license"]
         } else {
-            vec!["source-disclosure", "network-use-disclosure"]
+            &["disclose-source", "network-use-disclosure"]
         };
-        return conditions
+        return restrictive_conditions
             .iter()
-            .any(|&c| license_data.conditions.contains(&c.to_string()));
+            .any(|&c| license_data.conditions.iter().any(|cond| cond == c));
     }
 
     let is_restrictive = config
@@ -1385,6 +1387,70 @@ pub fn detect_license_in_dir(dir: &Path) -> Option<String> {
     detect_spdx_header_in_dir(dir)
 }
 
+/// Read the raw text of the first license file found in `dir`, or `None` if the directory has no
+/// readable license file.
+///
+/// This is the text-returning companion to [`detect_license_in_dir`]: that function resolves a
+/// canonical SPDX id, whereas this one returns the verbatim license text for inclusion in a
+/// generated `THIRD_PARTY_LICENSES` document. It first tries the canonical [`LICENSE_FILENAMES`]
+/// in priority order, then falls back to scanning for variant filenames — dual-licensed crates
+/// routinely ship `LICENSE-MIT`/`LICENSE-APACHE`, and others use `LICENCE`, `LICENSE.rst`,
+/// `COPYING.LESSER`, etc. Empty/whitespace-only files are skipped so a stray placeholder doesn't
+/// shadow a real license.
+pub fn read_license_text_in_dir(dir: &Path) -> Option<String> {
+    for entry in LICENSE_FILENAMES {
+        let license_path = dir.join(entry.filename);
+        match fs::read_to_string(&license_path) {
+            Ok(content) if !content.trim().is_empty() => return Some(content),
+            _ => continue,
+        }
+    }
+
+    // Fallback: scan the directory for variant license filenames the canonical list misses.
+    let mut candidates: Vec<PathBuf> = fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && looks_like_license_file(path))
+        .collect();
+    // Deterministic order so a fixed choice is made among e.g. LICENSE-APACHE / LICENSE-MIT.
+    candidates.sort();
+
+    for path in candidates {
+        match fs::read_to_string(&path) {
+            Ok(content) if !content.trim().is_empty() => return Some(content),
+            _ => continue,
+        }
+    }
+
+    None
+}
+
+/// Whether a path's filename looks like a license file (`LICENSE*`, `LICENCE*`, `COPYING*`),
+/// excluding source files so we never mistake code (e.g. `license.go`) for license text.
+fn looks_like_license_file(path: &Path) -> bool {
+    const CODE_EXTENSIONS: &[&str] = &[
+        "rs", "go", "py", "js", "ts", "c", "h", "cpp", "cc", "hpp", "java", "rb", "cs", "php",
+        "sh", "toml", "json", "yaml", "yml", "lock",
+    ];
+
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if CODE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) {
+            return false;
+        }
+    }
+
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| {
+            let upper = name.to_ascii_uppercase();
+            upper.starts_with("LICENSE")
+                || upper.starts_with("LICENCE")
+                || upper.starts_with("COPYING")
+        })
+        .unwrap_or(false)
+}
+
 /// Detect the project's license
 pub fn detect_project_license(project_path: &str) -> FeludaResult<Option<String>> {
     log(
@@ -1819,6 +1885,159 @@ mod tests {
     fn test_detect_license_in_dir_none() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(detect_license_in_dir(dir.path()), None);
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_returns_raw_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = "MIT License\n\nCopyright (c) 2026 Someone\n\nPermission is hereby granted";
+        fs::write(dir.path().join("LICENSE"), body).unwrap();
+        assert_eq!(read_license_text_in_dir(dir.path()).as_deref(), Some(body));
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_none_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(read_license_text_in_dir(dir.path()), None);
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_skips_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        // An empty LICENSE must not shadow a real COPYING further down the priority list.
+        fs::write(dir.path().join("LICENSE"), "   \n\t\n").unwrap();
+        fs::write(dir.path().join("COPYING"), "GNU GENERAL PUBLIC LICENSE").unwrap();
+        assert_eq!(
+            read_license_text_in_dir(dir.path()).as_deref(),
+            Some("GNU GENERAL PUBLIC LICENSE")
+        );
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_variant_filenames() {
+        // Dual-licensed crates (e.g. serde) ship LICENSE-APACHE / LICENSE-MIT, which the
+        // canonical filename list doesn't contain; the fallback scan must find them.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("LICENSE-APACHE"),
+            "Apache License\nVersion 2.0",
+        )
+        .unwrap();
+        fs::write(dir.path().join("LICENSE-MIT"), "MIT License").unwrap();
+        // Sorted order picks LICENSE-APACHE deterministically.
+        assert_eq!(
+            read_license_text_in_dir(dir.path()).as_deref(),
+            Some("Apache License\nVersion 2.0")
+        );
+    }
+
+    #[test]
+    fn test_read_license_text_in_dir_ignores_source_files() {
+        // A source file named license.go must never be returned as license text.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("license.go"),
+            "package main\n// not a license",
+        )
+        .unwrap();
+        assert_eq!(read_license_text_in_dir(dir.path()), None);
+    }
+
+    fn license_with_conditions(spdx: &str, conditions: &[&str]) -> License {
+        License {
+            title: spdx.to_string(),
+            spdx_id: spdx.to_string(),
+            permissions: Vec::new(),
+            conditions: conditions.iter().map(|c| c.to_string()).collect(),
+            limitations: Vec::new(),
+        }
+    }
+
+    fn registry_with(entries: &[(&str, &[&str])]) -> HashMap<String, License> {
+        entries
+            .iter()
+            .map(|(spdx, conds)| (spdx.to_string(), license_with_conditions(spdx, conds)))
+            .collect()
+    }
+
+    #[test]
+    fn test_registry_gpl_is_restrictive_in_default_mode() {
+        // Regression for #31: a GPL-family license present in the registry was classified as
+        // non-restrictive in the default (non-strict) mode because the code matched a
+        // non-existent condition key (`source-disclosure`). GitHub reports GPL-3.0 with the
+        // real key `disclose-source`.
+        let registry = registry_with(&[(
+            "GPL-3.0",
+            &[
+                "include-copyright",
+                "document-changes",
+                "disclose-source",
+                "same-license",
+            ],
+        )]);
+        assert!(is_license_restrictive(
+            &Some("GPL-3.0".to_string()),
+            &registry,
+            false
+        ));
+        assert!(is_license_restrictive(
+            &Some("GPL-3.0".to_string()),
+            &registry,
+            true
+        ));
+    }
+
+    #[test]
+    fn test_registry_agpl_is_restrictive_via_network_disclosure() {
+        let registry = registry_with(&[(
+            "AGPL-3.0",
+            &[
+                "include-copyright",
+                "disclose-source",
+                "network-use-disclosure",
+                "same-license",
+            ],
+        )]);
+        assert!(is_license_restrictive(
+            &Some("AGPL-3.0".to_string()),
+            &registry,
+            false
+        ));
+    }
+
+    #[test]
+    fn test_registry_permissive_not_restrictive() {
+        let registry = registry_with(&[
+            ("MIT", &["include-copyright"]),
+            ("Apache-2.0", &["include-copyright", "document-changes"]),
+        ]);
+        assert!(!is_license_restrictive(
+            &Some("MIT".to_string()),
+            &registry,
+            false
+        ));
+        assert!(!is_license_restrictive(
+            &Some("Apache-2.0".to_string()),
+            &registry,
+            false
+        ));
+    }
+
+    #[test]
+    fn test_registry_share_alike_only_restrictive_in_strict_mode() {
+        // A share-alike license carrying no source-disclosure obligation is treated as
+        // restrictive only under strict mode.
+        let registry = registry_with(&[("CC-BY-SA-4.0", &["include-copyright", "same-license"])]);
+        assert!(!is_license_restrictive(
+            &Some("CC-BY-SA-4.0".to_string()),
+            &registry,
+            false
+        ));
+        assert!(is_license_restrictive(
+            &Some("CC-BY-SA-4.0".to_string()),
+            &registry,
+            true
+        ));
     }
 
     #[test]
