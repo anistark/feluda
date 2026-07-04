@@ -53,7 +53,7 @@ pub fn handle_sbom_command(
             dependency.license.as_deref().unwrap_or("NOASSERTION")
         };
 
-        package = package.with_license(license_str.to_string());
+        package = package.with_license(license_str);
 
         // TODO: Store Feluda-specific data as SPDX annotations
         let _compatibility_info = format!(

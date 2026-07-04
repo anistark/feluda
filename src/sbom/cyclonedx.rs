@@ -413,9 +413,9 @@ mod tests {
         let mut spdx_doc = SpdxDocument::new("test-project");
 
         // Add a test package
-        let package = SpdxPackage::new("test-package".to_string(), &spdx_doc.document_namespace)
-            .with_version("1.0.0".to_string())
-            .with_license("MIT".to_string());
+        let package = SpdxPackage::new("test-package", &spdx_doc.document_namespace)
+            .with_version("1.0.0")
+            .with_license("MIT");
 
         spdx_doc.add_package(package);
 
@@ -534,9 +534,9 @@ mod tests {
         ];
 
         for (name, version, license) in packages {
-            let package = SpdxPackage::new(name.to_string(), &spdx_doc.document_namespace)
-                .with_version(version.to_string())
-                .with_license(license.to_string());
+            let package = SpdxPackage::new(name, &spdx_doc.document_namespace)
+                .with_version(version)
+                .with_license(license);
             spdx_doc.add_package(package);
         }
 
