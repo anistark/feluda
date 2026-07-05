@@ -34,6 +34,13 @@ Each section ends with practical next steps so you can move from manual spot che
 
       View Feluda on crates.io - the Rust package registry.
 
+   .. grid-item-card:: ⚡ GitHub Action
+      :class-card: glassmorphic
+      :link: integrations/github-actions
+      :link-type: doc
+
+      Gate CI on license compliance in 3 lines, no install needed. Available on the GitHub Marketplace.
+
    .. grid-item-card:: 🤝 Contribute to Feluda
       :class-card: glassmorphic
       :link: contributing/index
@@ -61,6 +68,15 @@ Each section ends with practical next steps so you can move from manual spot che
    - **Complexity**: License compatibility can depend on specific use cases, distribution methods, and jurisdictions
 
    Feluda is in active development. While we strive to provide accurate information, **use at your own risk.**
+
+Talk to Us 💬
+-------------
+
+Using Feluda in your project or company? The roadmap is shaped by real investigations, and every case report counts.
+Tell us how you use it: `join the Null Order Discord <https://discord.gg/AJMEeFXxXy>`_,
+`open an issue <https://github.com/anistark/feluda/issues/new>`_,
+or DM `@kranirudha on X <https://x.com/kranirudha>`_ / `@ani on Mastodon <https://fosstodon.org/@ani>`_.
+Even a quick "we use Feluda for X" note helps shape what gets built next.
 
 Contributors ✨
 ---------------

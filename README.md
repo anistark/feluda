@@ -1,12 +1,31 @@
 # Feluda
 
-[![Crates.io Version](https://img.shields.io/crates/v/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads](https://img.shields.io/crates/d/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)](https://crates.io/crates/feluda) [![Documentation](https://img.shields.io/badge/docs-feluda-blue)](https://feluda.readthedocs.io/) [![Open Source](https://img.shields.io/badge/open-source-brightgreen)](https://github.com/anistark/feluda) [![Contributors](https://img.shields.io/github/contributors/anistark/feluda)](https://github.com/anistark/feluda/graphs/contributors) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
+[![Crates.io Version](https://img.shields.io/crates/v/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads](https://img.shields.io/crates/d/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)](https://crates.io/crates/feluda) [![Documentation](https://img.shields.io/badge/docs-feluda-blue)](https://feluda.readthedocs.io/) [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Feluda%20License%20Scanner-2088FF?logo=githubactions&logoColor=white)](https://github.com/marketplace/actions/feluda-license-scanner) [![Discord](https://img.shields.io/badge/Discord-Null%20Order-5865F2?logo=discord&logoColor=white)](https://discord.gg/AJMEeFXxXy) [![Open Source](https://img.shields.io/badge/open-source-brightgreen)](https://github.com/anistark/feluda) [![Contributors](https://img.shields.io/github/contributors/anistark/feluda)](https://github.com/anistark/feluda/graphs/contributors) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
 🔎 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage or are incompatible with your project's license.
 
 ![ss](https://github.com/user-attachments/assets/473908eb-43cb-4c4f-86aa-017de251afa8)
 
 > 👋 It's still highly experimental, but fast iterating. Welcoming contributors and support to help bring out this project even better!
+
+## Quick Start
+
+Scan your project locally:
+
+```sh
+cargo install feluda
+feluda
+```
+
+Or gate your CI on license compliance with the [GitHub Action](https://github.com/marketplace/actions/feluda-license-scanner), no install needed:
+
+```yaml
+- uses: anistark/feluda@v1
+  with:
+    fail-on-restrictive: true
+```
+
+See [Installation](#installation) for more ways to install, and [CI/CD Integration](#cicd-integration) for the full Action reference.
 
 ## Installation
 
@@ -587,7 +606,7 @@ Restrictive licenses are reported at `warning` level; licenses incompatible with
 
 ### GitHub Actions
 
-To use Feluda with GitHub Actions, simply use the published action. For detailed documentation, see the [GitHub Action README](./ACTION-README.md).
+To use Feluda with GitHub Actions, simply use the published action, available on the [GitHub Marketplace](https://github.com/marketplace/actions/feluda-license-scanner) as **Feluda License Scanner**. For detailed documentation, see the [GitHub Action README](./ACTION-README.md).
 
 ```yaml
 name: License Check
@@ -848,6 +867,15 @@ Advanced users can customize compatibility rules by:
 2. **Project-specific rules**: The local `config/license_compatibility.toml` takes precedence
 
 **Important**: Modifying compatibility rules requires legal expertise. Consult legal counsel before making changes that could affect your project's compliance.
+
+## 💬 Using Feluda? Talk to Us
+
+Feluda's roadmap is shaped by how people actually use it. If it's part of your workflow (local scans, CI gates, SBOMs, or something we never imagined), we'd genuinely love to hear about it:
+
+- 🗣️ [Open an issue](https://github.com/anistark/feluda/issues/new) to share your use case, pain points, or feature requests. Even a quick "we use Feluda for X" note helps a lot
+- 🎮 [Join the Null Order Discord](https://discord.gg/AJMEeFXxXy) to chat with us directly
+- 💬 DM [@kranirudha on X](https://x.com/kranirudha) or [@ani on Mastodon](https://fosstodon.org/@ani)
+- 🏷️ Add the [Scanned with Feluda badge](#usage) to your README so others can discover it too
 
 ## ⚠️ Legal Disclaimer
 
