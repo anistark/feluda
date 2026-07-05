@@ -431,13 +431,18 @@ impl SpdxDocument {
     }
 
     #[allow(dead_code)]
-    pub fn add_annotation(&mut self, spdx_ref: String, comment: String, annotation_type: String) {
+    pub fn add_annotation(
+        &mut self,
+        spdx_ref: impl Into<String>,
+        comment: impl Into<String>,
+        annotation_type: impl Into<String>,
+    ) {
         let annotation = Annotation {
             annotator: format!("Tool: Feluda-{}", env!("CARGO_PKG_VERSION")),
             annotation_date: Utc::now(),
-            annotation_type,
-            spdx_identifier_reference: spdx_ref,
-            comment,
+            annotation_type: annotation_type.into(),
+            spdx_identifier_reference: spdx_ref.into(),
+            comment: comment.into(),
         };
 
         self.annotations.push(annotation);
@@ -446,7 +451,8 @@ impl SpdxDocument {
 
 impl SpdxPackage {
     #[allow(dead_code)]
-    pub fn new(name: String, _document_namespace: &str) -> Self {
+    pub fn new(name: impl Into<String>, _document_namespace: &str) -> Self {
+        let name = name.into();
         let sanitized_name = sanitize_spdx_identifier(&name);
 
         Self {
@@ -464,8 +470,8 @@ impl SpdxPackage {
         }
     }
 
-    pub fn with_version(mut self, version: String) -> Self {
-        self.version_info = Some(version.clone());
+    pub fn with_version(mut self, version: impl Into<String>) -> Self {
+        let version = version.into();
 
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -485,10 +491,12 @@ impl SpdxPackage {
             ),
         );
 
+        self.version_info = Some(version);
         self
     }
 
-    pub fn with_license(mut self, license: String) -> Self {
+    pub fn with_license(mut self, license: impl Into<String>) -> Self {
+        let license = license.into();
         let spdx_license = convert_to_spdx_license_expression(&license);
 
         if license != spdx_license {
@@ -520,8 +528,8 @@ impl SpdxPackage {
     ///
     /// Special characters and non-ASCII characters are not allowed in URLs.
     #[allow(dead_code)]
-    pub fn with_download_location(mut self, location: String) -> Self {
-        // Validate download location
+    pub fn with_download_location(mut self, location: impl Into<String>) -> Self {
+        let location = location.into();
         let validated = if location.trim().is_empty()
             || location.eq_ignore_ascii_case("noassertion")
             || location.eq_ignore_ascii_case("none")
@@ -552,8 +560,8 @@ impl SpdxPackage {
     /// Per SPDX spec: "This field may contain multiple copyrights separated by newlines"
     /// However, we enforce single-line format for JSON safety.
     #[allow(dead_code)]
-    pub fn with_copyright(mut self, copyright: String) -> Self {
-        // Validate copyright text
+    pub fn with_copyright(mut self, copyright: impl Into<String>) -> Self {
+        let copyright = copyright.into();
         let validated = if copyright.trim().is_empty() {
             "NOASSERTION".to_string()
         } else if spdx_charset::contains_forbidden_chars(&copyright) || !copyright.is_ascii() {
@@ -581,8 +589,8 @@ impl SpdxPackage {
     /// Comments can provide additional information about the package
     /// but must conform to SPDX character restrictions.
     #[allow(dead_code)]
-    pub fn with_comment(mut self, comment: String) -> Self {
-        // Validate comment
+    pub fn with_comment(mut self, comment: impl Into<String>) -> Self {
+        let comment = comment.into();
         let validated = if comment.trim().is_empty() {
             None
         } else if spdx_charset::contains_forbidden_chars(&comment) || !comment.is_ascii() {
@@ -613,15 +621,18 @@ impl SpdxPackage {
     ///
     /// Example:
     /// ```ignore
-    /// package.add_external_ref(
-    ///     "PACKAGE_MANAGER".to_string(),
-    ///     "npm".to_string(),
-    ///     "lodash@4.17.21".to_string()
-    /// );
+    /// package.add_external_ref("PACKAGE_MANAGER", "npm", "lodash@4.17.21");
     /// ```
     #[allow(dead_code)]
-    pub fn add_external_ref(mut self, category: String, ref_type: String, locator: String) -> Self {
-        // Validate external reference fields
+    pub fn add_external_ref(
+        mut self,
+        category: impl Into<String>,
+        ref_type: impl Into<String>,
+        locator: impl Into<String>,
+    ) -> Self {
+        let category = category.into();
+        let ref_type = ref_type.into();
+        let locator = locator.into();
         let is_valid = !spdx_charset::contains_forbidden_chars(&category)
             && category.is_ascii()
             && !spdx_charset::contains_forbidden_chars(&ref_type)
@@ -937,10 +948,10 @@ mod tests {
     #[test]
     fn test_spdx_package_unique_ids() {
         // Test that packages with same name but different versions get unique SPDX IDs
-        let package1 = SpdxPackage::new("getrandom".to_string(), "https://example.com/test")
-            .with_version("0.2.16".to_string());
-        let package2 = SpdxPackage::new("getrandom".to_string(), "https://example.com/test")
-            .with_version("0.3.3".to_string());
+        let package1 =
+            SpdxPackage::new("getrandom", "https://example.com/test").with_version("0.2.16");
+        let package2 =
+            SpdxPackage::new("getrandom", "https://example.com/test").with_version("0.3.3");
 
         // Both should use hash-based IDs
         assert!(package1.spdx_id.starts_with("SPDXRef-Package-pkg"));
@@ -948,8 +959,8 @@ mod tests {
         assert_ne!(package1.spdx_id, package2.spdx_id);
 
         // Test that version sanitization works
-        let package3 = SpdxPackage::new("test-package".to_string(), "https://example.com/test")
-            .with_version("1.0.0-beta".to_string());
+        let package3 =
+            SpdxPackage::new("test-package", "https://example.com/test").with_version("1.0.0-beta");
         // Now uses hash-based ID for safety
         assert!(package3.spdx_id.starts_with("SPDXRef-Package-pkg"));
     }
@@ -1115,33 +1126,29 @@ mod tests {
     fn test_complex_package_names() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
         // Test the specific lodash.castarray case
-        let package = SpdxPackage::new("lodash.castarray".to_string(), "https://example.com/test")
-            .with_version("4.4.0".to_string());
+        let package =
+            SpdxPackage::new("lodash.castarray", "https://example.com/test").with_version("4.4.0");
         // Now uses hash-based ID for safety
         assert!(package.spdx_id.starts_with("SPDXRef-Package-pkg"));
 
         // Test @types packages
-        let types_package = SpdxPackage::new("@types/node".to_string(), "https://example.com/test")
-            .with_version("18.15.0".to_string());
+        let types_package =
+            SpdxPackage::new("@types/node", "https://example.com/test").with_version("18.15.0");
         // Now uses hash-based ID for safety
         assert!(types_package.spdx_id.starts_with("SPDXRef-Package-pkg"));
 
         // Test esbuild platform-specific packages
-        let esbuild_package = SpdxPackage::new(
-            "esbuild-linux-ppc64".to_string(),
-            "https://example.com/test",
-        )
-        .with_version("0.19.4".to_string())
-        .with_license("MIT".to_string());
+        let esbuild_package = SpdxPackage::new("esbuild-linux-ppc64", "https://example.com/test")
+            .with_version("0.19.4")
+            .with_license("MIT");
         // Now uses hash-based ID for safety
         assert!(esbuild_package.spdx_id.starts_with("SPDXRef-Package-pkg"));
         assert_eq!(esbuild_package.license_concluded, Some("MIT".to_string()));
 
         // Test package with no license (should get NOASSERTION)
-        let no_license_package =
-            SpdxPackage::new("some-package".to_string(), "https://example.com/test")
-                .with_version("1.0.0".to_string())
-                .with_license("".to_string());
+        let no_license_package = SpdxPackage::new("some-package", "https://example.com/test")
+            .with_version("1.0.0")
+            .with_license("");
         assert_eq!(
             no_license_package.license_concluded,
             Some("NOASSERTION".to_string())
@@ -1154,9 +1161,9 @@ mod tests {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
         // Test package with only special characters
-        let special_package = SpdxPackage::new("@#$%^&*()".to_string(), "https://example.com/test")
-            .with_version("!!!".to_string())
-            .with_license("null".to_string());
+        let special_package = SpdxPackage::new("@#$%^&*()", "https://example.com/test")
+            .with_version("!!!")
+            .with_license("null");
 
         // Should not be empty and should not use UUID fallback
         assert!(!special_package.spdx_id.is_empty());
@@ -1168,9 +1175,9 @@ mod tests {
         );
 
         // Test package with unicode characters
-        let unicode_package = SpdxPackage::new("你好世界".to_string(), "https://example.com/test")
-            .with_version("版本1.0".to_string())
-            .with_license("MIT".to_string());
+        let unicode_package = SpdxPackage::new("你好世界", "https://example.com/test")
+            .with_version("版本1.0")
+            .with_license("MIT");
 
         assert!(!unicode_package.spdx_id.is_empty());
         assert!(unicode_package.spdx_id.starts_with("SPDXRef-Package-pkg"));
@@ -1180,11 +1187,9 @@ mod tests {
     #[test]
     fn test_spdx_id_hash_fallback_logic() {
         // Test case where name is normal but version needs hash fallback
-        let normal_name_weird_version = SpdxPackage::new(
-            "micromark-util-symbol".to_string(),
-            "https://example.com/test",
-        )
-        .with_version("@#$%^&*()".to_string());
+        let normal_name_weird_version =
+            SpdxPackage::new("micromark-util-symbol", "https://example.com/test")
+                .with_version("@#$%^&*()");
 
         // Should use single hash for entire package+version combination
         assert!(normal_name_weird_version
@@ -1194,8 +1199,7 @@ mod tests {
 
         // Test case where name needs hash but version is normal
         let weird_name_normal_version =
-            SpdxPackage::new("@#$%^&*()".to_string(), "https://example.com/test")
-                .with_version("2.0.1".to_string());
+            SpdxPackage::new("@#$%^&*()", "https://example.com/test").with_version("2.0.1");
 
         assert!(weird_name_normal_version
             .spdx_id
@@ -1203,16 +1207,15 @@ mod tests {
 
         // Test case where both need hash fallback
         let weird_name_weird_version =
-            SpdxPackage::new("@#$%^&*()".to_string(), "https://example.com/test")
-                .with_version("!!!".to_string());
+            SpdxPackage::new("@#$%^&*()", "https://example.com/test").with_version("!!!");
 
         assert!(weird_name_weird_version
             .spdx_id
             .starts_with("SPDXRef-Package-pkg"));
 
         // Test consistency - same package should get same ID
-        let duplicate = SpdxPackage::new("@#$%^&*()".to_string(), "https://example.com/test")
-            .with_version("!!!".to_string());
+        let duplicate =
+            SpdxPackage::new("@#$%^&*()", "https://example.com/test").with_version("!!!");
 
         assert_eq!(weird_name_weird_version.spdx_id, duplicate.spdx_id);
     }
@@ -1222,24 +1225,20 @@ mod tests {
     fn test_micromark_util_symbol_case() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
         // Test the specific case from the error message
-        let micromark_package = SpdxPackage::new(
-            "micromark-util-symbol".to_string(),
-            "https://example.com/test",
-        )
-        .with_version("2.0.1".to_string())
-        .with_license("MIT".to_string());
+        let micromark_package =
+            SpdxPackage::new("micromark-util-symbol", "https://example.com/test")
+                .with_version("2.0.1")
+                .with_license("MIT");
 
         // Now uses hash-based ID for safety
         assert!(micromark_package.spdx_id.starts_with("SPDXRef-Package-pkg"));
         assert_eq!(micromark_package.license_concluded, Some("MIT".to_string()));
 
         // Test with a problematic version that would cause the original error
-        let micromark_with_weird_version = SpdxPackage::new(
-            "micromark-util-symbol".to_string(),
-            "https://example.com/test",
-        )
-        .with_version("!!!".to_string()) // Pure symbols, no alphanumeric
-        .with_license("MIT".to_string());
+        let micromark_with_weird_version =
+            SpdxPackage::new("micromark-util-symbol", "https://example.com/test")
+                .with_version("!!!") // Pure symbols, no alphanumeric
+                .with_license("MIT");
 
         // Should use single hash fallback, not concatenate hashes
         assert!(micromark_with_weird_version
@@ -1253,18 +1252,17 @@ mod tests {
     fn test_license_concluded_vs_declared() {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
         // Test normal license handling
-        let mit_package = SpdxPackage::new("test-package".to_string(), "https://example.com/test")
-            .with_version("1.0.0".to_string())
-            .with_license("MIT".to_string());
+        let mit_package = SpdxPackage::new("test-package", "https://example.com/test")
+            .with_version("1.0.0")
+            .with_license("MIT");
 
         assert_eq!(mit_package.license_declared, Some("MIT".to_string()));
         assert_eq!(mit_package.license_concluded, Some("MIT".to_string()));
 
         // Test NOASSERTION license handling
-        let no_license_package =
-            SpdxPackage::new("test-package".to_string(), "https://example.com/test")
-                .with_version("1.0.0".to_string())
-                .with_license("".to_string());
+        let no_license_package = SpdxPackage::new("test-package", "https://example.com/test")
+            .with_version("1.0.0")
+            .with_license("");
 
         assert_eq!(
             no_license_package.license_declared,
@@ -1276,10 +1274,9 @@ mod tests {
         );
 
         // Test problematic license gets converted to NOASSERTION
-        let bad_license_package =
-            SpdxPackage::new("test-package".to_string(), "https://example.com/test")
-                .with_version("1.0.0".to_string())
-                .with_license("MIT\"with-quotes".to_string());
+        let bad_license_package = SpdxPackage::new("test-package", "https://example.com/test")
+            .with_version("1.0.0")
+            .with_license("MIT\"with-quotes");
 
         assert_eq!(
             bad_license_package.license_declared,
@@ -1291,10 +1288,9 @@ mod tests {
         );
 
         // Test cargo-style license conversion
-        let cargo_license_package =
-            SpdxPackage::new("test-package".to_string(), "https://example.com/test")
-                .with_version("1.0.0".to_string())
-                .with_license("MIT/Apache-2.0".to_string());
+        let cargo_license_package = SpdxPackage::new("test-package", "https://example.com/test")
+            .with_version("1.0.0")
+            .with_license("MIT/Apache-2.0");
 
         assert_eq!(
             cargo_license_package.license_declared,
@@ -1450,7 +1446,7 @@ mod tests {
         let mut doc = SpdxDocument::new("test");
 
         // Create a package with a problematic license that somehow got through
-        let mut package = SpdxPackage::new("test-package".to_string(), &doc.document_namespace);
+        let mut package = SpdxPackage::new("test-package", &doc.document_namespace);
         package.license_declared = Some("MIT\"with-quotes".to_string()); // This should be caught
         package.license_concluded = Some("Apache\\with-backslash".to_string()); // This should be caught
 
@@ -1499,12 +1495,12 @@ mod tests {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
         // Test package with valid metadata
-        let package = SpdxPackage::new("valid-package".to_string(), "https://example.com/test")
-            .with_version("1.0.0".to_string())
-            .with_license("MIT".to_string())
-            .with_copyright("(C) 2024 Example Corp".to_string())
-            .with_download_location("https://github.com/example/repo".to_string())
-            .with_comment("A valid test package".to_string());
+        let package = SpdxPackage::new("valid-package", "https://example.com/test")
+            .with_version("1.0.0")
+            .with_license("MIT")
+            .with_copyright("(C) 2024 Example Corp")
+            .with_download_location("https://github.com/example/repo")
+            .with_comment("A valid test package");
 
         assert!(!package.name.is_empty());
         assert_eq!(package.version_info, Some("1.0.0".to_string()));
@@ -1512,10 +1508,9 @@ mod tests {
         assert!(package.copyright_text.is_some());
 
         // Test package sanitization of invalid metadata
-        let mut package_with_issues =
-            SpdxPackage::new("test".to_string(), "https://example.com/test")
-                .with_version("1.0.0".to_string())
-                .with_license("MIT".to_string());
+        let mut package_with_issues = SpdxPackage::new("test", "https://example.com/test")
+            .with_version("1.0.0")
+            .with_license("MIT");
 
         // Manually set invalid values that should be caught by validation
         package_with_issues.name = "package\"with-quote".to_string();
@@ -1537,25 +1532,25 @@ mod tests {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
         // Test valid download locations
-        let package1 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .with_download_location("https://github.com/example/repo".to_string());
+        let package1 = SpdxPackage::new("test", "https://example.com/test")
+            .with_download_location("https://github.com/example/repo");
         assert_eq!(
             package1.download_location,
             "https://github.com/example/repo"
         );
 
-        let package2 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .with_download_location("NOASSERTION".to_string());
+        let package2 = SpdxPackage::new("test", "https://example.com/test")
+            .with_download_location("NOASSERTION");
         assert_eq!(package2.download_location, "NOASSERTION");
 
         // Test invalid location (non-ASCII)
-        let package3 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .with_download_location("https://example.com/文件".to_string());
+        let package3 = SpdxPackage::new("test", "https://example.com/test")
+            .with_download_location("https://example.com/文件");
         assert_eq!(package3.download_location, "NOASSERTION");
 
         // Test invalid location (too long) - Note: direct field mutation bypasses validation
         // For validation during generation, use validate_and_sanitize_spdx_package
-        let mut package4 = SpdxPackage::new("test".to_string(), "https://example.com/test");
+        let mut package4 = SpdxPackage::new("test", "https://example.com/test");
         package4.download_location = format!("https://example.com/{}", "a".repeat(2000));
 
         // Validate should catch the long location
@@ -1569,21 +1564,20 @@ mod tests {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
         // Test valid copyright
-        let package1 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .with_copyright("(C) 2024 Example Corp".to_string());
+        let package1 = SpdxPackage::new("test", "https://example.com/test")
+            .with_copyright("(C) 2024 Example Corp");
         assert_eq!(
             package1.copyright_text,
             Some("(C) 2024 Example Corp".to_string())
         );
 
         // Test empty copyright (should convert to NOASSERTION)
-        let package2 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .with_copyright("".to_string());
+        let package2 = SpdxPackage::new("test", "https://example.com/test").with_copyright("");
         assert_eq!(package2.copyright_text, Some("NOASSERTION".to_string()));
 
         // Test copyright with forbidden characters
-        let package3 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .with_copyright("(C) 2024 Corp\"with-quotes".to_string());
+        let package3 = SpdxPackage::new("test", "https://example.com/test")
+            .with_copyright("(C) 2024 Corp\"with-quotes");
         assert_eq!(package3.copyright_text, Some("NOASSERTION".to_string()));
     }
 
@@ -1593,12 +1587,11 @@ mod tests {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
         // Test valid external reference
-        let package = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .add_external_ref(
-                "PACKAGE_MANAGER".to_string(),
-                "npm".to_string(),
-                "lodash@4.17.21".to_string(),
-            );
+        let package = SpdxPackage::new("test", "https://example.com/test").add_external_ref(
+            "PACKAGE_MANAGER",
+            "npm",
+            "lodash@4.17.21",
+        );
 
         assert_eq!(package.external_refs.len(), 1);
         assert_eq!(
@@ -1609,12 +1602,11 @@ mod tests {
         assert_eq!(package.external_refs[0].reference_locator, "lodash@4.17.21");
 
         // Test invalid external reference (forbidden characters)
-        let package2 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .add_external_ref(
-                "SECURITY_OTHER".to_string(),
-                "cpe23".to_string(),
-                "cpe:2.3:a:vendor:product:1.0\"malicious".to_string(),
-            );
+        let package2 = SpdxPackage::new("test", "https://example.com/test").add_external_ref(
+            "SECURITY_OTHER",
+            "cpe23",
+            "cpe:2.3:a:vendor:product:1.0\"malicious",
+        );
 
         // Should be skipped due to invalid characters
         assert_eq!(package2.external_refs.len(), 0);
@@ -1626,21 +1618,20 @@ mod tests {
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
 
         // Test valid comment
-        let package1 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .with_comment("This is a valid comment".to_string());
+        let package1 = SpdxPackage::new("test", "https://example.com/test")
+            .with_comment("This is a valid comment");
         assert_eq!(
             package1.comment,
             Some("This is a valid comment".to_string())
         );
 
         // Test empty comment (should be skipped)
-        let package2 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .with_comment("".to_string());
+        let package2 = SpdxPackage::new("test", "https://example.com/test").with_comment("");
         assert_eq!(package2.comment, None);
 
         // Test comment with forbidden characters
-        let package3 = SpdxPackage::new("test".to_string(), "https://example.com/test")
-            .with_comment("Comment with\nnewline".to_string());
+        let package3 = SpdxPackage::new("test", "https://example.com/test")
+            .with_comment("Comment with\nnewline");
         assert_eq!(package3.comment, None);
     }
 

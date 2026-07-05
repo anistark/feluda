@@ -55,7 +55,7 @@ pub fn analyze_go_licenses(go_mod_path: &str, config: &FeludaConfig) -> Vec<Lice
         }
     };
 
-    let direct_dependencies = get_go_dependencies(content);
+    let direct_dependencies = get_go_dependencies(&content);
     log(
         LogLevel::Info,
         &format!("Found {} direct Go dependencies", direct_dependencies.len()),
@@ -298,7 +298,7 @@ fn strip_go_line_comments(content: &str) -> String {
 }
 
 /// Parse Go dependencies from go.mod content
-pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
+pub fn get_go_dependencies(content: &str) -> Vec<GoPackages> {
     log(LogLevel::Info, "Parsing Go dependencies");
 
     let re_comment = match Regex::new(r"(?m)^(.*?)\s*(//|#).*?$") {
@@ -309,7 +309,7 @@ pub fn get_go_dependencies(content_string: String) -> Vec<GoPackages> {
         }
     };
 
-    let cleaned = re_comment.replace_all(content_string.as_str(), "$1");
+    let cleaned = re_comment.replace_all(content, "$1");
 
     let re = match Regex::new(
         r"require\s*(?:\(\s*)?((?:[\w./-]+\s+v[\d][\w\d.-]+(?:-\w+)?(?:\+\w+)?\s*)+)\)?",
@@ -882,7 +882,7 @@ mod tests {
             github.com/another/pkg v2.3.4
         )"#;
 
-        let deps = get_go_dependencies(content.to_string());
+        let deps = get_go_dependencies(content);
         assert_eq!(deps.len(), 2);
         assert_eq!(deps[0].name, "github.com/user/repo");
         assert_eq!(deps[0].version, "v1.0.0");
@@ -890,7 +890,7 @@ mod tests {
 
     #[test]
     fn test_get_go_dependencies_single_require() {
-        let content = "require github.com/test/pkg v1.0.0".to_string();
+        let content = "require github.com/test/pkg v1.0.0";
         let deps = get_go_dependencies(content);
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].name, "github.com/test/pkg");
@@ -902,8 +902,7 @@ mod tests {
         let content = r#"require (
     github.com/user/repo v1.0.0 // This is a comment
     github.com/another/pkg v2.0.0 # This is also a comment
-)"#
-        .to_string();
+)"#;
 
         let deps = get_go_dependencies(content);
         assert_eq!(deps.len(), 2);
@@ -917,8 +916,7 @@ mod tests {
     github.com/user/repo v1.2.3-beta+build
     github.com/another/pkg v2.0.0-rc.1
     github.com/third/mod v0.1.0-alpha
-)"#
-        .to_string();
+)"#;
 
         let deps = get_go_dependencies(content);
         assert_eq!(deps.len(), 3);
@@ -929,7 +927,7 @@ mod tests {
 
     #[test]
     fn test_get_go_dependencies_empty_content() {
-        let content = "".to_string();
+        let content = "";
         let deps = get_go_dependencies(content);
         assert!(deps.is_empty());
     }
@@ -1094,7 +1092,7 @@ github.com/level2@v1.0.0 github.com/level3@v1.0.0"#;
             toolchain go1.24
         )"#;
 
-        let deps = get_go_dependencies(content.to_string());
+        let deps = get_go_dependencies(content);
         // Should only have 2 real dependencies, go and toolchain should be filtered out
         assert_eq!(deps.len(), 2);
         assert_eq!(deps[0].name, "github.com/gin-gonic/gin");
