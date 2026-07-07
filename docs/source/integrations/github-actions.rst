@@ -9,6 +9,8 @@ GitHub Actions
 
    Automate license compliance checks on every push and pull request with the official Feluda GitHub Action.
 
+The action is published on the `GitHub Marketplace <https://github.com/marketplace/actions/feluda-license-scanner>`_ as **Feluda License Scanner**.
+
 ----
 
 Quick Start
@@ -194,7 +196,7 @@ Scan an external repository from your workflow:
          --ssh-passphrase "${{ secrets.SSH_PASSPHRASE }}"
 
 .. important::
-   Supply either SSH or HTTPS credentials—not both—unless your CI job truly needs the fallback.
+   Supply either SSH or HTTPS credentials (not both) unless your CI job truly needs the fallback.
 
 ----
 

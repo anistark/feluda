@@ -37,6 +37,9 @@ Feluda likes to set the scene before he inspects a repo, so walk through this sh
 
    feluda
 
+.. tip::
+   Running in CI instead? Skip the install entirely: the :ref:`GitHub Action <github-actions>` (``uses: anistark/feluda@v1``) gates builds on license compliance in three lines.
+
 Ready for deeper filters, cache tips, and reporting workflows? Head to :ref:`cli` and :ref:`sbom` once installation is complete.
 
 ----
