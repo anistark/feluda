@@ -10,6 +10,7 @@ mod manifest;
 mod parser;
 mod reporter;
 mod sbom;
+mod source_scan;
 mod spdx;
 mod table;
 mod utils;
@@ -321,7 +322,7 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
     }
 
     // Parse and analyze dependencies
-    let analyzed_data = parse_root(
+    let mut analyzed_data = parse_root(
         &config.path,
         config.language.as_deref(),
         config.strict,
@@ -330,6 +331,24 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
     .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?;
 
     log_debug("Analyzed dependencies", &analyzed_data);
+
+    // Own-source header scan: flag project source files whose leading comments declare a
+    // license different from the project's (code pasted in by AI tools or copied from other
+    // projects without a manifest entry).
+    let own_source_findings = cli::with_spinner("🔎: own source license headers", |indicator| {
+        let findings = source_scan::scan_own_source_headers(
+            Path::new(&config.path),
+            project_license.as_deref(),
+            config.strict,
+        );
+        indicator.update_progress(&format!(
+            "{} finding{}",
+            findings.len(),
+            if findings.len() == 1 { "" } else { "s" }
+        ));
+        findings
+    });
+    analyzed_data.extend(own_source_findings);
 
     Ok((analyzed_data, project_license))
 }

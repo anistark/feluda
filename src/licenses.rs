@@ -600,7 +600,18 @@ fn is_single_license_restrictive(
     config: &config::FeludaConfig,
     strict: bool,
 ) -> bool {
-    if let Some(license_data) = known_licenses.get(license_str) {
+    // Registry keys are bare ids (`GPL-2.0`), so strip an SPDX `-only`/`-or-later`/`+`
+    // modifier before the fallback lookup — suffixed ids must classify like their base
+    // license (`GPL-2.0-or-later` is exactly as copyleft as `GPL-2.0`).
+    let registry_entry = known_licenses.get(license_str).or_else(|| {
+        known_licenses.get(
+            license_str
+                .trim_end_matches('+')
+                .trim_end_matches("-only")
+                .trim_end_matches("-or-later"),
+        )
+    });
+    if let Some(license_data) = registry_entry {
         // Match against GitHub/choosealicense.com's own `conditions` vocabulary. These keys must
         // be spelled exactly as the API emits them — the correct key is `disclose-source`, NOT
         // `source-disclosure` (a non-existent key that silently matched nothing, so copyleft
@@ -1209,7 +1220,7 @@ const SOURCE_HEADER_MAX_DEPTH: usize = 3;
 const SOURCE_HEADER_MAX_FILES: usize = 50;
 
 /// File extensions whose leading comments are scanned for an SPDX header.
-const SOURCE_HEADER_EXTENSIONS: &[&str] = &[
+pub(crate) const SOURCE_HEADER_EXTENSIONS: &[&str] = &[
     "rs", "js", "jsx", "ts", "tsx", "mjs", "cjs", "py", "go", "rb", "java", "kt", "kts", "c", "h",
     "cc", "cpp", "cxx", "hpp", "hh", "cs", "php", "swift", "scala", "r",
 ];
@@ -1252,7 +1263,7 @@ pub fn detect_license_from_source_header(content: &str) -> Option<String> {
 /// Read at most [`SOURCE_HEADER_SCAN_LINES`] lines from `path` without loading the whole file,
 /// so the header scan stays cheap on large sources. Returns `None` on any read error (e.g. a
 /// non-UTF-8 file), which simply skips that file.
-fn read_header_region(path: &Path) -> Option<String> {
+pub(crate) fn read_header_region(path: &Path) -> Option<String> {
     let file = match File::open(path) {
         Ok(file) => file,
         Err(err) => {
@@ -2003,6 +2014,20 @@ mod tests {
             &registry,
             false
         ));
+    }
+
+    #[test]
+    fn test_registry_matches_only_or_later_suffixed_ids() {
+        // Registry keys are bare ids (`GPL-2.0`); SPDX `-only`/`-or-later`/`+` modifiers must
+        // classify like their base license instead of falling through to the config list
+        // (which does not cover every GPL-family version).
+        let registry = registry_with(&[("GPL-2.0", &["include-copyright", "disclose-source"])]);
+        for id in ["GPL-2.0-or-later", "GPL-2.0-only", "GPL-2.0+"] {
+            assert!(
+                is_license_restrictive(&Some(id.to_string()), &registry, false),
+                "{id} should classify like GPL-2.0"
+            );
+        }
     }
 
     #[test]
