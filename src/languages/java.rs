@@ -102,7 +102,7 @@ fn parse_maven_pom(pom_path: &str) -> Vec<JavaDependency> {
         }
     };
 
-    let properties = extract_pom_properties(&content);
+    let properties = extract_effective_pom_properties(&content);
     let managed_versions = extract_dependency_management(&content, &properties);
     let mut deps = extract_pom_dependencies(&content, &properties, &managed_versions, false);
 
@@ -153,6 +153,97 @@ fn extract_pom_properties(content: &str) -> HashMap<String, String> {
             Ok(Event::Eof) => break,
             Err(_) => break,
             _ => {}
+        }
+    }
+
+    props
+}
+
+/// Coordinates declared at the top level of a POM, plus its `<parent>` block.
+#[derive(Debug, Default)]
+struct PomCoordinates {
+    group_id: Option<String>,
+    artifact_id: Option<String>,
+    version: Option<String>,
+    parent_group_id: Option<String>,
+    parent_artifact_id: Option<String>,
+    parent_version: Option<String>,
+}
+
+fn extract_pom_coordinates(content: &str) -> PomCoordinates {
+    let mut coords = PomCoordinates::default();
+    let mut reader = Reader::from_str(content);
+    reader.config_mut().trim_text(true);
+
+    let mut path: Vec<String> = Vec::new();
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(ref e)) => {
+                path.push(String::from_utf8_lossy(e.name().as_ref()).to_string());
+            }
+            Ok(Event::Text(e)) => {
+                let slot = match path
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .as_slice()
+                {
+                    ["project", "groupId"] => Some(&mut coords.group_id),
+                    ["project", "artifactId"] => Some(&mut coords.artifact_id),
+                    ["project", "version"] => Some(&mut coords.version),
+                    ["project", "parent", "groupId"] => Some(&mut coords.parent_group_id),
+                    ["project", "parent", "artifactId"] => Some(&mut coords.parent_artifact_id),
+                    ["project", "parent", "version"] => Some(&mut coords.parent_version),
+                    _ => None,
+                };
+                if let Some(slot) = slot {
+                    let val = e.unescape().unwrap_or_default().trim().to_string();
+                    if !val.is_empty() {
+                        *slot = Some(val);
+                    }
+                }
+            }
+            Ok(Event::End(_)) => {
+                path.pop();
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+
+    coords
+}
+
+/// `<properties>` plus the Maven built-in `project.*` properties derivable from
+/// the POM itself, so placeholders like `${project.version}` resolve.
+/// `project.groupId` and `project.version` fall back to the parent's values
+/// when absent, matching Maven's inheritance rules.
+fn extract_effective_pom_properties(content: &str) -> HashMap<String, String> {
+    let mut props = extract_pom_properties(content);
+    let coords = extract_pom_coordinates(content);
+
+    let group_id = coords.group_id.or_else(|| coords.parent_group_id.clone());
+    let version = coords.version.or_else(|| coords.parent_version.clone());
+
+    let builtins = [
+        ("project.groupId", group_id),
+        ("project.artifactId", coords.artifact_id),
+        ("project.version", version),
+        ("project.parent.groupId", coords.parent_group_id),
+        ("project.parent.artifactId", coords.parent_artifact_id),
+        ("project.parent.version", coords.parent_version),
+    ];
+    for (key, value) in builtins {
+        if let Some(value) = value {
+            let value = resolve_property(&value, &props);
+            // A value that is itself an unresolvable placeholder (e.g. an
+            // inherited `${revision}`) would only propagate the placeholder;
+            // leave the property undefined instead.
+            if !value.contains("${") {
+                props.insert(key.to_string(), value);
+            }
         }
     }
 
@@ -476,7 +567,7 @@ fn fetch_pom_transitive_deps(
         None => return Vec::new(),
     };
 
-    let properties = extract_pom_properties(&content);
+    let properties = extract_effective_pom_properties(&content);
     let managed_versions = extract_dependency_management(&content, &properties);
     extract_pom_dependencies(&content, &properties, &managed_versions, true)
 }
@@ -599,7 +690,7 @@ fn resolve_pom_license(
     }
 
     // Otherwise follow the parent POM, where the license is often declared.
-    let parent = extract_parent_from_pom_content(&pom_content)?;
+    let parent = resolve_parent_coordinate(&pom_content, version)?;
     resolve_pom_license(
         &parent.group_id,
         &parent.artifact_id,
@@ -679,6 +770,30 @@ fn extract_parent_from_pom_content(content: &str) -> Option<ParentCoordinate> {
         group_id: extract_pom_tag(parent_block, "groupId")?,
         artifact_id: extract_pom_tag(parent_block, "artifactId")?,
         version: extract_pom_tag(parent_block, "version")?,
+    })
+}
+
+/// Extract the `<parent>` coordinate with `${...}` placeholders expanded.
+///
+/// `own_version` is the version the POM was fetched at: when the parent
+/// version resolves to nothing concrete (CI-friendly `${revision}` defined
+/// only in the parent POM itself), the child's version is the best available
+/// guess, since such setups version the whole reactor together. A wrong guess
+/// merely fails the next fetch, which is where an unexpanded placeholder
+/// ended up anyway.
+fn resolve_parent_coordinate(content: &str, own_version: &str) -> Option<ParentCoordinate> {
+    let parent = extract_parent_from_pom_content(content)?;
+    let properties = extract_effective_pom_properties(content);
+
+    let version = resolve_property(&parent.version, &properties);
+    Some(ParentCoordinate {
+        group_id: resolve_property(&parent.group_id, &properties),
+        artifact_id: resolve_property(&parent.artifact_id, &properties),
+        version: if version.contains("${") {
+            own_version.to_string()
+        } else {
+            version
+        },
     })
 }
 
@@ -1049,6 +1164,205 @@ dependencies {
         let transitive = extract_pom_dependencies(content, &props, &managed, true);
         let ids: Vec<&str> = transitive.iter().map(|d| d.artifact_id.as_str()).collect();
         assert_eq!(ids, vec!["resolved"]);
+    }
+
+    #[test]
+    fn test_extract_pom_coordinates() {
+        let content = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>example-parent</artifactId>
+    <version>2.0.0</version>
+  </parent>
+  <artifactId>example-child</artifactId>
+  <version>1.0.0</version>
+</project>"#;
+
+        let coords = extract_pom_coordinates(content);
+        assert_eq!(coords.group_id, None);
+        assert_eq!(coords.artifact_id, Some("example-child".to_string()));
+        assert_eq!(coords.version, Some("1.0.0".to_string()));
+        assert_eq!(coords.parent_group_id, Some("com.example".to_string()));
+        assert_eq!(
+            coords.parent_artifact_id,
+            Some("example-parent".to_string())
+        );
+        assert_eq!(coords.parent_version, Some("2.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_extract_pom_coordinates_ignores_dependency_tags() {
+        // groupId/version inside <dependencies> must not be mistaken for the
+        // project's own coordinates.
+        let content = r#"<project>
+  <artifactId>my-app</artifactId>
+  <version>1.0.0</version>
+  <dependencies>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>31.1-jre</version>
+    </dependency>
+  </dependencies>
+</project>"#;
+
+        let coords = extract_pom_coordinates(content);
+        assert_eq!(coords.group_id, None);
+        assert_eq!(coords.artifact_id, Some("my-app".to_string()));
+        assert_eq!(coords.version, Some("1.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_effective_properties_include_project_builtins() {
+        let content = r#"<project>
+  <groupId>com.example</groupId>
+  <artifactId>my-app</artifactId>
+  <version>1.2.3</version>
+</project>"#;
+
+        let props = extract_effective_pom_properties(content);
+        assert_eq!(props.get("project.groupId").unwrap(), "com.example");
+        assert_eq!(props.get("project.artifactId").unwrap(), "my-app");
+        assert_eq!(props.get("project.version").unwrap(), "1.2.3");
+    }
+
+    #[test]
+    fn test_effective_properties_inherit_from_parent() {
+        // A child module without its own groupId/version inherits both from
+        // the parent, as Maven does.
+        let content = r#"<project>
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>example-parent</artifactId>
+    <version>2.0.0</version>
+  </parent>
+  <artifactId>example-child</artifactId>
+</project>"#;
+
+        let props = extract_effective_pom_properties(content);
+        assert_eq!(props.get("project.groupId").unwrap(), "com.example");
+        assert_eq!(props.get("project.version").unwrap(), "2.0.0");
+        assert_eq!(props.get("project.parent.version").unwrap(), "2.0.0");
+    }
+
+    #[test]
+    fn test_effective_properties_resolve_placeholder_version() {
+        // CI-friendly versioning: <version>${revision}</version> with the
+        // revision property defined in the same POM.
+        let content = r#"<project>
+  <groupId>com.example</groupId>
+  <artifactId>my-app</artifactId>
+  <version>${revision}</version>
+  <properties>
+    <revision>3.1.4</revision>
+  </properties>
+</project>"#;
+
+        let props = extract_effective_pom_properties(content);
+        assert_eq!(props.get("project.version").unwrap(), "3.1.4");
+    }
+
+    #[test]
+    fn test_effective_properties_skip_unresolvable_placeholder() {
+        // The parent's ${revision} is defined in a POM we haven't fetched;
+        // project.version must stay undefined rather than hold the placeholder.
+        let content = r#"<project>
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>example-parent</artifactId>
+    <version>${revision}</version>
+  </parent>
+  <artifactId>example-child</artifactId>
+</project>"#;
+
+        let props = extract_effective_pom_properties(content);
+        assert!(!props.contains_key("project.version"));
+        assert!(!props.contains_key("project.parent.version"));
+        assert_eq!(props.get("project.groupId").unwrap(), "com.example");
+    }
+
+    #[test]
+    fn test_parse_maven_pom_project_version_dependency() {
+        // Sibling-module dependencies are commonly versioned as
+        // ${project.version}; they must resolve, not fall through as literals.
+        let temp_dir = TempDir::new().unwrap();
+        let pom_path = temp_dir.path().join("pom.xml");
+
+        fs::write(
+            &pom_path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<project>
+    <groupId>com.example</groupId>
+    <artifactId>my-app</artifactId>
+    <version>1.2.3</version>
+    <dependencies>
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>my-lib</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+</project>"#,
+        )
+        .unwrap();
+
+        let deps = parse_maven_pom(pom_path.to_str().unwrap());
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].version, "1.2.3");
+    }
+
+    #[test]
+    fn test_resolve_parent_coordinate_from_properties() {
+        let content = r#"<project>
+  <parent>
+    <groupId>${parent.group}</groupId>
+    <artifactId>example-parent</artifactId>
+    <version>${revision}</version>
+  </parent>
+  <artifactId>example-child</artifactId>
+  <properties>
+    <parent.group>com.example</parent.group>
+    <revision>2.5.0</revision>
+  </properties>
+</project>"#;
+
+        let parent = resolve_parent_coordinate(content, "9.9.9").unwrap();
+        assert_eq!(parent.group_id, "com.example");
+        assert_eq!(parent.artifact_id, "example-parent");
+        assert_eq!(parent.version, "2.5.0");
+    }
+
+    #[test]
+    fn test_resolve_parent_coordinate_falls_back_to_own_version() {
+        // ${revision} defined only in the parent POM: fall back to the
+        // child's own fetched version instead of an unexpanded placeholder.
+        let content = r#"<project>
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>example-parent</artifactId>
+    <version>${revision}</version>
+  </parent>
+  <artifactId>example-child</artifactId>
+</project>"#;
+
+        let parent = resolve_parent_coordinate(content, "4.0.1").unwrap();
+        assert_eq!(parent.group_id, "com.example");
+        assert_eq!(parent.version, "4.0.1");
+    }
+
+    #[test]
+    fn test_resolve_parent_coordinate_literal_version() {
+        let content = r#"<project>
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>example-parent</artifactId>
+    <version>2.0.0</version>
+  </parent>
+  <artifactId>example-child</artifactId>
+</project>"#;
+
+        let parent = resolve_parent_coordinate(content, "9.9.9").unwrap();
+        assert_eq!(parent.version, "2.0.0");
     }
 
     #[test]
