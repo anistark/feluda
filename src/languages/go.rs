@@ -1,6 +1,6 @@
 use regex::Regex;
 use reqwest::blocking::Client;
-use scraper::{Html, Selector};
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -606,7 +606,7 @@ fn parse_go_module_version(module_str: &str) -> Option<(String, String)> {
     }
 }
 
-/// Fetch the license for a Go dependency, trying local sources first, then pkg.go.dev
+/// Fetch the license for a Go dependency, trying local sources first, then the pkg.go.dev API
 pub fn fetch_license_for_go_dependency(
     name: impl Into<String>,
     version: impl Into<String>,
@@ -630,7 +630,7 @@ pub fn fetch_license_for_go_dependency(
         return license;
     }
 
-    fetch_license_from_pkg_go_dev(&name)
+    fetch_license_from_pkgsite_api(&name, &version)
 }
 
 fn get_license_from_local_go_mod(package_name: &str) -> Option<String> {
@@ -727,15 +727,44 @@ fn find_license_in_any_version(root: &Path, module: &str) -> Option<String> {
     None
 }
 
-fn fetch_license_from_pkg_go_dev(name: &str) -> String {
-    let api_url = format!("https://pkg.go.dev/{name}?tab=licenses");
-    log(
-        LogLevel::Info,
-        &format!("Fetching license from Go Package Index: {api_url}"),
-    );
+// TODO: pkg.go.dev's JSON API is still in beta; move to the stable prefix (`/v1/`) once it
+// ships. Tracked upstream in https://github.com/golang/go/issues/76718.
+const PKGSITE_API_BASE: &str = "https://pkg.go.dev/v1beta";
 
+/// A single license entry from the pkg.go.dev module endpoint
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PkgsiteLicense {
+    /// Detected SPDX identifiers, or `UNKNOWN` when pkg.go.dev can't recognize the license
+    #[serde(default)]
+    pub types: Vec<String>,
+    #[serde(default)]
+    pub file_path: String,
+    /// Full license text; empty when the module is not redistributable
+    #[serde(default)]
+    pub contents: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct PkgsiteModule {
+    #[serde(default)]
+    licenses: Vec<PkgsiteLicense>,
+}
+
+/// Fetch a module's license entries from the official pkg.go.dev API.
+///
+/// Tries the exact version first and falls back to the latest version, since pkg.go.dev
+/// doesn't index every pseudo-version that appears in go.mod files.
+pub(crate) fn fetch_pkgsite_module_licenses(
+    name: &str,
+    version: &str,
+) -> Option<Vec<PkgsiteLicense>> {
     let client = match Client::builder()
-        .user_agent("feluda.anirudha.dev/1")
+        .user_agent(concat!(
+            "feluda/",
+            env!("CARGO_PKG_VERSION"),
+            " (+https://github.com/anistark/feluda)"
+        ))
         .connect_timeout(Duration::from_secs(60))
         .timeout(Duration::from_secs(10))
         .build()
@@ -743,34 +772,50 @@ fn fetch_license_from_pkg_go_dev(name: &str) -> String {
         Ok(client) => client,
         Err(err) => {
             log_error("Failed to build HTTP client", &err);
-            return "Unknown".into();
+            return None;
         }
     };
+
+    if !version.is_empty() && version != "unknown" {
+        if let Some(licenses) = fetch_pkgsite_module_version(&client, name, Some(version)) {
+            return Some(licenses);
+        }
+        log(
+            LogLevel::Warn,
+            &format!("pkg.go.dev has no entry for {name}@{version}, falling back to latest"),
+        );
+    }
+    fetch_pkgsite_module_version(&client, name, None)
+}
+
+/// Query the pkg.go.dev module endpoint for one version (`None` means latest)
+fn fetch_pkgsite_module_version(
+    client: &Client,
+    name: &str,
+    version: Option<&str>,
+) -> Option<Vec<PkgsiteLicense>> {
+    let mut api_url = format!("{PKGSITE_API_BASE}/module/{name}?licenses=true");
+    if let Some(version) = version {
+        // '+' (as in v2.0.0+incompatible) would decode as a space in a query string
+        let encoded = version.replace('+', "%2B");
+        api_url.push_str(&format!("&version={encoded}"));
+    }
+    log(
+        LogLevel::Info,
+        &format!("Fetching license from pkg.go.dev API: {api_url}"),
+    );
 
     let mut attempts = 0;
     let max_attempts = 7; // Retry max 7 times. Thala for a reason 🙌
     let wait_time = 12;
 
     while attempts < max_attempts {
-        let response = client
-            .get(&api_url)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (compatible; Feluda-Bot/1.0; +https://github.com/anistark/feluda)",
-            )
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            )
-            .header("Referer", "https://pkg.go.dev/")
-            .send();
-
-        match response {
+        match client.get(&api_url).send() {
             Ok(response) => {
                 let status = response.status();
                 log(
                     LogLevel::Info,
-                    &format!("Go Package Index API response status: {status}"),
+                    &format!("pkg.go.dev API response status: {status}"),
                 );
 
                 if status.as_u16() == 429 {
@@ -788,87 +833,60 @@ fn fetch_license_from_pkg_go_dev(name: &str) -> String {
                 }
 
                 if status.is_success() {
-                    match response.text() {
-                        Ok(html_content) => {
-                            if let Some(license) = extract_license_from_html(&html_content) {
-                                log(
-                                    LogLevel::Info,
-                                    &format!("License found for {name}: {license}"),
-                                );
-                                return license;
-                            } else {
-                                log(
-                                    LogLevel::Warn,
-                                    &format!("No license found in HTML for {name}"),
-                                );
-                            }
-                        }
+                    match response.json::<PkgsiteModule>() {
+                        Ok(module) => return Some(module.licenses),
                         Err(err) => {
-                            log_error(&format!("Failed to extract HTML content for {name}"), &err);
+                            log_error(&format!("Failed to parse API response for {name}"), &err);
                         }
                     }
                 } else {
                     log(
-                        LogLevel::Error,
+                        LogLevel::Warn,
                         &format!("Unexpected HTTP status: {status} for {name}"),
                     );
                 }
 
-                break;
+                return None;
             }
             Err(err) => {
                 log_error(&format!("Failed to fetch metadata for {name}"), &err);
-                break;
+                return None;
             }
         }
     }
 
     log(
         LogLevel::Warn,
-        &format!("Unable to determine license for {name} after {attempts} attempts"),
+        &format!("Unable to fetch license for {name} after {attempts} attempts"),
     );
-    "Unknown".into()
+    None
 }
 
-/// Extract license information from the HTML content
-fn extract_license_from_html(html: &str) -> Option<String> {
-    log(LogLevel::Info, "Extracting license from HTML content");
+fn fetch_license_from_pkgsite_api(name: &str, version: &str) -> String {
+    fetch_pkgsite_module_licenses(name, version)
+        .and_then(|licenses| license_expression_from_pkgsite(&licenses))
+        .unwrap_or_else(|| "Unknown".into())
+}
 
-    let document = Html::parse_document(html);
-
-    // Select the <section> with class "License"
-    let section_selector = match Selector::parse("section.License") {
-        Ok(selector) => selector,
-        Err(err) => {
-            log_error("Failed to parse section selector", &err);
-            return None;
+/// Collapse pkg.go.dev license entries into a single SPDX-style expression.
+///
+/// A module can carry several license files (and a file can match several licenses); they
+/// all apply to parts of the module, so distinct identifiers are joined with `AND`.
+fn license_expression_from_pkgsite(licenses: &[PkgsiteLicense]) -> Option<String> {
+    let mut types: Vec<&str> = Vec::new();
+    for license in licenses {
+        for license_type in &license.types {
+            if license_type != "UNKNOWN" && !types.contains(&license_type.as_str()) {
+                types.push(license_type);
+            }
         }
-    };
-
-    let div_selector = match Selector::parse("h2.go-textTitle div") {
-        Ok(selector) => selector,
-        Err(err) => {
-            log_error("Failed to parse div selector", &err);
-            return None;
-        }
-    };
-
-    if let Some(section) = document.select(&section_selector).next() {
-        if let Some(div) = section.select(&div_selector).next() {
-            let license_text = div.text().collect::<Vec<_>>().join(" ").trim().to_string();
-            log(
-                LogLevel::Info,
-                &format!("License found in HTML: {license_text}"),
-            );
-            return Some(license_text);
-        } else {
-            log(LogLevel::Warn, "Found section but no license div");
-        }
-    } else {
-        log(LogLevel::Warn, "No license section found in HTML");
     }
 
-    None
+    if types.is_empty() {
+        None
+    } else {
+        Some(types.join(" AND "))
+    }
 }
 
 #[cfg(test)]
@@ -933,35 +951,90 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_license_from_html() {
-        let html_content = r#"
-            <html>
-                <body>
-                    <section class="License">
-                        <h2 class="go-textTitle">
-                            <div>MIT</div>
-                        </h2>
-                    </section>
-                </body>
-            </html>
-        "#;
+    fn test_parse_pkgsite_module_response() {
+        let json = r#"{
+            "path": "github.com/gorilla/mux",
+            "version": "v1.8.1",
+            "isLatest": true,
+            "isRedistributable": true,
+            "licenses": [
+                {
+                    "types": ["BSD-3-Clause"],
+                    "filePath": "LICENSE",
+                    "contents": "Copyright (c) 2023 The Gorilla Authors..."
+                }
+            ]
+        }"#;
 
-        let license = extract_license_from_html(html_content);
-        assert_eq!(license, Some("MIT".to_string()));
+        let module: PkgsiteModule = serde_json::from_str(json).unwrap();
+        assert_eq!(module.licenses.len(), 1);
+        assert_eq!(module.licenses[0].types, vec!["BSD-3-Clause"]);
+        assert_eq!(module.licenses[0].file_path, "LICENSE");
+        assert!(module.licenses[0].contents.starts_with("Copyright"));
+
+        let expression = license_expression_from_pkgsite(&module.licenses);
+        assert_eq!(expression, Some("BSD-3-Clause".to_string()));
     }
 
     #[test]
-    fn test_extract_license_from_html_no_license() {
-        let html_content = r#"
-            <html>
-                <body>
-                    <span class="go-Main-headerDetailItem" data-test-id="UnitHeader-licenses">
-                    </span>
-                </body>
-            </html>
-        "#;
-        let license = extract_license_from_html(html_content);
-        assert_eq!(license, None);
+    fn test_parse_pkgsite_module_response_no_licenses() {
+        // The licenses field is absent when not requested or when the module has none
+        let json = r#"{"path": "github.com/user/repo", "version": "v1.0.0"}"#;
+        let module: PkgsiteModule = serde_json::from_str(json).unwrap();
+        assert!(module.licenses.is_empty());
+        assert_eq!(license_expression_from_pkgsite(&module.licenses), None);
+    }
+
+    #[test]
+    fn test_license_expression_from_pkgsite_multiple_types() {
+        // e.g. github.com/klauspost/compress: one LICENSE file matching several licenses
+        let licenses = vec![PkgsiteLicense {
+            types: vec![
+                "Apache-2.0".to_string(),
+                "BSD-3-Clause".to_string(),
+                "MIT".to_string(),
+            ],
+            file_path: "LICENSE".to_string(),
+            contents: String::new(),
+        }];
+
+        assert_eq!(
+            license_expression_from_pkgsite(&licenses),
+            Some("Apache-2.0 AND BSD-3-Clause AND MIT".to_string())
+        );
+    }
+
+    #[test]
+    fn test_license_expression_from_pkgsite_multiple_files_deduplicated() {
+        let licenses = vec![
+            PkgsiteLicense {
+                types: vec!["MIT".to_string()],
+                file_path: "LICENSE".to_string(),
+                contents: String::new(),
+            },
+            PkgsiteLicense {
+                types: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+                file_path: "third_party/LICENSE".to_string(),
+                contents: String::new(),
+            },
+        ];
+
+        assert_eq!(
+            license_expression_from_pkgsite(&licenses),
+            Some("MIT AND Apache-2.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_license_expression_from_pkgsite_unknown_filtered() {
+        // Non-redistributable modules (e.g. BUSL-licensed) report UNKNOWN with no contents
+        let licenses = vec![PkgsiteLicense {
+            types: vec!["UNKNOWN".to_string()],
+            file_path: "LICENSE".to_string(),
+            contents: String::new(),
+        }];
+
+        assert_eq!(license_expression_from_pkgsite(&licenses), None);
     }
 
     #[test]

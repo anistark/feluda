@@ -768,8 +768,8 @@ fn fetch_actual_license_content(name: &str, version: &str, project_root: &Path) 
         return Some(content);
     }
 
-    // Fetch from Go proxy for Go modules
-    if let Some(content) = fetch_license_from_go_proxy(name, version) {
+    // Fetch from the pkg.go.dev API for Go modules
+    if let Some(content) = fetch_license_from_go_pkgsite(name, version) {
         return Some(content);
     }
 
@@ -914,13 +914,42 @@ fn fetch_license_from_pypi(name: &str, version: &str) -> Option<String> {
     None
 }
 
-/// Fetch license content from Go proxy
-fn fetch_license_from_go_proxy(name: &str, version: &str) -> Option<String> {
+/// Fetch license content for Go modules from the official pkg.go.dev API
+fn fetch_license_from_go_pkgsite(name: &str, version: &str) -> Option<String> {
+    // Only module-shaped names (host.tld/path) can be Go modules
+    if !name.split('/').next()?.contains('.') || !name.contains('/') {
+        return None;
+    }
+
     log(
         LogLevel::Info,
-        &format!("Trying to fetch license from Go proxy for {name} v{version}"),
+        &format!("Trying to fetch license from pkg.go.dev for {name} v{version}"),
     );
+    rate_limit_delay();
 
+    if let Some(licenses) = crate::languages::go::fetch_pkgsite_module_licenses(name, version) {
+        let texts: Vec<&crate::languages::go::PkgsiteLicense> = licenses
+            .iter()
+            .filter(|license| !license.contents.is_empty())
+            .collect();
+
+        match texts.as_slice() {
+            [] => {} // not redistributable, or no license files; try the repository instead
+            [license] => return Some(license.contents.clone()),
+            multiple => {
+                // Several license files apply to parts of the module; label each one
+                let joined = multiple
+                    .iter()
+                    .map(|license| format!("{}:\n\n{}", license.file_path, license.contents))
+                    .collect::<Vec<_>>()
+                    .join("\n\n---\n\n");
+                return Some(joined);
+            }
+        }
+    }
+
+    // pkg.go.dev withholds license text for non-redistributable modules; the repository
+    // itself may still serve it
     if name.starts_with("github.com/") {
         let repo_url = format!(
             "https://{}",
