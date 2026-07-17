@@ -1,7 +1,8 @@
+use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 use colored::*;
 use std::env;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -145,6 +146,22 @@ pub enum Commands {
     },
 }
 
+/// Styling for clap's generated help, matching Feluda's cyan branding
+const HELP_STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .usage(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .literal(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .placeholder(AnsiColor::Cyan.on_default())
+    .error(AnsiColor::Red.on_default().effects(Effects::BOLD))
+    .valid(AnsiColor::Green.on_default())
+    .invalid(AnsiColor::Yellow.on_default());
+
+const HEADING_SOURCE: &str = "Project Source";
+const HEADING_OUTPUT: &str = "Output";
+const HEADING_FILTERS: &str = "Filters";
+const HEADING_CI: &str = "CI Integration";
+const HEADING_DETECTION: &str = "License Detection";
+
 #[derive(Parser, Debug, Clone)]
 #[command(author, version)]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -154,6 +171,8 @@ pub enum Commands {
 #[command(group(ArgGroup::new("output").args(["json"])))]
 #[command(group(ArgGroup::new("source").args(["path", "repo"]).multiple(false)))] // Mutually exclusive path and repo
 #[command(before_help = format_before_help())]
+#[command(after_help = format_after_help())]
+#[command(styles = HELP_STYLES)]
 pub struct Cli {
     /// Enable debug mode
     #[arg(long, short, global = true)]
@@ -163,97 +182,91 @@ pub struct Cli {
     pub command: Option<Commands>,
 
     /// Path to the local project directory
-    #[arg(short, long, default_value = "./")]
+    #[arg(short, long, default_value = "./", help_heading = HEADING_SOURCE)]
     pub path: String,
 
     /// URL of the Git repository to analyze (HTTPS or SSH)
-    #[arg(long)]
+    #[arg(long, help_heading = HEADING_SOURCE)]
     pub repo: Option<String>,
 
-    // For HTTPS authentication
-    #[arg(long, requires = "repo")]
+    /// Access token for HTTPS repository authentication
+    #[arg(long, requires = "repo", help_heading = HEADING_SOURCE)]
     pub token: Option<String>,
 
-    // For custom SSH key path
-    #[arg(long, requires = "repo")]
+    /// Path to the SSH private key for repository authentication
+    #[arg(long, requires = "repo", help_heading = HEADING_SOURCE)]
     pub ssh_key: Option<String>,
 
-    // For custom SSH key passphrase
-    #[arg(long)]
+    /// Passphrase for the SSH private key
+    #[arg(long, help_heading = HEADING_SOURCE)]
     pub ssh_passphrase: Option<String>,
 
     /// GitHub personal access token for API authentication (increases rate limits)
-    #[arg(long, env = "GITHUB_TOKEN", global = true)]
+    #[arg(long, env = "GITHUB_TOKEN", global = true, help_heading = HEADING_SOURCE)]
     pub github_token: Option<String>,
 
-    /// Output in JSON format
-    #[arg(long, short, group = "output")]
-    /// This will override the default output format
-    /// and will not show the TUI table.
-    /// This is useful for CI/CD pipelines.
+    /// Output in JSON format (skips the TUI table, useful for CI/CD)
+    #[arg(long, short, group = "output", help_heading = HEADING_OUTPUT)]
     pub json: bool,
 
-    /// Output in YAML format
-    #[arg(long, short, group = "output")]
-    /// This will override the default output format
-    /// and will not show the TUI table.
-    /// This is useful for CI/CD pipelines.
+    /// Output in YAML format (skips the TUI table, useful for CI/CD)
+    #[arg(long, short, group = "output", help_heading = HEADING_OUTPUT)]
     pub yaml: bool,
 
     /// Enable verbose output
-    #[arg(long)]
+    #[arg(long, help_heading = HEADING_OUTPUT)]
     pub verbose: bool,
 
     /// Show only restrictive dependencies
-    #[arg(long, short)]
+    #[arg(long, short, help_heading = HEADING_FILTERS)]
     pub restrictive: bool,
 
     /// Enable TUI table
-    #[arg(long, short)]
+    #[arg(long, short, help_heading = HEADING_OUTPUT)]
     pub gui: bool,
 
     /// Specify the language to scan
-    #[arg(long, short)]
+    #[arg(long, short, help_heading = HEADING_FILTERS)]
     pub language: Option<String>,
 
     /// Output format for CI systems (github, jenkins, sarif)
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, help_heading = HEADING_CI)]
     pub ci_format: Option<CiFormat>,
 
     /// Path to write the CI report file
-    #[arg(long)]
+    #[arg(long, help_heading = HEADING_CI)]
     pub output_file: Option<String>,
 
     /// Fail with non-zero exit code when restrictive licenses are found
-    #[arg(long)]
+    #[arg(long, help_heading = HEADING_CI)]
     pub fail_on_restrictive: bool,
 
     /// Show only incompatible dependencies
-    #[arg(long)]
+    #[arg(long, help_heading = HEADING_FILTERS)]
     pub incompatible: bool,
 
     /// Fail with non-zero exit code when incompatible licenses are found
-    #[arg(long)]
+    #[arg(long, help_heading = HEADING_CI)]
     pub fail_on_incompatible: bool,
 
     /// Specify the project license (overrides auto-detection)
-    #[arg(long)]
+    #[arg(long, help_heading = HEADING_DETECTION)]
     pub project_license: Option<String>,
 
-    // Show a concise gist summary
-    #[arg(long, group = "output")]
+    /// Show a concise summary of the scan
+    #[arg(long, group = "output", help_heading = HEADING_OUTPUT)]
     pub gist: bool,
 
     /// Filter by OSI license approval status
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, help_heading = HEADING_FILTERS)]
     pub osi: Option<OsiFilter>,
 
     /// Enable strict mode for license parser
-    #[arg(long)]
+    #[arg(long, help_heading = HEADING_DETECTION)]
     pub strict: bool,
 
     /// Skip local license detection, force network lookup only
-    #[arg(long)]
+    #[arg(long, help_heading = HEADING_DETECTION)]
     pub no_local: bool,
 }
 
@@ -279,48 +292,318 @@ impl Cli {
     }
 }
 
+/// The FELUDA wordmark, rendered from the 5x7 glyph bitmaps of the
+/// Pixelspace typeface (https://github.com/anistark/pixelspace).
+/// Quadrant blocks pack two pixel rows per terminal row while keeping
+/// the space between pixels that gives the typeface its name.
+const FELUDA_PIXELS: [&str; 4] = [
+    "▌▘▘▘▘ ▌▘▘▘▘ ▌     ▌   ▌ ▌▘▘▘▖ ▖▘▘▘▖",
+    "▌▖▖▖  ▌▖▖▖  ▌     ▌   ▌ ▌   ▌ ▌▖▖▖▌",
+    "▌     ▌     ▌     ▌   ▌ ▌   ▌ ▌   ▌",
+    "▘     ▘▘▘▘▘ ▘▘▘▘▘  ▘▘▘  ▘▘▘▘  ▘   ▘",
+];
+
+/// Render the Pixelspace wordmark with an optional column of text on
+/// the right, preceded by one blank line. Rows beyond the wordmark
+/// height are indented to stay in the right column.
+fn render_banner(right_lines: &[String]) -> String {
+    // Block characters are multibyte, so measure in chars, matching how
+    // format! width pads
+    let art_width = FELUDA_PIXELS[0].chars().count();
+    let rows = FELUDA_PIXELS.len().max(right_lines.len());
+    let mut lines = vec![String::new()];
+    lines.extend((0..rows).map(|i| {
+        let left = FELUDA_PIXELS.get(i).copied().unwrap_or("");
+        let right = right_lines.get(i).map(String::as_str).unwrap_or("");
+        if right.is_empty() {
+            format!("  {}", left.trim_end().bright_cyan().bold())
+        } else {
+            format!(
+                "  {}   {}",
+                format!("{left:<art_width$}").bright_cyan().bold(),
+                right
+            )
+        }
+    }));
+    lines.join("\n")
+}
+
 fn format_before_help() -> String {
+    render_banner(&[
+        String::new(),
+        format!("Feluda v{}", env!("CARGO_PKG_VERSION"))
+            .bright_white()
+            .bold()
+            .to_string(),
+        "https://feluda.readthedocs.io"
+            .blue()
+            .underline()
+            .to_string(),
+    ])
+}
+
+fn format_after_help() -> String {
+    let example = |cmd: &str, desc: &str| {
+        format!(
+            "  {} {}",
+            format!("{cmd:<48}").green().bold(),
+            desc.dimmed()
+        )
+    };
     format!(
-        "{}\n{}\n{}",
-        "┌───────────────────────────────────────────┐".bright_cyan(),
-        "│           FELUDA LICENSE CHECKER          │"
-            .bright_cyan()
-            .bold(),
-        "└───────────────────────────────────────────┘".bright_cyan()
+        "{}\n{}\n{}\n{}\n{}\n{}\n\n{} {}",
+        "Examples:".bright_cyan().bold(),
+        example("feluda", "Scan the current directory"),
+        example("feluda --path ../my-project", "Scan another local project"),
+        example(
+            "feluda --repo https://github.com/user/repo",
+            "Scan a remote repository"
+        ),
+        example("feluda --json", "Machine-readable output for pipelines"),
+        example(
+            "feluda --ci-format github --fail-on-restrictive",
+            "Gate a CI run on restrictive licenses",
+        ),
+        "Learn more:".bright_cyan().bold(),
+        env!("CARGO_PKG_REPOSITORY").blue().underline()
     )
+}
+
+/// Latest published release, fetched from the GitHub releases API
+struct LatestRelease {
+    version: String,
+    notes: Vec<String>,
+    url: String,
+}
+
+/// Fetch the latest release from GitHub. Returns None on any failure
+/// (offline, rate limited, unexpected payload) so the caller can degrade
+/// gracefully.
+fn fetch_latest_release() -> Option<LatestRelease> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("feluda-license-checker/1.0")
+        .timeout(Duration::from_secs(2))
+        .build()
+        .ok()?;
+    let response = client
+        .get("https://api.github.com/repos/anistark/feluda/releases/latest")
+        .send()
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let json: serde_json::Value = response.json().ok()?;
+    let version = json
+        .get("tag_name")?
+        .as_str()?
+        .trim_start_matches('v')
+        .to_string();
+    let url = json
+        .get("html_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://github.com/anistark/feluda/releases")
+        .to_string();
+    let notes = json
+        .get("body")
+        .and_then(|v| v.as_str())
+        .map(extract_release_bullets)
+        .unwrap_or_default();
+    Some(LatestRelease {
+        version,
+        notes,
+        url,
+    })
+}
+
+/// Pull the first few bullet points out of a markdown release body,
+/// dropping the "by @user in <PR url>" attribution suffix.
+fn extract_release_bullets(body: &str) -> Vec<String> {
+    body.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let text = line
+                .strip_prefix("- ")
+                .or_else(|| line.strip_prefix("* "))?;
+            let text = text.split(" by @").next().unwrap_or(text).trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(truncate_chars(text, 70))
+            }
+        })
+        .take(5)
+        .collect()
+}
+
+fn truncate_chars(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_string()
+    } else {
+        let truncated: String = text.chars().take(max - 1).collect();
+        format!("{truncated}…")
+    }
+}
+
+/// How this feluda binary was installed, used to suggest the right
+/// upgrade command
+#[derive(Debug, PartialEq)]
+enum InstallMethod {
+    Homebrew,
+    Cargo,
+    Aur,
+    SystemPackage,
+    Unknown,
+}
+
+impl InstallMethod {
+    fn upgrade_line(&self) -> String {
+        let command = match self {
+            InstallMethod::Homebrew => "brew upgrade feluda",
+            InstallMethod::Aur => "paru -S feluda",
+            InstallMethod::SystemPackage => {
+                return "Download from the releases page".yellow().to_string()
+            }
+            InstallMethod::Cargo | InstallMethod::Unknown => "cargo install feluda",
+        };
+        format!("{} {}", "Upgrade with:".yellow(), command.green().bold())
+    }
+}
+
+fn detect_install_method(
+    exe_path: &str,
+    cargo_home: Option<&str>,
+    has_arch_release: bool,
+    has_distro_package_manager: bool,
+) -> InstallMethod {
+    if exe_path.contains("/Cellar/")
+        || exe_path.contains("homebrew")
+        || exe_path.contains("linuxbrew")
+    {
+        return InstallMethod::Homebrew;
+    }
+    if exe_path.contains(".cargo")
+        || cargo_home.is_some_and(|home| !home.is_empty() && exe_path.starts_with(home))
+    {
+        return InstallMethod::Cargo;
+    }
+    if exe_path.starts_with("/usr/bin") {
+        if has_arch_release {
+            return InstallMethod::Aur;
+        }
+        if has_distro_package_manager {
+            return InstallMethod::SystemPackage;
+        }
+    }
+    InstallMethod::Unknown
+}
+
+fn current_install_method() -> InstallMethod {
+    let exe_path = env::current_exe()
+        .ok()
+        .and_then(|p| p.canonicalize().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let cargo_home = env::var("CARGO_HOME").ok();
+    let has_arch_release = std::path::Path::new("/etc/arch-release").exists();
+    let has_distro_package_manager = std::path::Path::new("/etc/debian_version").exists()
+        || std::path::Path::new("/etc/redhat-release").exists()
+        || std::path::Path::new("/etc/fedora-release").exists();
+    detect_install_method(
+        &exe_path,
+        cargo_home.as_deref(),
+        has_arch_release,
+        has_distro_package_manager,
+    )
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    match (
+        semver::Version::parse(latest),
+        semver::Version::parse(current),
+    ) {
+        (Ok(latest), Ok(current)) => latest > current,
+        _ => false,
+    }
 }
 
 // Function to print a customized version info
 pub fn print_version_info() {
-    // Get version from Cargo.toml using env!
-    let version = env!("CARGO_PKG_VERSION");
-    let title = format!("Feluda v{version}");
-    let width = title.len() + 4;
-    let border = "─".repeat(width);
+    let current = env!("CARGO_PKG_VERSION");
 
-    println!("{}", format!("┌{border}┐").bright_red());
-    println!(
-        "{}",
-        format!("│ {}   │", title.bright_white().bold()).bright_red()
+    // Only check for updates on an interactive terminal so scripts,
+    // pipes, and CI get instant output without network access
+    let latest = if io::stdout().is_terminal() {
+        fetch_latest_release()
+    } else {
+        None
+    };
+
+    let mut right = vec![
+        String::new(),
+        format!("Feluda v{current}")
+            .bright_white()
+            .bold()
+            .to_string(),
+        "A dependency license checker".bright_yellow().to_string(),
+    ];
+    match &latest {
+        Some(release) if is_newer_version(&release.version, current) => {
+            right.push(
+                format!("Update available: v{}", release.version)
+                    .yellow()
+                    .bold()
+                    .to_string(),
+            );
+            right.push(current_install_method().upgrade_line());
+        }
+        Some(_) => right.push("You're on the latest version ✓".green().to_string()),
+        None => {}
+    }
+
+    println!("{}", render_banner(&right));
+
+    if let Some(release) = &latest {
+        if !release.notes.is_empty() {
+            println!();
+            println!(
+                "  {}",
+                format!("What's new in v{}:", release.version)
+                    .bright_cyan()
+                    .bold()
+            );
+            for note in &release.notes {
+                println!("    {} {}", "•".cyan(), note);
+            }
+            println!(
+                "    {} {}",
+                "Full notes:".dimmed(),
+                release.url.blue().underline()
+            );
+        }
+    }
+
+    let detail = |label: &str, value: String| {
+        println!("  {}{}", format!("{label:<12}").bright_cyan().bold(), value);
+    };
+    println!();
+    detail("License", env!("CARGO_PKG_LICENSE").to_string());
+    detail(
+        "Repository",
+        env!("CARGO_PKG_REPOSITORY").blue().underline().to_string(),
     );
-    println!("{}", format!("└{border}┘").bright_red());
-    println!(
-        "{}",
-        "\nA dependency license checker written in Rust.".bright_yellow()
+    detail(
+        "Docs",
+        "https://feluda.readthedocs.io"
+            .blue()
+            .underline()
+            .to_string(),
     );
+    println!();
     println!(
-        "{}",
-        "Checks for permissive and restrictive licenses.".bright_yellow()
-    );
-    println!(
-        "{}",
-        "\nFound Feluda useful? ✨ Star the repository:"
+        "  {}",
+        "Found Feluda useful? ✨ Star the repository!"
             .yellow()
             .bold()
-    );
-    println!(
-        "{}",
-        "https://github.com/anistark/feluda".blue().underline()
     );
 }
 
@@ -669,10 +952,144 @@ mod tests {
     #[test]
     fn test_format_before_help() {
         let help_text = format_before_help();
-        assert!(help_text.contains("FELUDA LICENSE CHECKER"));
-        assert!(help_text.contains("┌"));
-        assert!(help_text.contains("└"));
-        assert!(help_text.contains("│"));
+        assert!(help_text.contains(&format!("Feluda v{}", env!("CARGO_PKG_VERSION"))));
+        assert!(help_text.contains("https://feluda.readthedocs.io"));
+        // The Pixelspace wordmark art is present, after a leading blank line
+        assert!(help_text.starts_with('\n'));
+        assert!(help_text.contains('▌'));
+    }
+
+    #[test]
+    fn test_render_banner_pads_rows_beyond_art() {
+        let banner = render_banner(&[
+            String::new(),
+            "line one".to_string(),
+            "line two".to_string(),
+            "line three".to_string(),
+            "line four".to_string(),
+        ]);
+        let lines: Vec<&str> = banner.lines().collect();
+        // One leading blank line, then max(art rows, right rows)
+        assert_eq!(lines.len(), 6);
+        assert!(lines[0].is_empty());
+        // The row below the wordmark keeps the right column alignment
+        assert!(lines[5].contains("line four"));
+        assert!(lines[5].starts_with("  "));
+    }
+
+    #[test]
+    fn test_extract_release_bullets() {
+        let body = "## What's Changed\n\
+            * feat(tui): overhaul the table layout by @anistark in https://github.com/anistark/feluda/pull/236\n\
+            - fix(java): resolve maven pom properties\n\
+            not a bullet\n\
+            * \n";
+        let bullets = extract_release_bullets(body);
+        assert_eq!(
+            bullets,
+            vec![
+                "feat(tui): overhaul the table layout",
+                "fix(java): resolve maven pom properties",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_extract_release_bullets_caps_at_five() {
+        let body = "- one\n- two\n- three\n- four\n- five\n- six\n";
+        assert_eq!(extract_release_bullets(body).len(), 5);
+    }
+
+    #[test]
+    fn test_truncate_chars() {
+        assert_eq!(truncate_chars("short", 70), "short");
+        let long = "x".repeat(80);
+        let truncated = truncate_chars(&long, 70);
+        assert_eq!(truncated.chars().count(), 70);
+        assert!(truncated.ends_with('…'));
+    }
+
+    #[test]
+    fn test_detect_install_method() {
+        // Homebrew resolves through the Cellar on macOS, both prefixes
+        assert_eq!(
+            detect_install_method(
+                "/opt/homebrew/Cellar/feluda/1.14.0/bin/feluda",
+                None,
+                false,
+                false
+            ),
+            InstallMethod::Homebrew
+        );
+        assert_eq!(
+            detect_install_method(
+                "/usr/local/Cellar/feluda/1.14.0/bin/feluda",
+                None,
+                false,
+                false
+            ),
+            InstallMethod::Homebrew
+        );
+        assert_eq!(
+            detect_install_method(
+                "/home/linuxbrew/.linuxbrew/Cellar/feluda/1.14.0/bin/feluda",
+                None,
+                false,
+                true
+            ),
+            InstallMethod::Homebrew
+        );
+        assert_eq!(
+            detect_install_method("/Users/dev/.cargo/bin/feluda", None, false, false),
+            InstallMethod::Cargo
+        );
+        assert_eq!(
+            detect_install_method(
+                "/custom/rust/bin/feluda",
+                Some("/custom/rust"),
+                false,
+                false
+            ),
+            InstallMethod::Cargo
+        );
+        assert_eq!(
+            detect_install_method("/usr/bin/feluda", None, true, false),
+            InstallMethod::Aur
+        );
+        assert_eq!(
+            detect_install_method("/usr/bin/feluda", None, false, true),
+            InstallMethod::SystemPackage
+        );
+        assert_eq!(
+            detect_install_method("/usr/local/bin/feluda", None, false, false),
+            InstallMethod::Unknown
+        );
+    }
+
+    #[test]
+    fn test_upgrade_line_per_method() {
+        assert!(InstallMethod::Homebrew
+            .upgrade_line()
+            .contains("brew upgrade feluda"));
+        assert!(InstallMethod::Cargo
+            .upgrade_line()
+            .contains("cargo install feluda"));
+        assert!(InstallMethod::Aur.upgrade_line().contains("paru -S feluda"));
+        assert!(InstallMethod::SystemPackage
+            .upgrade_line()
+            .contains("releases page"));
+        assert!(InstallMethod::Unknown
+            .upgrade_line()
+            .contains("cargo install feluda"));
+    }
+
+    #[test]
+    fn test_is_newer_version() {
+        assert!(is_newer_version("1.15.0", "1.14.0"));
+        assert!(is_newer_version("2.0.0", "1.99.9"));
+        assert!(!is_newer_version("1.14.0", "1.14.0"));
+        assert!(!is_newer_version("1.13.2", "1.14.0"));
+        assert!(!is_newer_version("not-a-version", "1.14.0"));
     }
 
     #[test]
