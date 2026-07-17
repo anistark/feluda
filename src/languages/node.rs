@@ -2420,11 +2420,15 @@ fn parse_pnpm_lockfile_enhanced(project_root: &Path) -> Result<HashMap<String, S
             }
             Some("dependencies") | Some("devDependencies") | Some("optionalDependencies") => {
                 if let Some(colon_pos) = trimmed.find(':') {
-                    let name = trimmed[..colon_pos].trim();
+                    let name = trimmed[..colon_pos]
+                        .trim()
+                        .trim_matches('\'')
+                        .trim_matches('"');
                     let version_spec = trimmed[colon_pos + 1..].trim();
 
                     if !name.is_empty() && !version_spec.is_empty() {
-                        let clean_version = clean_version_string(version_spec);
+                        let clean_version =
+                            clean_version_string(version_spec.trim_matches('\'').trim_matches('"'));
                         deps.insert(name.to_string(), clean_version);
                     }
                 }
@@ -2763,5 +2767,85 @@ mod tests {
             temp.path().join("package.json").to_str().unwrap(),
         );
         assert!(attribution.is_empty());
+    }
+
+    #[test]
+    fn test_parse_pnpm_lockfile_enhanced_strips_quotes_from_scoped_deps() {
+        let temp = TempDir::new().unwrap();
+        let lockfile = "\
+dependencies:
+  '@babel/code-frame': 7.26.2
+  lodash: 4.17.21
+";
+        fs::write(temp.path().join("pnpm-lock.yaml"), lockfile).unwrap();
+
+        let deps = parse_pnpm_lockfile_enhanced(temp.path()).unwrap();
+        assert_eq!(deps.get("@babel/code-frame"), Some(&"7.26.2".to_string()));
+        assert_eq!(deps.get("lodash"), Some(&"4.17.21".to_string()));
+        // No entry should have a leading quote:
+        assert!(deps.keys().all(|k| !k.starts_with('\'')));
+    }
+
+    #[test]
+    fn test_pnpm_lockfile_quoted_and_unquoted_names_collapse() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        // The SAME package (@babel/core) is discoverable through two paths that
+        // produce different names pre-fix:
+        //   - the `packages:` section + .pnpm virtual store + node_modules all
+        //     yield the unquoted name `@babel/core`;
+        //   - the `dependencies:` section of pnpm-lock.yaml is parsed by
+        //     parse_pnpm_lockfile_enhanced, which pre-fix kept the YAML-mandated
+        //     quotes around the `@`-prefixed key, yielding `'@babel/core'`.
+        // Without the quote-stripping fix those are two distinct HashMap keys —
+        // a phantom duplicate row, exactly the symptom reported in issue #98.
+        // With the fix both names normalise to `@babel/core` and collapse to
+        // one entry.
+        fs::write(
+            root.join("pnpm-lock.yaml"),
+            "packages:\n  /@babel/core@7.26.9:\n    resolution: {integrity: sha1-deadbeef}\ndependencies:\n  '@babel/core': 7.26.9\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"name":"x","version":"1.0.0","dependencies":{"@babel/core":"^7.26.9"}}"#,
+        )
+        .unwrap();
+        // virtual store mirror
+        let vs = root.join("node_modules/.pnpm/@babel+core@7.26.9/node_modules/@babel/core");
+        fs::create_dir_all(&vs).unwrap();
+        fs::write(
+            vs.join("package.json"),
+            r#"{"name":"@babel/core","version":"7.26.9","license":"MIT"}"#,
+        )
+        .unwrap();
+        // top-level symlink target
+        let top = root.join("node_modules/@babel/core");
+        fs::create_dir_all(&top).unwrap();
+        fs::write(
+            top.join("package.json"),
+            r#"{"name":"@babel/core","version":"7.26.9","license":"MIT"}"#,
+        )
+        .unwrap();
+
+        let deps = analyze_pnpm_project_comprehensive(root, "package.json");
+        // Exactly one entry for @babel/core — not a quoted phantom twin. The
+        // filter matches both `@babel/core` and `'@babel/core'` so it counts
+        // the duplicate the quote bug would introduce.
+        let babel_entries: Vec<_> = deps
+            .iter()
+            .filter(|(k, _)| k.trim_matches('\'') == "@babel/core")
+            .collect();
+        assert_eq!(
+            babel_entries.len(),
+            1,
+            "expected a single @babel/core entry, got {babel_entries:?}\nfull deps: {deps:?}"
+        );
+        assert_eq!(deps.get("@babel/core").map(String::as_str), Some("7.26.9"));
+        // No key should retain a leading quote (the quote-bug signature).
+        assert!(
+            deps.keys().all(|k| !k.starts_with('\'')),
+            "quoted key leaked into deps: {deps:?}"
+        );
     }
 }

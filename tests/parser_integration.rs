@@ -308,3 +308,63 @@ fn language_filter_limits_scan() {
         "--language node must exclude Go dependencies: {node_only:#?}"
     );
 }
+
+#[test]
+fn pnpm_project_does_not_emit_duplicate_license_rows() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    // The SAME package (@babel/core) is declared in both sections of
+    // pnpm-lock.yaml. Pre-fix, parse_pnpm_lockfile_enhanced kept the
+    // YAML-mandated quotes around the `@`-prefixed key in `dependencies:`,
+    // yielding `'@babel/core'` — a distinct name from the unquoted
+    // `@babel/core` produced by the `packages:` section / virtual store. The
+    // result was a phantom duplicate license row, exactly issue #98.
+    fs::write(
+        root.join("package.json"),
+        r#"{"name":"fixture","version":"1.0.0","license":"MIT",
+           "dependencies":{"@babel/core":"^7.26.9"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("pnpm-lock.yaml"),
+        "packages:\n  /@babel/core@7.26.9:\n    resolution: {integrity: sha1-deadbeef}\ndependencies:\n  '@babel/core': 7.26.9\n",
+    )
+    .unwrap();
+
+    // Virtual store entry with its own LICENSE so resolution succeeds locally
+    // and the surviving row is MIT rather than a spurious "Unknown".
+    let vs = root.join("node_modules/.pnpm/@babel+core@7.26.9/node_modules/@babel/core");
+    fs::create_dir_all(&vs).unwrap();
+    fs::write(
+        vs.join("package.json"),
+        r#"{"name":"@babel/core","version":"7.26.9","license":"MIT"}"#,
+    )
+    .unwrap();
+    fs::write(vs.join("LICENSE"), MIT_TEXT).unwrap();
+
+    let entries = scan_json(root, &[], &[]);
+
+    // Exactly one row for @babel/core — not two. The filter matches both
+    // `@babel/core` and `'@babel/core'` so it counts the phantom twin the
+    // quote bug would introduce.
+    let core_rows: Vec<_> = entries
+        .iter()
+        .filter(|e| e["name"].as_str().unwrap_or("").trim_matches('\'') == "@babel/core")
+        .collect();
+    assert_eq!(
+        core_rows.len(),
+        1,
+        "expected exactly one @babel/core row, got {core_rows:?}\nfull report: {entries:#?}"
+    );
+    assert_eq!(core_rows[0]["license"], "MIT");
+
+    // And no row should ever have a name beginning with a single quote
+    // (the signature of the parse_pnpm_lockfile_enhanced quote bug).
+    assert!(
+        entries
+            .iter()
+            .all(|e| !e["name"].as_str().unwrap_or("").starts_with('\'')),
+        "found a quoted-name row (parse_pnpm_lockfile_enhanced quote bug): {entries:#?}"
+    );
+}
