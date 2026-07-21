@@ -268,6 +268,10 @@ pub struct Cli {
     /// Skip local license detection, force network lookup only
     #[arg(long, help_heading = HEADING_DETECTION)]
     pub no_local: bool,
+
+    /// Skip the vendored/unmanaged dependency tree walk (faster on large repos)
+    #[arg(long, help_heading = HEADING_DETECTION)]
+    pub no_vendor_scan: bool,
 }
 
 impl Cli {
@@ -791,6 +795,7 @@ mod tests {
             osi: None,
             strict: false,
             no_local: false,
+            no_vendor_scan: false,
         };
 
         assert_eq!(cli.path, "./");
@@ -834,6 +839,7 @@ mod tests {
             osi: None,
             strict: false,
             no_local: false,
+            no_vendor_scan: false,
         };
 
         let cmd = cli.get_command_args();
@@ -884,6 +890,7 @@ mod tests {
             osi: None,
             strict: false,
             no_local: false,
+            no_vendor_scan: false,
         };
 
         let cmd = cli.get_command_args();

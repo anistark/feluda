@@ -29,8 +29,8 @@ use crate::licenses::{
 pub const OWN_SOURCE_MARKER: &str = "own source";
 
 /// Directory names never treated as own source. These hold third-party code that either the
-/// dependency analyzers already cover (`node_modules`, `target`) or that the planned vendored
-/// dependency detection will handle at directory granularity — flagging every file inside them
+/// dependency analyzers already cover (`node_modules`, `target`) or that
+/// [`crate::vendor_scan`] handles at directory granularity — flagging every file inside them
 /// individually would drown the report.
 const SKIP_DIRS: &[&str] = &[
     "node_modules",

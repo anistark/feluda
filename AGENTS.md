@@ -32,6 +32,8 @@ src/parser.rs — discover project files, detect language(s)
         ↓
 src/languages/<lang>.rs — parse dependency manifest, resolve licenses
         ↓ (local file check first, then GitHub API fallback)
+src/source_scan.rs + src/vendor_scan.rs — findings no manifest records
+        ↓
 src/licenses.rs — enrich with compatibility, OSI status, restrictiveness
         ↓
 src/reporter.rs — format output (text/JSON/YAML/CI/gist)
@@ -126,6 +128,8 @@ src/
 ├── config.rs            # .feluda.toml + env var config (figment)
 ├── parser.rs            # Project discovery, language detection, parse coordination
 ├── licenses.rs          # License analysis, compatibility, OSI status, GitHub API
+├── source_scan.rs       # Own-source license header findings (default scan)
+├── vendor_scan.rs       # Vendored/unmanaged dependency findings (default scan)
 ├── cache.rs             # GitHub license data caching (.feluda/cache/)
 ├── reporter.rs          # Text/JSON/YAML/CI/gist output formatting
 ├── table.rs             # TUI mode (ratatui)
@@ -348,6 +352,7 @@ feluda cache --clear                      # Clear cache
 # Options
 feluda --github-token <token>             # Authenticated API requests
 feluda --no-local                         # Skip local license detection
+feluda --no-vendor-scan                   # Skip the vendored/unmanaged tree walk
 feluda --strict                           # Strict license parsing
 feluda --debug                            # Enable debug logging
 ```
