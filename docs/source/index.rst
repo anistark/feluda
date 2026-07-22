@@ -73,10 +73,50 @@ Talk to Us 💬
 -------------
 
 Using Feluda in your project or company? The roadmap is shaped by real investigations, and every case report counts.
-Tell us how you use it: `join the Null Order Discord <https://discord.gg/AJMEeFXxXy>`_,
-`open an issue <https://github.com/anistark/feluda/issues/new>`_,
-or DM `@kranirudha on X <https://x.com/kranirudha>`_ / `@ani on Mastodon <https://fosstodon.org/@ani>`_.
 Even a quick "we use Feluda for X" note helps shape what gets built next.
+
+.. grid:: 1 1 3 3
+   :gutter: 3
+
+   .. grid-item-card:: 💬 Join the Discord
+      :class-card: glassmorphic
+      :link: https://discord.gg/AJMEeFXxXy
+      :link-type: url
+
+      Hang out in the Null Order server and tell us how you use Feluda.
+
+   .. grid-item-card:: 🐛 Open an Issue
+      :class-card: glassmorphic
+      :link: https://github.com/anistark/feluda/issues/new
+      :link-type: url
+
+      Bug, feature request, or a case report. The tracker shapes the roadmap.
+
+   .. grid-item-card:: ✉️ DM the Maintainers
+      :class-card: glassmorphic
+
+      .. raw:: html
+
+         <div class="maintainer-handles">
+           <div class="maintainer-row">
+             <span class="maintainer-name">Anirudha</span>
+             <a class="handle-btn" href="https://x.com/kranirudha" aria-label="Anirudha on X" title="Anirudha on X">
+               <iconify-icon icon="simple-icons:x" aria-hidden="true"></iconify-icon>
+             </a>
+             <a class="handle-btn" href="https://fosstodon.org/@ani" aria-label="Anirudha on Mastodon" title="Anirudha on Mastodon">
+               <iconify-icon icon="simple-icons:mastodon" aria-hidden="true"></iconify-icon>
+             </a>
+           </div>
+           <div class="maintainer-row">
+             <span class="maintainer-name">Farhaan</span>
+             <a class="handle-btn" href="https://x.com/fhackdroid" aria-label="Farhaan on X" title="Farhaan on X">
+               <iconify-icon icon="simple-icons:x" aria-hidden="true"></iconify-icon>
+             </a>
+             <a class="handle-btn" href="https://mastodon.social/@fhackdroid" aria-label="Farhaan on Mastodon" title="Farhaan on Mastodon">
+               <iconify-icon icon="simple-icons:mastodon" aria-hidden="true"></iconify-icon>
+             </a>
+           </div>
+         </div>
 
 Contributors ✨
 ---------------

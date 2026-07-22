@@ -1,10 +1,197 @@
 /* Custom CSS */
 
+/* ============================================================
+   Liquid glass design tokens
+   Shibuya toggles `html.dark` / `html.light` classes (it does
+   NOT set data-theme), so light tokens live on :root and dark
+   overrides on html.dark.
+   Brand: tomato crab (--tomato-9) + magnifying-glass blue (--blue-9).
+   ============================================================ */
+:root {
+    --feluda-accent: var(--tomato-9, #e54d2e);
+    --feluda-lens: var(--blue-9, #0090ff);
+    --glass-blur: blur(16px) saturate(150%);
+    --glass-bg: linear-gradient(160deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.30));
+    --glass-edge: rgba(15, 23, 42, 0.08);
+    --glass-edge-hover: rgba(229, 77, 46, 0.35);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.70);
+    --glass-shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+    --glass-shadow-hover: 0 12px 40px rgba(15, 23, 42, 0.12);
+}
+
+/* Light mode: swap Shibuya's pure white for warm ivory paper.
+   The header dropback keeps the same tone so the sticky nav
+   doesn't read as a cooler strip over the page. */
+html:not(.dark) {
+    --sy-c-background: #fdf9f2;
+    --sy-c-background-dropback: #fdf9f2cc;
+}
+
+html.dark {
+    --glass-bg: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+    --glass-edge: rgba(255, 255, 255, 0.10);
+    --glass-edge-hover: rgba(229, 77, 46, 0.45);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+    --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+    --glass-shadow-hover: 0 12px 40px rgba(0, 0, 0, 0.50);
+}
+
+/* Ambient aurora — the soft brand-colored glow the glass refracts.
+   Shibuya paints its background on <html>, so a fixed body::before
+   sits above it and below all content. */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(42rem 42rem at 88% -8%, rgba(229, 77, 46, 0.10), transparent 62%),
+        radial-gradient(50rem 50rem at -12% 28%, rgba(0, 144, 255, 0.055), transparent 62%),
+        radial-gradient(46rem 46rem at 108% 82%, rgba(255, 170, 60, 0.09), transparent 60%);
+}
+
+html.dark body::before {
+    background:
+        radial-gradient(42rem 42rem at 88% -8%, rgba(229, 77, 46, 0.13), transparent 62%),
+        radial-gradient(50rem 50rem at -12% 28%, rgba(0, 144, 255, 0.10), transparent 62%),
+        radial-gradient(46rem 46rem at 108% 82%, rgba(255, 170, 60, 0.06), transparent 60%);
+}
+
+/* Header — saturate the theme's existing blur so the sticky nav
+   picks up the aurora instead of washing it out. */
+.sy-head-blur {
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
+}
+
 .sy-head-brand::after {
     content: "Feluda";
     margin-left: 0.5rem;
     font-size: 1.25rem;
     font-weight: 600;
+}
+
+/* ============================================================
+   Mobile header: skip Shibuya's fullscreen nav panel.
+   This site has no header nav links, so the panel (and its
+   hamburger) only wrapped the search box and two social icons.
+   Flatten them into the header row instead:
+   [crab Feluda] [ search ] [gh][discord] [theme]
+   The sidebar toggle in the breadcrumbs bar is unaffected.
+   ============================================================ */
+@media (max-width: 767px) {
+    /* The panel toggle is pointless once the nav is inline */
+    .sy-head-actions button.js-menu {
+        display: none;
+    }
+
+    /* Undo the fixed fullscreen panel treatment */
+    .sy-head-nav,
+    .sy-head-nav[aria-hidden="false"] {
+        display: flex;
+        position: static;
+        flex-grow: 1;
+        min-width: 0;
+        align-items: center;
+        width: auto;
+        padding: 0;
+        border-top: 0;
+        background: transparent;
+        overflow: visible;
+    }
+
+    .sy-head-links {
+        display: none;
+    }
+
+    /* Shibuya stacks this column-wise for its panel; back to a row */
+    .sy-head-extra {
+        flex-direction: row;
+        width: auto;
+        padding: 0;
+        flex-grow: 1;
+        min-width: 0;
+        justify-content: flex-end;
+    }
+
+    /* Compact search between brand and socials */
+    .sy-head-extra form.searchbox {
+        position: static;
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: 11rem;
+        margin-left: auto;
+    }
+
+    /* Keyboard-shortcut hint means nothing on touch */
+    .searchbox kbd {
+        display: none;
+    }
+
+    .sy-head-socials {
+        margin-left: 0.25rem;
+    }
+
+    .sy-head-socials a {
+        padding: 0.4rem;
+    }
+}
+
+/* Tighter screens: drop the wordmark, keep the crab */
+@media (max-width: 445px) {
+    .sy-head-brand::after {
+        content: none;
+    }
+}
+
+/* ============================================================
+   Breadcrumb-bar toggles (sidebar menu + table of contents):
+   bare theme icons dressed up as small glass chips.
+   Icons are currentColor masks, so `color` tints them.
+   ============================================================ */
+.sy-breadcrumbs button.js-menu {
+    width: 2.1rem;
+    height: 2.1rem;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1px solid var(--glass-edge);
+    background: var(--glass-bg);
+    box-shadow: var(--glass-highlight);
+    color: var(--sy-c-light);
+    transition: color 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+}
+
+.sy-breadcrumbs button.js-menu:hover {
+    color: var(--feluda-accent);
+    border-color: var(--glass-edge-hover);
+}
+
+.sy-breadcrumbs button.js-menu:active {
+    transform: scale(0.92);
+}
+
+.sy-breadcrumbs button.js-menu .i-lucide {
+    font-size: 1.15rem;
+}
+
+/* Interactive controls should look interactive */
+.sy-breadcrumbs button,
+.sy-head-actions button,
+.searchbox button,
+.globaltoc li > button,
+button.copybtn {
+    cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sy-breadcrumbs button.js-menu {
+        transition: none;
+    }
+
+    .sy-breadcrumbs button.js-menu:active {
+        transform: none;
+    }
 }
 
 /* Contributors section */
@@ -33,6 +220,11 @@
     height: 48px;
     border-radius: 50%;
     border: 2px solid var(--sy-c-border);
+    transition: border-color 0.2s ease;
+}
+
+#contributors-container a:hover .contributor-avatar {
+    border-color: var(--feluda-accent);
 }
 
 /* Code block language labels */
@@ -74,58 +266,96 @@ div.highlight-text::before,
 div.highlight-none::before,
 div.highlight-default::before { content: none; }
 
-/* Glassmorphic cards */
+/* Glassmorphic cards — liquid glass recipe: saturated blur,
+   gradient fill, specular top edge, layered shadow. */
 .sd-card.glassmorphic {
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-edge);
     border-radius: 16px;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-highlight), var(--glass-shadow);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
 .sd-card.glassmorphic:hover {
     transform: translateY(-4px);
+    border-color: var(--glass-edge-hover);
+    box-shadow: var(--glass-highlight), var(--glass-shadow-hover);
 }
 
-.sd-card.glassmorphic .sd-card-header {
-    background: transparent;
-}
-
+.sd-card.glassmorphic .sd-card-header,
 .sd-card.glassmorphic .sd-card-body {
     background: transparent;
 }
 
-/* Dark mode */
-html[data-theme="dark"] .sd-card.glassmorphic {
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-html[data-theme="dark"] .sd-card.glassmorphic:hover {
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-}
-
-html[data-theme="dark"] .sd-card.glassmorphic .sd-card-header {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-/* Light mode adjustments */
-html:not([data-theme="dark"]) .sd-card.glassmorphic {
-    background: rgba(255, 255, 255, 0.09);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-html:not([data-theme="dark"]) .sd-card.glassmorphic .sd-card-header {
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-html:not([data-theme="dark"]) .sd-card.glassmorphic:hover {
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+.sd-card.glassmorphic .sd-card-header {
+    border-bottom: 1px solid var(--glass-edge);
 }
 
 /* Card link styling */
 .sd-card.glassmorphic .sd-card-text a {
-    color: var(--sd-color-primary);
+    color: var(--sy-c-link);
     font-weight: 500;
+}
+
+/* Maintainer handles inside the "DM the Maintainers" card:
+   glass pill buttons with icon + label. */
+.maintainer-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.maintainer-row + .maintainer-row {
+    margin-top: 0.6rem;
+}
+
+.maintainer-name {
+    font-weight: 600;
+    min-width: 4.5rem;
+}
+
+.sd-card.glassmorphic .sd-card-text a.handle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    border: 1px solid var(--glass-edge);
+    background: var(--glass-bg);
+    box-shadow: var(--glass-highlight);
+    color: var(--sy-c-text);
+    text-decoration: none;
+    transition: color 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+}
+
+.sd-card.glassmorphic .sd-card-text a.handle-btn:hover {
+    color: var(--feluda-accent);
+    border-color: var(--glass-edge-hover);
+    text-decoration: none;
+    transform: scale(1.15);
+}
+
+.sd-card.glassmorphic .sd-card-text a.handle-btn:active {
+    transform: scale(0.96);
+}
+
+.handle-btn iconify-icon {
+    font-size: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sd-card.glassmorphic .sd-card-text a.handle-btn {
+        transition: none;
+    }
+
+    .sd-card.glassmorphic .sd-card-text a.handle-btn:hover,
+    .sd-card.glassmorphic .sd-card-text a.handle-btn:active {
+        transform: none;
+    }
 }
 
 /* Field Reports — vertical timeline */
@@ -172,9 +402,9 @@ html:not([data-theme="dark"]) .sd-card.glassmorphic:hover {
     transform: translateX(-50%);
     background: linear-gradient(
         to bottom,
-        rgba(168, 85, 247, 0.5),
-        rgba(99, 102, 241, 0.4),
-        rgba(168, 85, 247, 0.5)
+        rgba(229, 77, 46, 0.5),
+        rgba(0, 144, 255, 0.4),
+        rgba(229, 77, 46, 0.5)
     );
     border-radius: 2px;
     z-index: 0;
@@ -190,24 +420,24 @@ html:not([data-theme="dark"]) .sd-card.glassmorphic:hover {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #a855f7;
+    background: var(--feluda-accent);
     transition: transform 0.2s ease;
-    animation: field-report-pulse-purple 2.4s ease-in-out infinite;
+    animation: field-report-pulse-tomato 2.4s ease-in-out infinite;
 }
 
 .field-report-item.is-upcoming .field-report-dot {
-    background: #10b981;
-    animation: field-report-pulse-green 2s ease-in-out infinite;
+    background: var(--feluda-lens);
+    animation: field-report-pulse-blue 2s ease-in-out infinite;
 }
 
-@keyframes field-report-pulse-purple {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.45); }
-    50%      { box-shadow: 0 0 0 7px rgba(168, 85, 247, 0); }
+@keyframes field-report-pulse-tomato {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(229, 77, 46, 0.45); }
+    50%      { box-shadow: 0 0 0 7px rgba(229, 77, 46, 0); }
 }
 
-@keyframes field-report-pulse-green {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
-    50%      { box-shadow: 0 0 0 9px rgba(16, 185, 129, 0); }
+@keyframes field-report-pulse-blue {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 144, 255, 0.55); }
+    50%      { box-shadow: 0 0 0 9px rgba(0, 144, 255, 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -221,21 +451,40 @@ html:not([data-theme="dark"]) .sd-card.glassmorphic:hover {
         transform: none;
     }
 
-    .field-report-content {
+    .field-report-content,
+    .sd-card.glassmorphic {
         transition: none;
     }
 }
+
+/* Solid fallbacks when the OS asks for less transparency. */
+@media (prefers-reduced-transparency: reduce) {
+    body::before {
+        content: none;
+    }
+
+    .sd-card.glassmorphic,
+    .field-report-content {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+        background: var(--sy-c-surface);
+    }
+}
+
 .field-report-item:hover .field-report-dot {
     transform: scale(1.2);
 }
 
 .field-report-content {
     position: relative;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-highlight), var(--glass-shadow);
     border-radius: 12px;
     padding: 0.85rem 1rem;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 /* Stretched link — title's <a> covers the entire card so the whole card is clickable */
@@ -251,30 +500,14 @@ html:not([data-theme="dark"]) .sd-card.glassmorphic:hover {
     border-radius: inherit;
 }
 
-html[data-theme="dark"] .field-report-content {
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-html:not([data-theme="dark"]) .field-report-content {
-    background: rgba(255, 255, 255, 0.09);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-}
-
 .field-report-item:hover .field-report-content {
     transform: translateY(-2px);
-}
-
-html[data-theme="dark"] .field-report-item:hover .field-report-content {
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-}
-
-html:not([data-theme="dark"]) .field-report-item:hover .field-report-content {
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+    border-color: var(--glass-edge-hover);
+    box-shadow: var(--glass-highlight), var(--glass-shadow-hover);
 }
 
 .field-report-item.is-upcoming .field-report-content {
-    border-left: 3px solid var(--sd-color-primary, #6366f1);
+    border-left: 3px solid var(--feluda-lens);
 }
 
 .field-report-meta {
@@ -302,9 +535,9 @@ html:not([data-theme="dark"]) .field-report-item:hover .field-report-content {
 }
 
 .field-report-item.is-upcoming .field-report-chip {
-    background: rgba(99, 102, 241, 0.12);
-    border-color: rgba(99, 102, 241, 0.4);
-    color: var(--sd-color-primary, #6366f1);
+    background: rgba(0, 144, 255, 0.12);
+    border-color: rgba(0, 144, 255, 0.4);
+    color: var(--feluda-lens);
 }
 
 .field-report-title {
@@ -321,7 +554,7 @@ html:not([data-theme="dark"]) .field-report-item:hover .field-report-content {
 }
 
 .field-report-title a:hover {
-    color: var(--sd-color-primary, #6366f1);
+    color: var(--sy-c-link);
     text-decoration: none;
     border-bottom: none;
 }
@@ -337,13 +570,13 @@ html:not([data-theme="dark"]) .field-report-item:hover .field-report-content {
     transition: color 0.2s ease;
 }
 
-/* On card hover, give speaker and venue distinct accent colors */
+/* On card hover, give speaker and venue distinct brand colors */
 .field-report-item:hover .field-report-speaker {
-    color: #a855f7; /* purple — matches dot */
+    color: var(--feluda-accent); /* tomato — matches dot */
 }
 
 .field-report-item:hover .field-report-venue {
-    color: #10b981; /* green — matches upcoming dot */
+    color: var(--feluda-lens); /* lens blue — matches upcoming dot */
 }
 
 .field-report-desc {
