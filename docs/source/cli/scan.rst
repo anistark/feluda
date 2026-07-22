@@ -143,6 +143,70 @@ to keep the schema stable.
 
 ----
 
+Code That No Manifest Records
+-----------------------------
+
+Manifests only describe what a package manager installed. Code can enter a
+repository other ways — pasted in by an AI assistant, copied from another
+project, or vendored wholesale — and every one of those routes carries the
+original license with it. The default scan looks for that code too, and the
+findings appear as ordinary rows in the same report, so every filter, output
+format, and exit code applies to them unchanged.
+
+Findings are named by their path and marked in the version column:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Version marker
+     - Meaning
+   * - ``own source``
+     - A source file in your own tree whose header declares a foreign license
+       (``SPDX-License-Identifier:`` or a GNU grant banner)
+   * - ``vendored``
+     - A package directory inside ``vendor/``, ``third_party/``, ``external/``
+       and similar directories
+   * - ``unmanaged``
+     - A directory elsewhere in the tree carrying a ``LICENSE``/``COPYING``
+       file that no manifest accounts for
+
+.. code-block:: text
+
+   │ src/pasted.py       │ own source │ GPL-3.0-only │ true  │ Incompatible │
+   │ vendor/gpl-lib      │ vendored   │ GPL-3.0      │ true  │ Incompatible │
+   │ third_party/mystery │ vendored   │ No License   │ false │ Unknown      │
+   │ scripts/snippet     │ unmanaged  │ GPL-2.0      │ true  │ Incompatible │
+
+A vendored directory carrying no license at all is still reported — code
+copied in with no attribution is exactly what these scans exist to surface.
+Use ``--strict`` to treat those unresolved licenses as restrictive.
+
+Feluda suppresses the obvious duplicates: a vendored directory matching a
+dependency the manifests already declare (a ``go mod vendor`` tree, say) is
+reported once, by the language analyzer, and a stray license file that merely
+restates your own project license is not a finding.
+
+The vendored/unmanaged pass walks the whole source tree, which costs time on
+very large repositories. Skip it with:
+
+.. code-block:: bash
+
+   feluda --no-vendor-scan
+
+**Options:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Flag
+     - Description
+   * - ``--no-vendor-scan``
+     - Skip the vendored/unmanaged dependency tree walk
+
+----
+
 Control Local vs Remote Detection
 ---------------------------------
 

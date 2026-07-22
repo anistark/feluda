@@ -14,6 +14,7 @@ mod source_scan;
 mod spdx;
 mod table;
 mod utils;
+mod vendor_scan;
 mod watch;
 
 use clap::Parser;
@@ -56,6 +57,7 @@ struct CheckConfig {
     osi: Option<cli::OsiFilter>,
     strict: bool,
     no_local: bool,
+    no_vendor_scan: bool,
 }
 
 fn main() {
@@ -149,6 +151,7 @@ fn run() -> FeludaResult<()> {
             osi: args.osi,
             strict: args.strict,
             no_local: args.no_local,
+            no_vendor_scan: args.no_vendor_scan,
         };
         handle_check_command(config)
     } else {
@@ -253,6 +256,7 @@ fn run() -> FeludaResult<()> {
                     osi: args.osi.clone(),
                     strict: args.strict,
                     no_local: args.no_local,
+                    no_vendor_scan: args.no_vendor_scan,
                 };
                 watch::handle_watch_command(config, debounce)
             }
@@ -349,6 +353,33 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
         findings
     });
     analyzed_data.extend(own_source_findings);
+
+    // Vendored/unmanaged scan: flag directories holding code no manifest records — libraries
+    // copied into `vendor/`/`third_party/`, plus stray licensed directories elsewhere in the
+    // tree. This walks the whole tree, so `--no-vendor-scan` opts large repos out.
+    if config.no_vendor_scan {
+        log(
+            LogLevel::Info,
+            "Skipping vendored/unmanaged dependency scan (--no-vendor-scan)",
+        );
+    } else {
+        let known_names: Vec<String> = analyzed_data.iter().map(|info| info.name.clone()).collect();
+        let vendored_findings = cli::with_spinner("📦: vendored dependencies", |indicator| {
+            let findings = vendor_scan::scan_vendored_packages(
+                Path::new(&config.path),
+                &known_names,
+                project_license.as_deref(),
+                config.strict,
+            );
+            indicator.update_progress(&format!(
+                "{} finding{}",
+                findings.len(),
+                if findings.len() == 1 { "" } else { "s" }
+            ));
+            findings
+        });
+        analyzed_data.extend(vendored_findings);
+    }
 
     Ok((analyzed_data, project_license))
 }

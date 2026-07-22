@@ -272,6 +272,105 @@ fn own_source_header_findings_reported() {
 }
 
 #[test]
+fn vendored_and_unmanaged_findings_reported() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    write_node_fixture(root, &[("fixture-permissive", "1.3.0", "ISC")]);
+
+    // A GPL library copied into vendor/ with its license file intact.
+    let vendored = root.join("vendor").join("gpl-lib");
+    fs::create_dir_all(&vendored).unwrap();
+    fs::write(
+        vendored.join("LICENSE"),
+        "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n",
+    )
+    .unwrap();
+    fs::write(vendored.join("lib.c"), "int f(void) { return 0; }\n").unwrap();
+
+    // Copied-in code with no attribution at all.
+    let bare = root.join("third_party").join("mystery");
+    fs::create_dir_all(&bare).unwrap();
+    fs::write(bare.join("mystery.c"), "int g(void) { return 1; }\n").unwrap();
+
+    // A stray license file outside any vendor directory and outside a package root.
+    let stray = root.join("scripts").join("snippet");
+    fs::create_dir_all(&stray).unwrap();
+    fs::write(
+        stray.join("COPYING"),
+        "GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991\n",
+    )
+    .unwrap();
+
+    let entries = scan_json(root, &[], &[]);
+
+    let gpl = entry(&entries, "vendor/gpl-lib");
+    assert_eq!(gpl["version"], "vendored");
+    assert_eq!(gpl["license"], "GPL-3.0");
+    assert_eq!(gpl["is_restrictive"], true);
+    assert_eq!(gpl["compatibility"], "Incompatible");
+
+    let mystery = entry(&entries, "third_party/mystery");
+    assert_eq!(mystery["version"], "vendored");
+    assert!(
+        mystery["license"].is_null(),
+        "unattributed vendored code must report no license: {mystery:#?}"
+    );
+
+    let snippet = entry(&entries, "scripts/snippet");
+    assert_eq!(snippet["version"], "unmanaged");
+    assert_eq!(snippet["license"], "GPL-2.0");
+
+    // Manifest-declared dependencies are unaffected by the vendored pass.
+    assert!(has_entry(&entries, "fixture-permissive"));
+}
+
+#[test]
+fn no_vendor_scan_skips_the_tree_walk() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    write_node_fixture(root, &[("fixture-permissive", "1.3.0", "ISC")]);
+
+    let vendored = root.join("vendor").join("gpl-lib");
+    fs::create_dir_all(&vendored).unwrap();
+    fs::write(
+        vendored.join("LICENSE"),
+        "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n",
+    )
+    .unwrap();
+
+    let entries = scan_json(root, &["--no-vendor-scan"], &[]);
+
+    assert!(
+        !has_entry(&entries, "vendor/gpl-lib"),
+        "--no-vendor-scan must suppress vendored findings: {entries:#?}"
+    );
+    assert!(has_entry(&entries, "fixture-permissive"));
+}
+
+#[test]
+fn vendored_copy_of_a_declared_dependency_is_not_reported_twice() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    let envs = write_go_fixture(root, "example.com/mylib", "v1.2.3");
+
+    // `go mod vendor` layout: the same module go.mod already declares.
+    let vendored = root.join("vendor").join("example.com").join("mylib");
+    fs::create_dir_all(&vendored).unwrap();
+    fs::write(vendored.join("LICENSE"), MIT_TEXT).unwrap();
+
+    let entries = scan_json(root, &[], &as_env(&envs));
+
+    assert!(has_entry(&entries, "example.com/mylib"));
+    assert!(
+        !has_entry(&entries, "vendor/example.com/mylib"),
+        "a vendored copy of a declared dependency must not be reported twice: {entries:#?}"
+    );
+}
+
+#[test]
 fn multi_language_root_parses_all_ecosystems() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();

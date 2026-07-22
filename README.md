@@ -187,6 +187,9 @@ feluda --language {rust|node|go|python|java|maven|gradle|c|cpp|r|ruby}
 # Skip local file checks and force network lookup only
 feluda --no-local
 
+# Skip the vendored/unmanaged tree walk (faster on very large repos)
+feluda --no-vendor-scan
+
 # Filter by OSI approval status
 feluda --osi approved        # Show only OSI approved licenses
 feluda --osi not-approved   # Show only non-OSI approved licenses
@@ -201,6 +204,19 @@ By default, Feluda checks local files first for license information before makin
 - **Java**: Fetches POM files from Maven Central to extract `<licenses>` metadata
 
 Use `--no-local` to skip local checks and force network-only license lookup.
+
+### Beyond Manifests
+
+Manifests only describe what a package manager installed. The default scan also flags code that
+entered the repo another way, reporting it as ordinary rows named by path:
+
+- `own source` — a file in your own tree whose header declares a foreign license (`SPDX-License-Identifier:` or a GNU grant banner), the classic AI-paste or copy-paste case
+- `vendored` — a package directory inside `vendor/`, `third_party/`, `external/` and similar
+- `unmanaged` — a directory elsewhere carrying a `LICENSE`/`COPYING` file that no manifest accounts for
+
+Duplicates are suppressed: a vendored copy of a dependency the manifests already declare is
+reported once, and a stray copy of your own project license is not a finding. The vendored pass
+walks the whole tree, so `--no-vendor-scan` opts very large repos out.
 
 ### License File Generation
 

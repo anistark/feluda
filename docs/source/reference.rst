@@ -47,6 +47,9 @@ Use this table to double-check flag behavior before scripting.
    * - ``feluda --no-local``
      - Skip local manifests and fetch data remotely.
      - Helpful when manifests are incomplete or stale.
+   * - ``feluda --no-vendor-scan``
+     - Skip the vendored/unmanaged dependency tree walk.
+     - The walk covers the whole source tree; skip it on very large repos.
    * - ``feluda --github-token <token>``
      - Pass a GitHub token inline.
      - Overridden by ``GITHUB_TOKEN`` env var when both are present.
