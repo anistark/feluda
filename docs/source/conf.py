@@ -42,6 +42,7 @@ html_favicon = '_static/favicon.png'
 html_title = 'Feluda'
 
 html_theme_options = {
+    "accent_color": "tomato",  # matches Felu, the crab mascot
     "logo_target": "/",
     "github_url": "https://github.com/anistark/feluda",
     "discord_url": "https://discord.gg/5YrbwNRGaE",

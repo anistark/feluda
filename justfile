@@ -152,17 +152,28 @@ DOCS_SOURCE := DOCS_DIR / "source"
 DOCS_BUILD := DOCS_DIR / "build"
 DOCS_VENV := DOCS_DIR / ".venv"
 DOCS_PYTHON := DOCS_VENV / "bin/python"
+# Sphinx calls locale.setlocale(LC_ALL, "") on startup and dies if the shell
+# locale isn't one macOS ships (e.g. en_IN.UTF-8). Override for docs commands only.
+DOCS_LANG := env_var_or_default("FELUDA_DOCS_LANG", "en_US.UTF-8")
 
 # Build HTML documentation
 docs-build:
     @echo "📚 Building documentation..."
-    uv run --python "{{DOCS_PYTHON}}" sphinx-build -M dirhtml "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}"
+    LANG="{{DOCS_LANG}}" uv run --python "{{DOCS_PYTHON}}" sphinx-build -M dirhtml "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}"
     @echo "✅ Documentation built at {{DOCS_BUILD}}/dirhtml/index.html"
 
 # Serve documentation locally with live reload
 docs-serve:
     @echo "🌐 Serving documentation with live reload..."
-    uv run --python "{{DOCS_PYTHON}}" sphinx-autobuild "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/dirhtml" --open-browser -b dirhtml
+    LANG="{{DOCS_LANG}}" uv run --python "{{DOCS_PYTHON}}" sphinx-autobuild "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/dirhtml" --open-browser -b dirhtml
+
+# Serve documentation on all interfaces (LAN / Tailscale access)
+docs-host port="8000":
+    @echo "🌐 Serving documentation on all interfaces (port {{port}})..."
+    @echo "   Local:     http://localhost:{{port}}"
+    @ipconfig getifaddr en0 2>/dev/null | sed 's|^|   LAN:       http://|;s|$|:{{port}}|' || true
+    @tailscale ip -4 2>/dev/null | head -1 | sed 's|^|   Tailscale: http://|;s|$|:{{port}}|' || true
+    LANG="{{DOCS_LANG}}" uv run --python "{{DOCS_PYTHON}}" sphinx-autobuild "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/dirhtml" --host 0.0.0.0 --port {{port}} -b dirhtml
 
 # Clean documentation build artifacts
 docs-clean:
@@ -175,19 +186,24 @@ docs-setup:
     @echo "📦 Installing documentation dependencies..."
     uv venv "{{DOCS_VENV}}"
     uv pip install --python "{{DOCS_PYTHON}}" -r "{{DOCS_DIR}}/requirements.txt" sphinx-autobuild
+    @echo "🩹 Patching sphinx-autobuild live reload to use the page host..."
+    @# autobuild hardcodes its bind host into the reload websocket URL, so pages
+    @# served via `docs-host` (0.0.0.0) try ws://0.0.0.0 and fail. Point it at
+    @# window.location.host instead. Idempotent; no-op if upstream changes.
+    "{{DOCS_PYTHON}}" -c "import sphinx_autobuild.middleware as m, pathlib; p = pathlib.Path(m.__file__); p.write_text(p.read_text().replace('ws://{ws_url}/websocket-reload', 'ws://\" + window.location.host + \"/websocket-reload'))"
     @echo "✅ Documentation dependencies installed"
 
 # Check documentation for issues (lint, build warnings, links)
 docs-check:
     @echo "📚 Checking documentation..."
     @echo "\n📋 1️⃣ Linting RST files with doc8..."
-    uv run --python "{{DOCS_PYTHON}}" doc8 "{{DOCS_SOURCE}}" --ignore D001
+    LANG="{{DOCS_LANG}}" uv run --python "{{DOCS_PYTHON}}" doc8 "{{DOCS_SOURCE}}" --ignore D001
     @echo "\n✅ RST lint check passed!"
     @echo "\n🔨 2️⃣ Building docs with strict warnings..."
-    uv run --python "{{DOCS_PYTHON}}" sphinx-build -W -b html "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/html"
+    LANG="{{DOCS_LANG}}" uv run --python "{{DOCS_PYTHON}}" sphinx-build -W -b html "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/html"
     @echo "\n✅ Documentation build passed!"
     @echo "\n🔗 3️⃣ Checking for broken links..."
-    uv run --python "{{DOCS_PYTHON}}" sphinx-build -b linkcheck "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/linkcheck"
+    LANG="{{DOCS_LANG}}" uv run --python "{{DOCS_PYTHON}}" sphinx-build -b linkcheck "{{DOCS_SOURCE}}" "{{DOCS_BUILD}}/linkcheck"
     @echo "\n✅ Link check passed!"
     @echo "\n🎉 All documentation checks passed!"
 
