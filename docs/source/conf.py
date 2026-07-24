@@ -9,7 +9,7 @@
 project = 'Feluda'
 copyright = '2025, The Feluda Maintainers'
 author = 'The Feluda Maintainers'
-release = 'v1.10.0'
+release = 'v1.15.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
