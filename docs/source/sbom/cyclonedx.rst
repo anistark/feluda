@@ -80,7 +80,7 @@ Example Output Structure
      "version": 1,
      "metadata": {
        "timestamp": "2025-01-27T12:00:00Z",
-       "tools": [{"name": "feluda", "version": "1.11.1"}]
+       "tools": [{"name": "feluda", "version": "1.15.0"}]
      },
      "components": []
    }

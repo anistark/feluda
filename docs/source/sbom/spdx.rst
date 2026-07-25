@@ -81,7 +81,7 @@ Example Output Structure
      "documentNamespace": "https://example.org/...",
      "creationInfo": {
        "created": "2025-01-27T12:00:00Z",
-       "creators": ["Tool: feluda-1.11.1"]
+       "creators": ["Tool: feluda-1.15.0"]
      },
      "packages": []
    }
