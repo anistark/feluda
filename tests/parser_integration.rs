@@ -327,6 +327,123 @@ fn vendored_and_unmanaged_findings_reported() {
     assert!(has_entry(&entries, "fixture-permissive"));
 }
 
+/// A license text none of the built-in content rules can place.
+const BESPOKE_LICENSE_TEXT: &str = "ACME CORPORATION SOFTWARE LICENSE\n\nThis software is ACME \
+CONFIDENTIAL and provided for Internal Use Only. Redistribution outside ACME is prohibited.\n";
+
+#[test]
+fn custom_license_definition_resolves_an_otherwise_unknown_license() {
+    // Issue #21: a user-defined definition in .feluda.toml names a license text feluda's
+    // built-in rules cannot identify, so it resolves instead of reporting as Unknown.
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    write_node_fixture(root, &[("fixture-permissive", "1.3.0", "ISC")]);
+
+    let vendored = root.join("vendor").join("acme-lib");
+    fs::create_dir_all(&vendored).unwrap();
+    fs::write(vendored.join("LICENSE"), BESPOKE_LICENSE_TEXT).unwrap();
+
+    // Without a definition the text does not resolve.
+    let baseline = scan_json(root, &[], &[]);
+    let before = entry(&baseline, "vendor/acme-lib");
+    assert!(
+        before["license"].is_null(),
+        "bespoke text must not resolve on its own: {before:#?}"
+    );
+
+    fs::write(
+        root.join(".feluda.toml"),
+        r#"
+[[licenses.custom]]
+id = "LicenseRef-acme-internal"
+match_all = ["ACME CONFIDENTIAL", "Internal Use Only"]
+restrictive = true
+"#,
+    )
+    .unwrap();
+
+    let entries = scan_json(root, &[], &[]);
+    let after = entry(&entries, "vendor/acme-lib");
+    assert_eq!(after["license"], "LicenseRef-acme-internal", "{after:#?}");
+    assert_eq!(after["is_restrictive"], true, "{after:#?}");
+}
+
+#[test]
+fn custom_license_definition_overrides_a_built_in_match() {
+    // The other half of #21: a definition also corrects a text the built-in rules place wrongly,
+    // which is what makes them usable on wrapped or reworded license files.
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    write_node_fixture(root, &[("fixture-permissive", "1.3.0", "ISC")]);
+
+    // An MIT text the project knows is actually its vendor's dual-license wrapper.
+    let vendored = root.join("vendor").join("wrapped-lib");
+    fs::create_dir_all(&vendored).unwrap();
+    fs::write(
+        vendored.join("LICENSE"),
+        format!("PORTIONS LICENSED SEPARATELY, SEE NOTICE\n\n{MIT_TEXT}"),
+    )
+    .unwrap();
+
+    fs::write(
+        root.join(".feluda.toml"),
+        r#"
+[[licenses.custom]]
+id = "LicenseRef-wrapped-dual"
+match_all = ["PORTIONS LICENSED SEPARATELY"]
+restrictive = true
+"#,
+    )
+    .unwrap();
+
+    let entries = scan_json(root, &[], &[]);
+    let found = entry(&entries, "vendor/wrapped-lib");
+    assert_eq!(
+        found["license"], "LicenseRef-wrapped-dual",
+        "the custom definition must win over the built-in MIT rule: {found:#?}"
+    );
+    assert_eq!(found["is_restrictive"], true, "{found:#?}");
+}
+
+#[test]
+fn custom_license_definition_can_declare_a_license_permissive() {
+    // `restrictive = false` is the escape hatch for an id feluda would otherwise flag, so the
+    // declaration has to beat the registry and the restrictive list in both directions.
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    write_node_fixture(root, &[("fixture-permissive", "1.3.0", "ISC")]);
+
+    let vendored = root.join("vendor").join("inhouse-gpl");
+    fs::create_dir_all(&vendored).unwrap();
+    fs::write(
+        vendored.join("LICENSE"),
+        "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n",
+    )
+    .unwrap();
+
+    fs::write(
+        root.join(".feluda.toml"),
+        r#"
+[[licenses.custom]]
+id = "GPL-3.0"
+match_all = ["GNU GENERAL PUBLIC LICENSE"]
+restrictive = false
+"#,
+    )
+    .unwrap();
+
+    let entries = scan_json(root, &[], &[]);
+    let found = entry(&entries, "vendor/inhouse-gpl");
+    assert_eq!(found["license"], "GPL-3.0");
+    assert_eq!(
+        found["is_restrictive"], false,
+        "an explicit declaration must override the registry: {found:#?}"
+    );
+}
+
 #[test]
 fn unattributed_vendored_code_fails_on_restrictive() {
     // Issue #241, end to end: the highest-risk finding the scan produces must be able to stop a

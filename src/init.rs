@@ -99,6 +99,13 @@ restrictive = [
 # Licenses to skip from the scan entirely (e.g. internal or pre-approved deps).
 ignore = []
 
+# Teach feluda a license text its built-in rules cannot place, so it stops reporting
+# as Unknown. Every phrase in `match_all` must appear in the license file.
+# [[licenses.custom]]
+# id = "LicenseRef-acme-internal"
+# match_all = ["ACME CONFIDENTIAL", "Internal Use Only"]
+# restrictive = true   # omit to classify `id` the usual way
+
 [dependencies]
 # Maximum depth for transitive dependency resolution (1–100).
 max_depth = 10
