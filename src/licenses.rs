@@ -718,6 +718,26 @@ pub fn is_license_restrictive(
     false
 }
 
+/// Whether a reported license value means "no license was resolved" rather than naming one.
+///
+/// Analyzers spell an unresolved license several ways depending on the ecosystem, and reports
+/// must not fold any of them in with the permissive licenses: "we could not tell" is not "it is
+/// fine" (issue #241).
+pub fn is_unresolved_license(license: Option<&str>) -> bool {
+    let Some(value) = license else {
+        return true;
+    };
+    let value = value.trim();
+    let lower = value.to_ascii_lowercase();
+    value.is_empty()
+        // Ruby, Java, .NET
+        || lower == "unknown"
+        // Node: "Unknown (failed to retrieve)"
+        || lower.starts_with("unknown (")
+        // Rust, and `LicenseInfo::get_license`'s rendering of `None`
+        || lower == "no license"
+}
+
 /// Check if a license should be ignored from analysis
 ///
 /// Returns true if the license is in the ignore list configured in `.feluda.toml`
@@ -1787,6 +1807,23 @@ mod tests {
 
         let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_is_unresolved_license() {
+        // The three spellings analyzers use for "nothing resolved", plus casing and padding.
+        assert!(is_unresolved_license(None));
+        assert!(is_unresolved_license(Some("Unknown")));
+        assert!(is_unresolved_license(Some("unknown")));
+        assert!(is_unresolved_license(Some("No License")));
+        assert!(is_unresolved_license(Some("  no license  ")));
+        assert!(is_unresolved_license(Some("")));
+        assert!(is_unresolved_license(Some("Unknown (failed to retrieve)")));
+
+        assert!(!is_unresolved_license(Some("MIT")));
+        assert!(!is_unresolved_license(Some("GPL-3.0-or-later")));
+        // A real SPDX id that merely contains the word must not be swept up.
+        assert!(!is_unresolved_license(Some("LicenseRef-unknown-vendor")));
     }
 
     #[test]

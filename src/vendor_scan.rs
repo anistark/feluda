@@ -9,6 +9,10 @@
 //!
 //! It is the directory-granularity companion to [`crate::source_scan`], which flags individual
 //! own-source files bearing a foreign license header.
+//!
+//! Findings here classify restrictiveness on a stricter rule than dependencies do: a directory
+//! with no resolvable license at all is restrictive even outside `--strict`. See
+//! [`scan_vendored_packages`] for why.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -352,7 +356,16 @@ pub fn scan_vendored_packages(
                 Some(license) => get_osi_status(license),
                 None => OsiStatus::Unknown,
             };
-            let is_restrictive = is_license_restrictive(&finding.license, &known_licenses, strict);
+            let is_restrictive = match &finding.license {
+                Some(_) => is_license_restrictive(&finding.license, &known_licenses, strict),
+                // A dependency whose license feluda could not fetch is a gap in *our* knowledge,
+                // so it stays non-restrictive outside `--strict`. A directory of code physically
+                // present in the tree with no license file and no SPDX header is a different
+                // claim: it is an observation about the code itself, and no license means no
+                // grant of permission. That is the highest-risk finding the scan produces, so it
+                // is restrictive regardless of `--strict` (issue #241).
+                None => true,
+            };
             LicenseInfo {
                 name: finding.path.display().to_string(),
                 version: finding.kind.marker().to_string(),
@@ -559,6 +572,38 @@ person obtaining a copy of this software and associated documentation files.\n";
         assert_eq!(results[0].version, VENDORED_MARKER);
         assert_eq!(results[0].license.as_deref(), Some("GPL-3.0"));
         assert_eq!(results[0].compatibility, LicenseCompatibility::Unknown);
+    }
+
+    #[test]
+    fn test_unlicensed_vendored_code_is_restrictive_without_strict() {
+        // Issue #241: copied-in code carrying no grant at all is the most restrictive case there
+        // is, so it must fail `--fail-on-restrictive` without the user opting into `--strict`.
+        let dir = tempfile::TempDir::new().unwrap();
+        let pkg = dir.path().join("third_party").join("mystery");
+        fs::create_dir_all(&pkg).unwrap();
+        fs::write(pkg.join("mystery.c"), "int main(void) { return 0; }\n").unwrap();
+
+        for strict in [false, true] {
+            let results = scan_vendored_packages(dir.path(), &[], None, strict);
+            assert_eq!(results.len(), 1);
+            assert!(results[0].license.is_none());
+            assert!(
+                *results[0].is_restrictive(),
+                "unlicensed vendored code must be restrictive (strict={strict})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_permissively_licensed_vendored_code_is_not_restrictive() {
+        // The #241 rule is scoped to a *missing* license; a resolved permissive one is unaffected.
+        let dir = tempfile::TempDir::new().unwrap();
+        write_license(&dir.path().join("vendor").join("leftpad"), MIT_TEXT);
+
+        let results = scan_vendored_packages(dir.path(), &[], None, false);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].license.as_deref(), Some("MIT"));
+        assert!(!*results[0].is_restrictive());
     }
 
     #[test]

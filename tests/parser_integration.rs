@@ -316,6 +316,8 @@ fn vendored_and_unmanaged_findings_reported() {
         mystery["license"].is_null(),
         "unattributed vendored code must report no license: {mystery:#?}"
     );
+    // Issue #241: no license means no grant of permission, so this is restrictive by default.
+    assert_eq!(mystery["is_restrictive"], true, "{mystery:#?}");
 
     let snippet = entry(&entries, "scripts/snippet");
     assert_eq!(snippet["version"], "unmanaged");
@@ -323,6 +325,40 @@ fn vendored_and_unmanaged_findings_reported() {
 
     // Manifest-declared dependencies are unaffected by the vendored pass.
     assert!(has_entry(&entries, "fixture-permissive"));
+}
+
+#[test]
+fn unattributed_vendored_code_fails_on_restrictive() {
+    // Issue #241, end to end: the highest-risk finding the scan produces must be able to stop a
+    // build without the user also passing --strict.
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    write_node_fixture(root, &[("fixture-permissive", "1.3.0", "ISC")]);
+
+    let bare = root.join("third_party").join("mystery");
+    fs::create_dir_all(&bare).unwrap();
+    fs::write(bare.join("mystery.c"), "int g(void) { return 1; }\n").unwrap();
+
+    let failing = run_feluda(root, &["--json", "--fail-on-restrictive"], &[]);
+    assert_eq!(
+        failing.status.code(),
+        Some(1),
+        "unlicensed vendored code must fail the scan\nstderr: {}",
+        String::from_utf8_lossy(&failing.stderr)
+    );
+
+    // Skipping the vendored pass leaves only the permissive manifest dependency, so it passes.
+    let passing = run_feluda(
+        root,
+        &["--json", "--fail-on-restrictive", "--no-vendor-scan"],
+        &[],
+    );
+    assert!(
+        passing.status.success(),
+        "--no-vendor-scan must drop the finding and the failure with it\nstderr: {}",
+        String::from_utf8_lossy(&passing.stderr)
+    );
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use crate::cli::{CiFormat, OsiFilter};
 use crate::debug::{log, log_debug, log_error, LogLevel};
-use crate::licenses::{LicenseCompatibility, LicenseInfo, OsiStatus};
+use crate::licenses::{is_unresolved_license, LicenseCompatibility, LicenseInfo, OsiStatus};
 use colored::*;
 use std::collections::HashMap;
 use std::fs;
@@ -634,12 +634,44 @@ fn print_incompatible_licenses_table(
     println!("{}\n", formatter.render_footer());
 }
 
+/// How the reported entries split across the summary's three buckets.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct LicenseTally {
+    permissive: usize,
+    restrictive: usize,
+    /// Entries whose license never resolved. These get their own bucket rather than padding the
+    /// permissive count: an unknown license is a review item, not a clean bill of health (#241).
+    unresolved: usize,
+}
+
+/// Split `license_info` into permissive, restrictive, and unresolved counts.
+///
+/// Restrictive wins over unresolved, so an entry that is restrictive *because* nothing resolved
+/// (unattributed vendored code, or any unknown license under `--strict`) is counted once, as
+/// restrictive. The three buckets therefore always sum to `license_info.len()`.
+fn tally_licenses(license_info: &[LicenseInfo]) -> LicenseTally {
+    let mut tally = LicenseTally::default();
+    for info in license_info {
+        if *info.is_restrictive() {
+            tally.restrictive += 1;
+        } else if is_unresolved_license(info.license.as_deref()) {
+            tally.unresolved += 1;
+        } else {
+            tally.permissive += 1;
+        }
+    }
+    tally
+}
+
 fn print_summary_footer(license_info: &[LicenseInfo], project_license: Option<&str>) {
     log(LogLevel::Info, "Printing summary footer");
 
     let total = license_info.len();
-    let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
-    let permissive_count = total - restrictive_count;
+    let LicenseTally {
+        permissive: permissive_count,
+        restrictive: restrictive_count,
+        unresolved: unresolved_count,
+    } = tally_licenses(license_info);
 
     // Calculate compatibility counts if project license is available
     let (compatible_count, incompatible_count, unknown_count) = if project_license.is_some() {
@@ -672,6 +704,13 @@ fn print_summary_footer(license_info: &[LicenseInfo], project_license: Option<&s
         restrictive_count.to_string().yellow().bold(),
         "restrictive licenses".yellow()
     );
+    if unresolved_count > 0 {
+        println!(
+            "  • {} {}",
+            unresolved_count.to_string().blue().bold(),
+            "unresolved licenses".blue()
+        );
+    }
 
     // Print compatibility info if project license is available
     if project_license.is_some() {
@@ -698,6 +737,13 @@ fn print_summary_footer(license_info: &[LicenseInfo], project_license: Option<&s
         println!("\n{} {}: Review these dependencies for compliance with your project's licensing requirements.",
             "⚠️".yellow().bold(),
             "Recommendation".yellow().bold()
+        );
+    } else if unresolved_count > 0 {
+        println!(
+            "\n{} {}: No restrictive licenses found, but {} could not be resolved. Check those manually.",
+            "🔎".blue().bold(),
+            "Recommendation".blue().bold(),
+            if unresolved_count == 1 { "1 dependency".to_string() } else { format!("{unresolved_count} dependencies") }
         );
     } else {
         println!(
@@ -1552,6 +1598,51 @@ mod tests {
         assert!(!incompatible_licenses.is_empty());
         print_incompatible_licenses_table(&incompatible_licenses, "MIT");
         // If no panic, test passes
+    }
+
+    #[test]
+    fn test_tally_licenses_keeps_unresolved_out_of_the_permissive_bucket() {
+        // Issue #241: "we could not resolve this" must not be reported as "this is permissive".
+        // The three spellings analyzers use for an unresolved license all land in one bucket.
+        let entry = |license: Option<&str>, is_restrictive: bool| LicenseInfo {
+            name: "pkg".to_string(),
+            version: "1.0.0".to_string(),
+            license: license.map(str::to_string),
+            is_restrictive,
+            compatibility: LicenseCompatibility::Unknown,
+            osi_status: OsiStatus::Unknown,
+            sub_project: None,
+        };
+
+        let tally = tally_licenses(&[
+            entry(Some("MIT"), false),
+            entry(Some("Apache-2.0"), false),
+            entry(Some("GPL-3.0"), true),
+            entry(None, false),
+            entry(Some("Unknown"), false),
+            entry(Some("No License"), false),
+            // Restrictive wins over unresolved so nothing is double-counted.
+            entry(None, true),
+        ]);
+
+        assert_eq!(
+            tally,
+            LicenseTally {
+                permissive: 2,
+                restrictive: 2,
+                unresolved: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn test_tally_licenses_buckets_sum_to_the_entry_count() {
+        let data = get_test_data();
+        let tally = tally_licenses(&data);
+        assert_eq!(
+            tally.permissive + tally.restrictive + tally.unresolved,
+            data.len()
+        );
     }
 
     #[test]
