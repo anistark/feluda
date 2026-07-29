@@ -24,6 +24,13 @@
 //!     "Apache-2.0",   # Apache License 2.0
 //! ]
 //!
+//! # Teach Feluda a license text its built-in rules cannot place. Every marker in
+//! # `match_all` must appear in the license file for the rule to match.
+//! [[licenses.custom]]
+//! id = "LicenseRef-acme-internal"
+//! match_all = ["ACME CONFIDENTIAL", "Internal Use Only"]
+//! restrictive = true
+//!
 //! [[dependencies.ignore]]
 //! name = "github.com/opcotech/elemo-pre-mailer"
 //! version = "v1.0.0"
@@ -93,6 +100,8 @@ pub struct LicenseConfig {
     pub restrictive: Vec<String>,
     #[serde(default)]
     pub ignore: Vec<String>,
+    #[serde(default)]
+    pub custom: Vec<CustomLicense>,
 }
 
 impl Default for LicenseConfig {
@@ -100,8 +109,43 @@ impl Default for LicenseConfig {
         Self {
             restrictive: default_restrictive_licenses(),
             ignore: Vec::new(),
+            custom: Vec::new(),
         }
     }
+}
+
+/// A user-defined license definition.
+///
+/// Feluda's built-in content rules cover the common licenses, but some projects publish a license
+/// text those rules cannot place: a bespoke internal license, a dual-license preamble wrapped
+/// around a standard text, or a rewording of a known license. A custom definition names the
+/// markers that identify such a text and the identifier to report when they are all present, so
+/// the license resolves instead of landing in the report as Unknown.
+///
+/// ```toml
+/// [[licenses.custom]]
+/// id = "LicenseRef-acme-internal"
+/// match_all = ["ACME CONFIDENTIAL", "Internal Use Only"]
+/// restrictive = true
+/// ```
+///
+/// Repeat the same `id` across several entries to accept more than one wording of one license;
+/// the first entry whose markers all match wins, so list the most specific rules first.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CustomLicense {
+    /// The identifier reported when this rule matches. Use the real SPDX id when the text is a
+    /// known license Feluda's built-in rules miss, or a `LicenseRef-` prefixed id (the SPDX
+    /// convention for licenses outside the register) for something bespoke.
+    pub id: String,
+    /// Markers that must **all** appear in the license text for the rule to match. Matching is
+    /// case-sensitive and on plain substrings, so lift distinctive phrases straight out of the
+    /// license text.
+    #[serde(default)]
+    pub match_all: Vec<String>,
+    /// Whether a match counts as restrictive. Leave it out to classify `id` the usual way,
+    /// through the license registry and the `restrictive` list above.
+    #[serde(default)]
+    pub restrictive: Option<bool>,
 }
 
 impl LicenseConfig {
@@ -201,8 +245,59 @@ impl LicenseConfig {
             );
         }
 
+        self.validate_custom()?;
+
         log_debug("License configuration validation passed", &self.restrictive);
         log_debug("Ignore licenses configuration", &self.ignore);
+        Ok(())
+    }
+
+    /// Validates the user-defined license definitions.
+    ///
+    /// A rule with no markers would match every license text, so it is rejected outright rather
+    /// than silently relabelling the whole report.
+    fn validate_custom(&self) -> FeludaResult<()> {
+        for rule in &self.custom {
+            if rule.id.trim().is_empty() {
+                return Err(FeludaError::Config(
+                    "Custom license definition is missing an 'id'".to_string(),
+                ));
+            }
+
+            if rule.match_all.is_empty() {
+                return Err(FeludaError::Config(format!(
+                    "Custom license '{}' has no 'match_all' markers, which would match every \
+                     license text",
+                    rule.id
+                )));
+            }
+
+            if rule.match_all.iter().any(|marker| marker.trim().is_empty()) {
+                return Err(FeludaError::Config(format!(
+                    "Custom license '{}' has an empty marker in 'match_all'",
+                    rule.id
+                )));
+            }
+        }
+
+        // Two rules sharing an id are how one license with several wordings is expressed, so only
+        // a fully duplicated rule is worth mentioning.
+        let mut seen = std::collections::HashSet::new();
+        for rule in &self.custom {
+            if !seen.insert((&rule.id, &rule.match_all)) {
+                log(
+                    LogLevel::Warn,
+                    &format!(
+                        "Duplicate custom license definition for '{}' will never be reached",
+                        rule.id
+                    ),
+                );
+            }
+        }
+
+        if !self.custom.is_empty() {
+            log_debug("Custom license definitions", &self.custom.len());
+        }
         Ok(())
     }
 
@@ -716,6 +811,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
             licenses: LicenseConfig {
                 restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
                 ignore: Vec::new(),
+                custom: Vec::new(),
             },
             dependencies: DependencyConfig {
                 max_depth: 5,
@@ -751,6 +847,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
         let config = LicenseConfig {
             restrictive: vec!["MIT".to_string(), "Apache-2.0".to_string()],
             ignore: Vec::new(),
+            custom: Vec::new(),
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -848,6 +945,7 @@ restrictive = [
         let config = LicenseConfig {
             restrictive: vec![],
             ignore: Vec::new(),
+            custom: Vec::new(),
         };
         // Empty list should pass validation but generate a warning
         assert!(config.validate().is_ok());
@@ -858,6 +956,7 @@ restrictive = [
         let config = LicenseConfig {
             restrictive: vec!["MIT".to_string(), "".to_string(), "GPL-3.0".to_string()],
             ignore: Vec::new(),
+            custom: Vec::new(),
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -877,6 +976,7 @@ restrictive = [
                 "Apache-2.0".to_string(),
             ],
             ignore: Vec::new(),
+            custom: Vec::new(),
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -895,7 +995,101 @@ restrictive = [
                 "SEE LICENSE IN LICENSE".to_string(),
             ],
             ignore: Vec::new(),
+            custom: Vec::new(),
         };
+        assert!(config.validate().is_ok());
+    }
+
+    fn custom_license_config(custom: Vec<CustomLicense>) -> LicenseConfig {
+        LicenseConfig {
+            custom,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_custom_license_validation_accepts_a_well_formed_rule() {
+        let config = custom_license_config(vec![CustomLicense {
+            id: "LicenseRef-acme-internal".to_string(),
+            match_all: vec!["ACME CONFIDENTIAL".to_string()],
+            restrictive: Some(true),
+        }]);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_custom_license_validation_rejects_a_markerless_rule() {
+        // No markers would match every license text and relabel the whole report.
+        let config = custom_license_config(vec![CustomLicense {
+            id: "LicenseRef-acme-internal".to_string(),
+            match_all: Vec::new(),
+            restrictive: None,
+        }]);
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("match_all"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn test_custom_license_validation_rejects_an_empty_marker() {
+        let config = custom_license_config(vec![CustomLicense {
+            id: "LicenseRef-acme-internal".to_string(),
+            match_all: vec!["ACME CONFIDENTIAL".to_string(), "  ".to_string()],
+            restrictive: None,
+        }]);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_custom_license_validation_rejects_a_missing_id() {
+        let config = custom_license_config(vec![CustomLicense {
+            id: "  ".to_string(),
+            match_all: vec!["ACME CONFIDENTIAL".to_string()],
+            restrictive: None,
+        }]);
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("id"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn test_custom_license_validation_allows_repeated_ids() {
+        // Several wordings of one license share an id; that is the documented way to express OR.
+        let config = custom_license_config(vec![
+            CustomLicense {
+                id: "LicenseRef-acme-internal".to_string(),
+                match_all: vec!["ACME CONFIDENTIAL".to_string()],
+                restrictive: Some(true),
+            },
+            CustomLicense {
+                id: "LicenseRef-acme-internal".to_string(),
+                match_all: vec!["Acme Corp Internal License".to_string()],
+                restrictive: Some(true),
+            },
+        ]);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_custom_licenses_parse_from_toml() {
+        let toml = r#"
+[licenses]
+restrictive = ["GPL-3.0"]
+
+[[licenses.custom]]
+id = "LicenseRef-acme-internal"
+match_all = ["ACME CONFIDENTIAL", "Internal Use Only"]
+restrictive = true
+
+[[licenses.custom]]
+id = "AGPL-3.0"
+match_all = ["Cal.com, Inc."]
+"#;
+        let config: FeludaConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.licenses.custom.len(), 2);
+        assert_eq!(config.licenses.custom[0].id, "LicenseRef-acme-internal");
+        assert_eq!(config.licenses.custom[0].match_all.len(), 2);
+        assert_eq!(config.licenses.custom[0].restrictive, Some(true));
+        // `restrictive` omitted leaves classification to the usual rules.
+        assert_eq!(config.licenses.custom[1].restrictive, None);
         assert!(config.validate().is_ok());
     }
 
@@ -970,6 +1164,7 @@ restrictive = [
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string(), "GPL-3.0".to_string()],
                 ignore: Vec::new(),
+                custom: Vec::new(),
             },
             dependencies: DependencyConfig {
                 max_depth: 10,
@@ -986,6 +1181,7 @@ restrictive = [
             licenses: LicenseConfig {
                 restrictive: vec!["".to_string()], // Invalid empty license
                 ignore: Vec::new(),
+                custom: Vec::new(),
             },
             dependencies: DependencyConfig {
                 max_depth: 10,
@@ -1007,6 +1203,7 @@ restrictive = [
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string()],
                 ignore: Vec::new(),
+                custom: Vec::new(),
             },
             dependencies: DependencyConfig {
                 max_depth: 0,
@@ -1170,6 +1367,7 @@ ignore = []"#,
         let config = LicenseConfig {
             restrictive: vec!["GPL-3.0".to_string()],
             ignore: vec!["MIT".to_string(), "".to_string(), "Apache-2.0".to_string()],
+            custom: Vec::new(),
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -1188,6 +1386,7 @@ ignore = []"#,
                 "Apache-2.0".to_string(),
                 "MIT".to_string(),
             ],
+            custom: Vec::new(),
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -1201,6 +1400,7 @@ ignore = []"#,
         let config = LicenseConfig {
             restrictive: vec!["GPL-3.0".to_string(), "MIT".to_string()],
             ignore: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+            custom: Vec::new(),
         };
         // Should pass validation but generate a warning
         assert!(config.validate().is_ok());
@@ -1211,6 +1411,7 @@ ignore = []"#,
         let config = LicenseConfig {
             restrictive: vec!["GPL-3.0".to_string(), "AGPL-3.0".to_string()],
             ignore: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+            custom: Vec::new(),
         };
         assert!(config.validate().is_ok());
         assert_eq!(config.restrictive.len(), 2);
@@ -1256,6 +1457,7 @@ ignore = [
         let config = LicenseConfig {
             restrictive: vec!["GPL-3.0".to_string()],
             ignore: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+            custom: Vec::new(),
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -1433,6 +1635,7 @@ reason = "All versions ignored"
             licenses: LicenseConfig {
                 restrictive: vec!["GPL-3.0".to_string()],
                 ignore: Vec::new(),
+                custom: Vec::new(),
             },
             dependencies: DependencyConfig {
                 max_depth: 10,

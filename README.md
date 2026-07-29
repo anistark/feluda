@@ -757,6 +757,29 @@ ignore = [
 ]
 ```
 
+### Custom Licenses
+
+Feluda's built-in rules recognise the common license texts, but some projects ship one those rules cannot place: a bespoke internal license, a rewording of a standard one, or a standard text wrapped in a custom preamble. Those show up in reports as Unknown. A custom definition names the phrases that identify such a text and the id to report when they all appear.
+
+```toml
+[[licenses.custom]]
+id = "LicenseRef-acme-internal"
+match_all = ["ACME CONFIDENTIAL", "Internal Use Only"]
+restrictive = true
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | The identifier to report. Use the real SPDX id when the text is a known license Feluda misses, or a `LicenseRef-` prefixed id (the SPDX convention for licenses outside the register) for something bespoke. |
+| `match_all` | Phrases that must **all** appear in the license text. Matching is case-sensitive on plain substrings, so lift phrases straight out of the file. At least one is required. |
+| `restrictive` | Optional. Whether a match counts as restrictive. Leave it out to classify `id` through the license registry and the `restrictive` list. |
+
+Custom definitions are tried before the built-in rules, so they also correct a text Feluda places wrongly. Repeat the same `id` across several entries to accept more than one wording of one license, and list the most specific rules first, because the first match wins.
+
+`restrictive` works both ways. Setting it to `false` stops flagging a license your legal team has already cleared, which is narrower than adding that license to `ignore`, since the dependency still appears in reports, NOTICE files, and SBOMs.
+
+**Note**: Definitions match on license *text*, so they apply wherever Feluda reads a license file: dependency license fallbacks, vendored directories, and stray `LICENSE` files. They do not rewrite an id a package manifest declares outright.
+
 ### Ignoring Dependencies
 
 The `[dependencies]` section allows you to exclude entire dependencies from license scanning, regardless of their license. This is useful when:

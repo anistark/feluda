@@ -175,12 +175,21 @@ Findings are named by their path and marked in the version column:
 
    │ src/pasted.py       │ own source │ GPL-3.0-only │ true  │ Incompatible │
    │ vendor/gpl-lib      │ vendored   │ GPL-3.0      │ true  │ Incompatible │
-   │ third_party/mystery │ vendored   │ No License   │ false │ Unknown      │
+   │ third_party/mystery │ vendored   │ No License   │ true  │ Unknown      │
    │ scripts/snippet     │ unmanaged  │ GPL-2.0      │ true  │ Incompatible │
 
-A vendored directory carrying no license at all is still reported — code
-copied in with no attribution is exactly what these scans exist to surface.
-Use ``--strict`` to treat those unresolved licenses as restrictive.
+A vendored directory carrying no license at all is still reported, because
+code copied in with no attribution is exactly what these scans exist to
+surface. It is also reported as **restrictive**, without needing ``--strict``.
+
+That is deliberately stricter than how Feluda treats a dependency whose
+license it could not resolve. An unresolved dependency license is a gap in
+Feluda's knowledge, so it stays non-restrictive unless you ask for
+``--strict``. A directory of code sitting in your tree with no license file
+and no SPDX header is a different kind of claim: it is an observation about
+the code itself, and no license means no grant of permission. So
+``--fail-on-restrictive`` stops a build on unattributed vendored code by
+default.
 
 Feluda suppresses the obvious duplicates: a vendored directory matching a
 dependency the manifests already declare (a ``go mod vendor`` tree, say) is

@@ -600,6 +600,20 @@ fn is_single_license_restrictive(
     config: &config::FeludaConfig,
     strict: bool,
 ) -> bool {
+    // A user-defined definition that declares `restrictive` wins over both the registry and the
+    // `restrictive` list. Declaring one is how a project tells Feluda how to classify a license it
+    // does not know, or gets wrong, so the explicit answer has to beat the inferred ones (#21).
+    if let Some(declared) = custom_license_restrictiveness(license_str, config) {
+        log(
+            LogLevel::Info,
+            &format!(
+                "License {license_str} restrictiveness declared as {declared} by a custom \
+                 definition in .feluda.toml"
+            ),
+        );
+        return declared;
+    }
+
     // Registry keys are bare ids (`GPL-2.0`), so strip an SPDX `-only`/`-or-later`/`+`
     // modifier before the fallback lookup — suffixed ids must classify like their base
     // license (`GPL-2.0-or-later` is exactly as copyleft as `GPL-2.0`).
@@ -716,6 +730,26 @@ pub fn is_license_restrictive(
 
     log(LogLevel::Warn, "No license information available");
     false
+}
+
+/// Whether a reported license value means "no license was resolved" rather than naming one.
+///
+/// Analyzers spell an unresolved license several ways depending on the ecosystem, and reports
+/// must not fold any of them in with the permissive licenses: "we could not tell" is not "it is
+/// fine" (issue #241).
+pub fn is_unresolved_license(license: Option<&str>) -> bool {
+    let Some(value) = license else {
+        return true;
+    };
+    let value = value.trim();
+    let lower = value.to_ascii_lowercase();
+    value.is_empty()
+        // Ruby, Java, .NET
+        || lower == "unknown"
+        // Node: "Unknown (failed to retrieve)"
+        || lower.starts_with("unknown (")
+        // Rust, and `LicenseInfo::get_license`'s rendering of `None`
+        || lower == "no license"
 }
 
 /// Check if a license should be ignored from analysis
@@ -1192,6 +1226,61 @@ fn match_license_content(content: &str) -> Option<&'static str> {
     None
 }
 
+/// The user-defined license definitions from `.feluda.toml`.
+///
+/// Read per call, like [`is_license_restrictive`] and [`is_license_ignored`] alongside it. Callers
+/// reach this only after a license file has actually been read, so the call count tracks the
+/// number of license texts in a scan rather than the number of directories walked. Loading per
+/// call also keeps `feluda watch` honest: it re-scans in-process, so a cached snapshot would go on
+/// applying definitions the user has since edited away.
+fn custom_license_rules() -> Vec<config::CustomLicense> {
+    match config::load_config() {
+        Ok(cfg) => cfg.licenses.custom,
+        Err(e) => {
+            log_error("Error loading custom license definitions", &e);
+            Vec::new()
+        }
+    }
+}
+
+/// Return the id of the first user-defined license definition whose markers all appear in
+/// `content`, or `None` when no custom rule matches.
+fn match_custom_license_content(content: &str) -> Option<String> {
+    let rules = custom_license_rules();
+    let matched = rules.iter().find(|rule| {
+        // A markerless rule would match everything; `validate_custom` rejects those, but a
+        // config that failed to load must not turn into a catch-all either.
+        !rule.match_all.is_empty()
+            && rule
+                .match_all
+                .iter()
+                .all(|marker| content.contains(marker.as_str()))
+    })?;
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "License text matched custom definition '{}' from .feluda.toml",
+            matched.id
+        ),
+    );
+    Some(matched.id.clone())
+}
+
+/// The declared restrictiveness of a custom license definition for `license_str`, if any rule
+/// names that id and sets `restrictive`.
+fn custom_license_restrictiveness(
+    license_str: &str,
+    config: &config::FeludaConfig,
+) -> Option<bool> {
+    config
+        .licenses
+        .custom
+        .iter()
+        .find(|rule| rule.id == license_str)
+        .and_then(|rule| rule.restrictive)
+}
+
 /// Detect a license's SPDX identifier from the **text content** of a license file
 /// (`LICENSE`, `COPYING`, …) or any blob of license text.
 ///
@@ -1199,7 +1288,13 @@ fn match_license_content(content: &str) -> Option<&'static str> {
 /// known license, or `None` otherwise. This is the single shared implementation that every
 /// language analyzer's local-license-file fallback routes through, so detection stays
 /// consistent (and SPDX-correct) across ecosystems.
+///
+/// User-defined definitions from `.feluda.toml` are tried before the built-in rules, so a project
+/// can both name a license Feluda does not know and correct one it places wrongly (issue #21).
 pub fn detect_license_from_content(content: &str) -> Option<String> {
+    if let Some(custom_id) = match_custom_license_content(content) {
+        return Some(custom_id);
+    }
     match_license_content(content).map(str::to_string)
 }
 
@@ -1367,6 +1462,10 @@ fn detect_spdx_header_in_dir(dir: &Path) -> Option<String> {
 /// files, then — only if none resolves — a bounded scan of the directory's source files for an
 /// `SPDX-License-Identifier:` header (see [`detect_spdx_header_in_dir`]). The header scan is a
 /// last resort, so a real license file always wins.
+///
+/// File contents go through [`detect_license_from_content`] rather than the built-in rules
+/// directly, so user-defined definitions from `.feluda.toml` apply here too. The one thing they
+/// cannot override is a filename with an implied id, which resolves before any content is read.
 pub fn detect_license_in_dir(dir: &Path) -> Option<String> {
     for entry in LICENSE_FILENAMES {
         let license_path = dir.join(entry.filename);
@@ -1381,8 +1480,8 @@ pub fn detect_license_in_dir(dir: &Path) -> Option<String> {
 
         match fs::read_to_string(&license_path) {
             Ok(content) => {
-                if let Some(spdx) = match_license_content(&content) {
-                    return Some(spdx.to_string());
+                if let Some(spdx) = detect_license_from_content(&content) {
+                    return Some(spdx);
                 }
             }
             Err(err) => {
@@ -1790,6 +1889,23 @@ mod tests {
     }
 
     #[test]
+    fn test_is_unresolved_license() {
+        // The three spellings analyzers use for "nothing resolved", plus casing and padding.
+        assert!(is_unresolved_license(None));
+        assert!(is_unresolved_license(Some("Unknown")));
+        assert!(is_unresolved_license(Some("unknown")));
+        assert!(is_unresolved_license(Some("No License")));
+        assert!(is_unresolved_license(Some("  no license  ")));
+        assert!(is_unresolved_license(Some("")));
+        assert!(is_unresolved_license(Some("Unknown (failed to retrieve)")));
+
+        assert!(!is_unresolved_license(Some("MIT")));
+        assert!(!is_unresolved_license(Some("GPL-3.0-or-later")));
+        // A real SPDX id that merely contains the word must not be swept up.
+        assert!(!is_unresolved_license(Some("LicenseRef-unknown-vendor")));
+    }
+
+    #[test]
     fn test_is_license_ignored_with_no_license() {
         // Should return false when no license is provided
         assert!(!is_license_ignored(None));
@@ -2044,6 +2160,57 @@ mod tests {
         assert!(!is_license_restrictive(
             &Some("Apache-2.0".to_string()),
             &registry,
+            false
+        ));
+    }
+
+    #[test]
+    fn test_custom_definition_overrides_registry_restrictiveness() {
+        // Issue #21: an explicit declaration beats both the registry and the restrictive list, in
+        // both directions. Exercised through `is_single_license_restrictive` because that is where
+        // the config is in hand; the end-to-end wiring is covered in tests/parser_integration.rs.
+        let registry = registry_with(&[
+            ("GPL-3.0", &["disclose-source"]),
+            ("MIT", &["include-copyright"]),
+        ]);
+        let declare = |id: &str, restrictive: Option<bool>| config::FeludaConfig {
+            licenses: config::LicenseConfig {
+                custom: vec![config::CustomLicense {
+                    id: id.to_string(),
+                    match_all: vec!["marker".to_string()],
+                    restrictive,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Registry says restrictive, the declaration says otherwise.
+        assert!(!is_single_license_restrictive(
+            "GPL-3.0",
+            &registry,
+            &declare("GPL-3.0", Some(false)),
+            false
+        ));
+        // And the reverse: a permissive id a project wants flagged.
+        assert!(is_single_license_restrictive(
+            "MIT",
+            &registry,
+            &declare("MIT", Some(true)),
+            false
+        ));
+        // A bespoke id feluda knows nothing about resolves purely from the declaration.
+        assert!(is_single_license_restrictive(
+            "LicenseRef-acme-internal",
+            &registry,
+            &declare("LicenseRef-acme-internal", Some(true)),
+            false
+        ));
+        // Omitting `restrictive` leaves classification to the usual rules.
+        assert!(is_single_license_restrictive(
+            "GPL-3.0",
+            &registry,
+            &declare("GPL-3.0", None),
             false
         ));
     }
