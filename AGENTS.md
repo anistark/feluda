@@ -12,7 +12,7 @@
 - **Crate:** https://crates.io/crates/feluda
 - **Docs:** https://feluda.readthedocs.io
 - **License:** MIT
-- **Minimum Rust Version:** 1.85
+- **Minimum Rust Version:** 1.88
 - **Recommended Rust Version:** Latest stable
 
 ---
@@ -189,7 +189,7 @@ Documentation is hosted on ReadTheDocs. When updating docs, place content in `do
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| **Rust** | Core CLI | Edition 2021, MSRV 1.85 |
+| **Rust** | Core CLI | Edition 2021, MSRV 1.88 |
 | **Cargo** | Build system | `cargo build --release` |
 | **Just** | Task runner | `justfile` — run `just` for available commands |
 | **clap** | CLI parsing | Derive-based, see `src/cli.rs` |

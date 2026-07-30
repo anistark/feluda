@@ -11,7 +11,7 @@ Contributing
 
 ----
 
-**Minimum Supported Rust Version:** ``1.85.0``
+**Minimum Supported Rust Version:** ``1.88.0``
 
 **Currently Working Rust Version:** ``1.88.0``
 

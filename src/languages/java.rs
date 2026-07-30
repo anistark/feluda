@@ -1,4 +1,5 @@
-use quick_xml::events::Event;
+use quick_xml::escape::unescape;
+use quick_xml::events::{BytesRef, BytesText, Event};
 use quick_xml::reader::Reader;
 use rayon::prelude::*;
 use regex::Regex;
@@ -117,6 +118,31 @@ fn parse_maven_pom(pom_path: &str) -> Vec<JavaDependency> {
     deps
 }
 
+/// Decode a text event and resolve any entities it still contains.
+///
+/// quick-xml 0.41 dropped `BytesText::unescape`, so decoding and unescaping are
+/// now two separate steps. Malformed content yields an empty string, matching
+/// the previous `unescape().unwrap_or_default()` behaviour.
+fn decode_text(e: &BytesText) -> String {
+    e.decode()
+        .ok()
+        .and_then(|decoded| unescape(&decoded).ok().map(|s| s.into_owned()))
+        .unwrap_or_default()
+}
+
+/// Resolve a standalone entity reference event into the text it denotes.
+///
+/// Since quick-xml 0.38 a text run is split around every `&ref;` or `&#nn;`,
+/// which arrives as its own `Event::GeneralRef` holding just the name between
+/// the delimiters. Rebuilding the reference and unescaping it handles named and
+/// numeric forms with one code path. Unknown entities resolve to nothing.
+fn decode_entity_ref(e: &BytesRef) -> String {
+    e.decode()
+        .ok()
+        .and_then(|name| unescape(&format!("&{name};")).ok().map(|s| s.into_owned()))
+        .unwrap_or_default()
+}
+
 fn extract_pom_properties(content: &str) -> HashMap<String, String> {
     let mut props = HashMap::new();
     let mut reader = Reader::from_str(content);
@@ -124,6 +150,9 @@ fn extract_pom_properties(content: &str) -> HashMap<String, String> {
 
     let mut in_properties = false;
     let mut current_key: Option<String> = None;
+    // Text arrives in fragments whenever entity references split a run, so
+    // accumulate until the closing tag rather than inserting per event.
+    let mut current_value = String::new();
 
     loop {
         match reader.read_event() {
@@ -133,12 +162,17 @@ fn extract_pom_properties(content: &str) -> HashMap<String, String> {
                     in_properties = true;
                 } else if in_properties {
                     current_key = Some(name);
+                    current_value.clear();
                 }
             }
             Ok(Event::Text(e)) => {
-                if let Some(ref key) = current_key {
-                    let val = e.unescape().unwrap_or_default().to_string();
-                    props.insert(key.clone(), val);
+                if current_key.is_some() {
+                    current_value.push_str(&decode_text(&e));
+                }
+            }
+            Ok(Event::GeneralRef(e)) => {
+                if current_key.is_some() {
+                    current_value.push_str(&decode_entity_ref(&e));
                 }
             }
             Ok(Event::End(ref e)) => {
@@ -147,7 +181,9 @@ fn extract_pom_properties(content: &str) -> HashMap<String, String> {
                     in_properties = false;
                 }
                 if in_properties {
-                    current_key = None;
+                    if let Some(key) = current_key.take() {
+                        props.insert(key, std::mem::take(&mut current_value));
+                    }
                 }
             }
             Ok(Event::Eof) => break,
@@ -176,13 +212,23 @@ fn extract_pom_coordinates(content: &str) -> PomCoordinates {
     reader.config_mut().trim_text(true);
 
     let mut path: Vec<String> = Vec::new();
+    // Entity references split a text run into several events, so the element's
+    // text is accumulated here and committed when its closing tag arrives.
+    let mut buf = String::new();
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(ref e)) => {
                 path.push(String::from_utf8_lossy(e.name().as_ref()).to_string());
+                buf.clear();
             }
             Ok(Event::Text(e)) => {
+                buf.push_str(&decode_text(&e));
+            }
+            Ok(Event::GeneralRef(e)) => {
+                buf.push_str(&decode_entity_ref(&e));
+            }
+            Ok(Event::End(_)) => {
                 let slot = match path
                     .iter()
                     .map(String::as_str)
@@ -198,13 +244,12 @@ fn extract_pom_coordinates(content: &str) -> PomCoordinates {
                     _ => None,
                 };
                 if let Some(slot) = slot {
-                    let val = e.unescape().unwrap_or_default().trim().to_string();
+                    let val = buf.trim();
                     if !val.is_empty() {
-                        *slot = Some(val);
+                        *slot = Some(val.to_string());
                     }
                 }
-            }
-            Ok(Event::End(_)) => {
+                buf.clear();
                 path.pop();
             }
             Ok(Event::Eof) => break,
@@ -1188,6 +1233,27 @@ dependencies {
             Some("example-parent".to_string())
         );
         assert_eq!(coords.parent_version, Some("2.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_pom_text_resolves_xml_entities() {
+        // Guards the decode-then-unescape path in decode_text: predefined XML
+        // entities must be resolved in both properties and coordinates.
+        let content = r#"<project>
+  <artifactId>my&amp;app</artifactId>
+  <version>1.0.0</version>
+  <properties>
+    <escaped.prop>a&amp;b&lt;c&gt;d</escaped.prop>
+    <numeric.prop>x&#38;y&#x26;z</numeric.prop>
+  </properties>
+</project>"#;
+
+        let props = extract_pom_properties(content);
+        assert_eq!(props.get("escaped.prop"), Some(&"a&b<c>d".to_string()));
+        assert_eq!(props.get("numeric.prop"), Some(&"x&y&z".to_string()));
+
+        let coords = extract_pom_coordinates(content);
+        assert_eq!(coords.artifact_id, Some("my&app".to_string()));
     }
 
     #[test]
