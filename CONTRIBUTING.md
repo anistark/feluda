@@ -54,4 +54,4 @@ Found a bug or have a feature request? [Open an issue](https://github.com/anista
 
 ---
 
-_Minimum Supported Rust Version: `1.85.0`_
+_Minimum Supported Rust Version: `1.88.0`_

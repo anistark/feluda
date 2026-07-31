@@ -11,7 +11,7 @@ keywords = ["cli", "license", "dependencies", "node", "check"]
 categories = ["command-line-utilities", "development-tools"]
 include = ["src/**", "config/**", "Cargo.toml", "README.md", "/LICENSE"]
 documentation = "https://docs.rs/feluda"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 
 [dependencies]
 cargo_metadata = "0.23"
@@ -44,23 +44,30 @@ backtrace = { version = "0.3", optional = true }
 tracing = { version = "0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = { version = "0.4", features = ["serde"] }
-git2 = { version = "0.20", features = ["vendored-libgit2", "vendored-openssl"] }
+# git2 0.21 made `default` empty; `https` and `ssh` must now be listed explicitly
+# or repository cloning fails at runtime with "there is no TLS stream available".
+git2 = { version = "0.21", default-features = false, features = [
+    "https",
+    "ssh",
+    "vendored-libgit2",
+    "vendored-openssl",
+] }
 tempfile = "3.27"
 dirs = "6.0"
 semver = "1.0"
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.41", features = ["serialize"] }
 notify = "8.2.0"
-zip = { version = "2.2", default-features = false, features = ["deflate"] }
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.27"
-mockall = "0.14"
+mockall = "0.15"
 http = "1.4"
 temp-env = "0.3"
-serial_test = "3.4"
+serial_test = "4.0"
 
 [features]
 default = []
