@@ -10,6 +10,7 @@ use crate::licenses::{
     detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive, License,
     LicenseCompatibility, LicenseInfo,
 };
+use crate::purl::Ecosystem;
 
 pub fn analyze_r_licenses(package_file_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
     let mut licenses = Vec::new();
@@ -106,6 +107,7 @@ fn parse_renv_lock(
                                 Some(l) => crate::licenses::get_osi_status(l),
                                 None => crate::licenses::OsiStatus::Unknown,
                             },
+                            ecosystem: Ecosystem::Cran,
                             sub_project: None,
                         });
                     }
@@ -180,6 +182,7 @@ fn parse_description_file(
                         Some(l) => crate::licenses::get_osi_status(l),
                         None => crate::licenses::OsiStatus::Unknown,
                     },
+                    ecosystem: Ecosystem::Cran,
                     sub_project: None,
                 });
             }

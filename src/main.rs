@@ -8,6 +8,7 @@ mod languages;
 mod licenses;
 mod manifest;
 mod parser;
+mod purl;
 mod reporter;
 mod sbom;
 mod source_scan;
@@ -363,11 +364,10 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
             "Skipping vendored/unmanaged dependency scan (--no-vendor-scan)",
         );
     } else {
-        let known_names: Vec<String> = analyzed_data.iter().map(|info| info.name.clone()).collect();
         let vendored_findings = cli::with_spinner("📦: vendored dependencies", |indicator| {
             let findings = vendor_scan::scan_vendored_packages(
                 Path::new(&config.path),
-                &known_names,
+                &analyzed_data,
                 project_license.as_deref(),
                 config.strict,
             );

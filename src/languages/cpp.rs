@@ -11,6 +11,7 @@ use crate::licenses::{
     detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
     LicenseCompatibility, LicenseInfo,
 };
+use crate::purl::Ecosystem;
 
 #[derive(Debug, Clone)]
 enum CppPackageManager {
@@ -19,6 +20,19 @@ enum CppPackageManager {
     CMake,
     Bazel,
     Unknown,
+}
+
+impl CppPackageManager {
+    /// The PURL ecosystem for packages declared through this package manager.
+    ///
+    /// Only Conan has a registered purl type; vcpkg, CMake and Bazel dependencies are named
+    /// without a registry behind them, so they carry generic coordinates.
+    fn ecosystem(&self) -> Ecosystem {
+        match self {
+            CppPackageManager::Conan => Ecosystem::Conan,
+            _ => Ecosystem::Generic,
+        }
+    }
 }
 
 pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
@@ -58,6 +72,7 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
         &format!("Using max dependency depth: {max_depth}"),
     );
 
+    let ecosystem = package_manager.ecosystem();
     let all_deps = resolve_cpp_dependencies(
         project_path,
         &direct_dependencies,
@@ -104,6 +119,7 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
                     Some(l) => crate::licenses::get_osi_status(l),
                     None => crate::licenses::OsiStatus::Unknown,
                 },
+                ecosystem,
                 sub_project: None,
             }
         })

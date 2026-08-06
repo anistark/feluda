@@ -12,6 +12,7 @@ use crate::licenses::{
     detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
     LicenseCompatibility, LicenseInfo,
 };
+use crate::purl::Ecosystem;
 
 #[derive(Debug, Clone)]
 struct RubyDependency {
@@ -74,6 +75,7 @@ pub fn analyze_ruby_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::get_osi_status(&license),
+                ecosystem: Ecosystem::Gem,
                 sub_project: None,
             }
         })

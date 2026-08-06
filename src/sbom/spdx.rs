@@ -495,6 +495,32 @@ impl SpdxPackage {
         self
     }
 
+    /// Records the package's PURL and rebases the SPDX identifier on it.
+    ///
+    /// The identifier has to come from the PURL rather than from name and version, because those
+    /// two are not unique across ecosystems: a Debian `libssl3` and an npm package of the same
+    /// name and version would otherwise hash to the same `SPDXRef-`, collapsing two distinct
+    /// packages into one element and producing a document with duplicate identifiers.
+    ///
+    /// Call after [`Self::with_version`], which derives an identifier of its own.
+    pub fn with_purl(mut self, purl: impl Into<String>) -> Self {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let purl = purl.into();
+        let mut hasher = DefaultHasher::new();
+        purl.hash(&mut hasher);
+        let hash = hasher.finish();
+        self.spdx_id = format!("SPDXRef-Package-pkg{hash:016x}");
+
+        log(
+            LogLevel::Trace,
+            &format!("Generated SPDX ID '{}' from PURL '{purl}'", self.spdx_id),
+        );
+
+        self.add_external_ref("PACKAGE-MANAGER", "purl", purl)
+    }
+
     pub fn with_license(mut self, license: impl Into<String>) -> Self {
         let license = license.into();
         let spdx_license = convert_to_spdx_license_expression(&license);
@@ -623,7 +649,6 @@ impl SpdxPackage {
     /// ```ignore
     /// package.add_external_ref("PACKAGE_MANAGER", "npm", "lodash@4.17.21");
     /// ```
-    #[allow(dead_code)]
     pub fn add_external_ref(
         mut self,
         category: impl Into<String>,
@@ -1610,6 +1635,46 @@ mod tests {
 
         // Should be skipped due to invalid characters
         assert_eq!(package2.external_refs.len(), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_purl_is_recorded_as_a_package_manager_external_ref() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
+        let package = SpdxPackage::new("serde", "https://example.com/test")
+            .with_version("1.0.219")
+            .with_purl("pkg:cargo/serde@1.0.219");
+
+        assert_eq!(package.external_refs.len(), 1);
+        assert_eq!(
+            package.external_refs[0].reference_category,
+            "PACKAGE-MANAGER"
+        );
+        assert_eq!(package.external_refs[0].reference_type, "purl");
+        assert_eq!(
+            package.external_refs[0].reference_locator,
+            "pkg:cargo/serde@1.0.219"
+        );
+        assert!(is_valid_spdx_id_format(&package.spdx_id));
+    }
+
+    #[test]
+    #[serial]
+    fn test_same_name_and_version_across_ecosystems_stay_distinct() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
+        let namespace = "https://example.com/test";
+        let npm = SpdxPackage::new("libssl3", namespace)
+            .with_version("3.0.0")
+            .with_purl("pkg:npm/libssl3@3.0.0");
+        let deb = SpdxPackage::new("libssl3", namespace)
+            .with_version("3.0.0")
+            .with_purl("pkg:deb/libssl3@3.0.0");
+
+        // Without the PURL both would hash from name and version alone and collide, leaving a
+        // document with two elements sharing one SPDXID.
+        assert_ne!(npm.spdx_id, deb.spdx_id);
     }
 
     #[test]

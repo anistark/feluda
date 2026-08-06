@@ -23,6 +23,7 @@ use crate::licenses::{
     is_license_ignored, is_license_restrictive, read_header_region, LicenseCompatibility,
     LicenseInfo, SOURCE_HEADER_EXTENSIONS,
 };
+use crate::purl::Ecosystem;
 
 /// Marker placed in the version column of an own-source finding, distinguishing it from a
 /// dependency entry (files have no version).
@@ -222,6 +223,7 @@ pub fn scan_own_source_headers(
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status,
+                ecosystem: Ecosystem::Generic,
                 sub_project: None,
             }
         })

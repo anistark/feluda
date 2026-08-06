@@ -1579,6 +1579,7 @@ pub fn handle_generate_command(
 mod tests {
     use super::*;
     use crate::licenses::LicenseCompatibility;
+    use crate::purl::Ecosystem;
     use tempfile::TempDir;
 
     fn get_test_license_data() -> Vec<LicenseInfo> {
@@ -1590,6 +1591,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                ecosystem: Ecosystem::Cargo,
                 sub_project: None,
             },
             LicenseInfo {
@@ -1599,6 +1601,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                ecosystem: Ecosystem::Cargo,
                 sub_project: None,
             },
         ]
@@ -1837,6 +1840,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                ecosystem: Ecosystem::Cargo,
                 sub_project: None,
             },
             LicenseInfo {
@@ -1846,6 +1850,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                ecosystem: Ecosystem::Cargo,
                 sub_project: None,
             },
             LicenseInfo {
@@ -1855,6 +1860,7 @@ mod tests {
                 is_restrictive: false,
                 compatibility: LicenseCompatibility::Compatible,
                 osi_status: crate::licenses::OsiStatus::Approved,
+                ecosystem: Ecosystem::Cargo,
                 sub_project: None,
             },
         ];
@@ -1902,6 +1908,7 @@ mod tests {
             is_restrictive: true,
             compatibility: LicenseCompatibility::Unknown,
             osi_status: crate::licenses::OsiStatus::Unknown,
+            ecosystem: Ecosystem::Cargo,
             sub_project: None,
         }];
 
@@ -1942,6 +1949,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            ecosystem: Ecosystem::Cargo,
             sub_project: None,
         }];
 
@@ -1974,6 +1982,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            ecosystem: Ecosystem::Cargo,
             sub_project: None,
         }];
 
@@ -1998,6 +2007,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: crate::licenses::OsiStatus::Approved,
+            ecosystem: Ecosystem::Cargo,
             sub_project: None,
         }];
 
