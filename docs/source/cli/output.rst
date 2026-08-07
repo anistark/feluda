@@ -26,9 +26,26 @@ Machine-readable JSON for downstream automation.
    feluda --json
 
 Feluda emits a JSON array containing dependency names, versions, licenses,
-restriction flags, and OSI status. When scanning a workspace or monorepo, each
-entry also carries a ``sub_project`` field listing the workspace member(s) that
-pull in that dependency. The field is omitted on single-project scans.
+restriction flags, and OSI status. Each entry also carries the ``ecosystem`` it
+was resolved from and the ``purl`` (:ref:`package URL <output-purl>`) built from
+it. When scanning a workspace or monorepo, entries additionally carry a
+``sub_project`` field listing the workspace member(s) that pull in that
+dependency. That field is omitted on single-project scans.
+
+.. code-block:: text
+
+   [
+     {
+       "name": "serde",
+       "version": "1.0.219",
+       "license": "MIT",
+       "is_restrictive": false,
+       "compatibility": "Compatible",
+       "osi_status": "approved",
+       "ecosystem": "cargo",
+       "purl": "pkg:cargo/serde@1.0.219"
+     }
+   ]
 
 YAML Format
 ^^^^^^^^^^^
@@ -51,6 +68,57 @@ A one-line summary for dashboards or comment bots.
    feluda --gist
 
 Feluda condenses the report into a minimal single line.
+
+.. _output-purl:
+
+Package URLs
+^^^^^^^^^^^^
+
+A name and version identify a package only within one ecosystem: an npm
+``libssl3`` and a Debian package of the same name are different software. Every
+entry therefore carries a `package URL <https://github.com/package-url/purl-spec>`_
+of the form ``pkg:<type>/<namespace>/<name>@<version>``, which is unique across
+ecosystems and is what SBOM consumers key on.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 20 60
+
+   * - Language
+     - ``ecosystem``
+     - Example ``purl``
+   * - Rust
+     - ``cargo``
+     - ``pkg:cargo/serde@1.0.219``
+   * - Node.js
+     - ``npm``
+     - ``pkg:npm/%40babel/core@7.24.0``
+   * - Go
+     - ``golang``
+     - ``pkg:golang/github.com/pkg/errors@v0.9.1``
+   * - Python
+     - ``pypi``
+     - ``pkg:pypi/flask-sqlalchemy@3.1.1``
+   * - Java
+     - ``maven``
+     - ``pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.17.0``
+   * - Ruby
+     - ``gem``
+     - ``pkg:gem/rails@7.1.3``
+   * - .NET
+     - ``nuget``
+     - ``pkg:nuget/Newtonsoft.Json@13.0.3``
+   * - R
+     - ``cran``
+     - ``pkg:cran/ggplot2@3.5.1``
+   * - C / C++
+     - ``conan``, ``generic``
+     - ``pkg:conan/fmt@10.2.1``, ``pkg:generic/libz@system``
+
+Names are normalized the way each ecosystem defines: npm and Go names are
+lowercased, Python names follow PEP 503, an npm scope and a Maven group become
+the PURL namespace. Findings from the source and vendored scans have no registry
+behind them and carry ``generic`` coordinates built from their path.
 
 **Options:**
 

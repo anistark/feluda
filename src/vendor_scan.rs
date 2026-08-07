@@ -14,7 +14,7 @@
 //! with no resolvable license at all is restrictive even outside `--strict`. See
 //! [`scan_vendored_packages`] for why.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
@@ -25,6 +25,7 @@ use crate::licenses::{
     detect_license_in_dir, fetch_licenses_from_github, get_osi_status, is_license_ignored,
     is_license_restrictive, LicenseCompatibility, LicenseInfo, OsiStatus,
 };
+use crate::purl::Ecosystem;
 
 /// Marker placed in the version column of a package found inside a vendor directory.
 pub const VENDORED_MARKER: &str = "vendored";
@@ -172,25 +173,65 @@ fn enclosing_vendor_dir(path: &Path, root: &Path) -> Option<PathBuf> {
 /// The name a vendored package would carry in a manifest, used to suppress duplicates.
 ///
 /// `go mod vendor` copies dependencies that `go.mod` already lists, so `vendor/github.com/pkg/errors`
-/// is normally reported by the Go analyzer too. Both the module-path form
-/// (`github.com/pkg/errors`) and the bare directory name (`errors`) are candidates, since
-/// ecosystems differ in which one lands in the manifest.
-fn dependency_name_candidates(path: &Path, vendor_root: &Path) -> Vec<String> {
-    let mut candidates = Vec::new();
-    if let Ok(rel) = path.strip_prefix(vendor_root) {
-        let joined = rel
-            .components()
-            .filter_map(|c| c.as_os_str().to_str())
-            .collect::<Vec<_>>()
-            .join("/");
-        if !joined.is_empty() {
-            candidates.push(joined);
+/// is normally reported by the Go analyzer too. The path below the vendor directory is that name:
+/// vendor tools lay a package out under the identifier its ecosystem knows it by, whether that is
+/// a bare `leftpad`, a scoped `@babel/core`, or a full module path.
+///
+/// Only the whole path counts, never its last segment on its own. `errors` names a different
+/// package from `github.com/pkg/errors`, and matching the tail would let any dependency called
+/// `errors` hide a vendored copy of the Go module.
+fn dependency_name_candidate(path: &Path, vendor_root: &Path) -> Option<String> {
+    let rel = path.strip_prefix(vendor_root).ok()?;
+    let joined = rel
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect::<Vec<_>>()
+        .join("/");
+    (!joined.is_empty()).then_some(joined)
+}
+
+/// The packages the manifests already account for, indexed by PURL coordinates.
+///
+/// Matching on the bare name alone conflates ecosystems: an npm package called `errors` would
+/// suppress a vendored copy of Go's `github.com/pkg/errors`. Keying on the versionless PURL keeps
+/// the two apart, because the coordinate carries the package type. Comparison is
+/// case-insensitive, since a vendor directory is named by whoever copied the code in and rarely
+/// matches the manifest's capitalization.
+struct KnownPackages {
+    /// Versionless PURLs of everything the analyzers reported, lowercased.
+    coordinates: HashSet<String>,
+    /// The distinct ecosystems present, used to build the coordinates a candidate could have.
+    ecosystems: Vec<Ecosystem>,
+}
+
+impl KnownPackages {
+    fn new(known_dependencies: &[LicenseInfo]) -> Self {
+        let mut coordinates = HashSet::new();
+        let mut ecosystems: Vec<Ecosystem> = Vec::new();
+
+        for dependency in known_dependencies {
+            if let Some(coordinate) = dependency.ecosystem.coordinates(&dependency.name) {
+                coordinates.insert(coordinate.to_lowercase());
+            }
+            if !ecosystems.contains(&dependency.ecosystem) {
+                ecosystems.push(dependency.ecosystem);
+            }
+        }
+
+        Self {
+            coordinates,
+            ecosystems,
         }
     }
-    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-        candidates.push(name.to_string());
+
+    /// Whether `candidate` names a package a manifest already reported, in any ecosystem in play.
+    fn covers(&self, candidate: &str) -> bool {
+        self.ecosystems.iter().any(|ecosystem| {
+            ecosystem
+                .coordinates(candidate)
+                .is_some_and(|coordinate| self.coordinates.contains(&coordinate.to_lowercase()))
+        })
     }
-    candidates
 }
 
 /// Walk the project tree and return every directory holding code no manifest records.
@@ -201,13 +242,10 @@ fn dependency_name_candidates(path: &Path, vendor_root: &Path) -> Vec<String> {
 /// once per nested subdirectory.
 fn collect_findings(
     root: &Path,
-    known_dependencies: &[String],
+    known_dependencies: &[LicenseInfo],
     project_license: Option<&str>,
 ) -> Vec<Finding> {
-    let known: Vec<String> = known_dependencies
-        .iter()
-        .map(|name| name.to_lowercase())
-        .collect();
+    let known = KnownPackages::new(known_dependencies);
 
     let walker = WalkBuilder::new(root)
         .sort_by_file_path(|a, b| a.cmp(b))
@@ -256,9 +294,8 @@ fn collect_findings(
                 if license.is_none() && !contains_files(path) {
                     continue;
                 }
-                if dependency_name_candidates(path, &vendor_root)
-                    .iter()
-                    .any(|candidate| known.contains(&candidate.to_lowercase()))
+                if dependency_name_candidate(path, &vendor_root)
+                    .is_some_and(|candidate| known.covers(&candidate))
                 {
                     log(
                         LogLevel::Info,
@@ -323,8 +360,9 @@ fn collect_findings(
 /// Scan the project tree for vendored and otherwise unmanaged dependencies and return them as
 /// [`LicenseInfo`] entries ready to be appended to the dependency report.
 ///
-/// `known_dependencies` are the names the language analyzers already reported; a vendored
-/// directory matching one of them is suppressed so `go mod vendor` trees are not reported twice.
+/// `known_dependencies` are the packages the language analyzers already reported; a vendored
+/// directory whose PURL coordinates match one of them is suppressed so `go mod vendor` trees are
+/// not reported twice.
 /// `project_license` suppresses stray license files that merely restate the project's own license.
 ///
 /// Compatibility is left [`LicenseCompatibility::Unknown`]; the caller's compatibility
@@ -332,7 +370,7 @@ fn collect_findings(
 /// fetched only when at least one finding exists, so clean projects pay nothing.
 pub fn scan_vendored_packages(
     root: &Path,
-    known_dependencies: &[String],
+    known_dependencies: &[LicenseInfo],
     project_license: Option<&str>,
     strict: bool,
 ) -> Vec<LicenseInfo> {
@@ -373,6 +411,7 @@ pub fn scan_vendored_packages(
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status,
+                ecosystem: Ecosystem::Generic,
                 sub_project: None,
             }
         })
@@ -399,6 +438,20 @@ person obtaining a copy of this software and associated documentation files.\n";
             .iter()
             .map(|f| f.path.display().to_string().replace('\\', "/"))
             .collect()
+    }
+
+    /// A package as an analyzer would have reported it, for duplicate-suppression tests.
+    fn manifest_package(ecosystem: Ecosystem, name: &str) -> LicenseInfo {
+        LicenseInfo {
+            name: name.to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Unknown,
+            osi_status: OsiStatus::Approved,
+            ecosystem,
+            sub_project: None,
+        }
     }
 
     #[test]
@@ -463,7 +516,8 @@ person obtaining a copy of this software and associated documentation files.\n";
         let dir = tempfile::TempDir::new().unwrap();
         write_license(&dir.path().join("vendor/github.com/pkg/errors"), MIT_TEXT);
 
-        let findings = collect_findings(dir.path(), &["github.com/pkg/errors".to_string()], None);
+        let known = [manifest_package(Ecosystem::Golang, "github.com/pkg/errors")];
+        let findings = collect_findings(dir.path(), &known, None);
         assert!(findings.is_empty());
     }
 
@@ -472,8 +526,21 @@ person obtaining a copy of this software and associated documentation files.\n";
         let dir = tempfile::TempDir::new().unwrap();
         write_license(&dir.path().join("vendor").join("leftpad"), MIT_TEXT);
 
-        let findings = collect_findings(dir.path(), &["LeftPad".to_string()], None);
+        let known = [manifest_package(Ecosystem::Npm, "LeftPad")];
+        let findings = collect_findings(dir.path(), &known, None);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_manifest_package_from_another_ecosystem_does_not_suppress() {
+        // A vendored Go module and an npm package can share a bare name; keying suppression on
+        // the PURL keeps the vendored copy visible.
+        let dir = tempfile::TempDir::new().unwrap();
+        write_license(&dir.path().join("vendor/github.com/pkg/errors"), MIT_TEXT);
+
+        let known = [manifest_package(Ecosystem::Npm, "errors")];
+        let findings = collect_findings(dir.path(), &known, None);
+        assert_eq!(names(&findings), vec!["vendor/github.com/pkg/errors"]);
     }
 
     #[test]

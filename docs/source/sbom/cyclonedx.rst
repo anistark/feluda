@@ -66,6 +66,19 @@ The generated CycloneDX document includes:
 - **Hashes** - SHA-256 and other integrity hashes when available
 - **Dependencies** - Dependency graph and relationships
 
+Every component carries a ``purl`` built from the ecosystem it was resolved
+from, so components stay identifiable across ecosystems:
+
+.. code-block:: text
+
+   {
+     "type": "library",
+     "name": "@babel/core",
+     "version": "7.24.0",
+     "purl": "pkg:npm/%40babel/core@7.24.0",
+     "licenses": [{"license": {"id": "MIT"}}]
+   }
+
 ----
 
 Example Output Structure

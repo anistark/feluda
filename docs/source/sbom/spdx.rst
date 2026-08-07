@@ -62,9 +62,13 @@ The generated SPDX document includes:
 
 - **Document metadata** - Creator info, creation timestamp, SPDX version
 - **Package information** - Name, version, download location
+- **Package coordinates** - A ``PACKAGE-MANAGER`` external reference carrying the package's PURL
 - **License data** - SPDX license identifiers for each package
 - **Relationships** - Dependency relationships between packages
 - **Feluda metadata** - Tool version and scan parameters
+
+Each package's ``SPDXID`` is derived from its PURL, so two packages that share a
+name and version across ecosystems stay distinct elements in the document.
 
 ----
 
@@ -83,7 +87,21 @@ Example Output Structure
        "created": "2025-01-27T12:00:00Z",
        "creators": ["Tool: feluda-1.15.0"]
      },
-     "packages": []
+     "packages": [
+       {
+         "name": "github.com/gin-gonic/gin",
+         "SPDXID": "SPDXRef-Package-pkg090896e46f91ab5a",
+         "versionInfo": "v1.12.0",
+         "licenseDeclared": "MIT",
+         "externalRefs": [
+           {
+             "referenceCategory": "PACKAGE-MANAGER",
+             "referenceType": "purl",
+             "referenceLocator": "pkg:golang/github.com/gin-gonic/gin@v1.12.0"
+           }
+         ]
+       }
+     ]
    }
 
 ----

@@ -39,6 +39,12 @@ pub fn handle_sbom_command(
         let mut package = SpdxPackage::new(dependency.name.clone(), &spdx_doc.document_namespace)
             .with_version(dependency.version.clone());
 
+        // The PURL is what keeps packages distinct across ecosystems, so it also supplies the
+        // package's SPDX identifier.
+        if let Some(purl) = dependency.purl() {
+            package = package.with_purl(purl);
+        }
+
         let force_noassertion = std::env::var("FELUDA_FORCE_NOASSERTION_LICENSES")
             .map(|v| v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);

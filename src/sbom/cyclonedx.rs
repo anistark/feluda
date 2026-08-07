@@ -253,6 +253,19 @@ fn convert_spdx_license_to_cyclonedx(spdx_license: &str) -> CycloneDxLicenseChoi
     }
 }
 
+/// Read a package's PURL back out of its SPDX package-manager external reference.
+///
+/// CycloneDX documents are produced by converting the SPDX document rather than from the analyzed
+/// dependencies directly, so the external reference written by `SpdxPackage::with_purl` is where
+/// the coordinate lives by the time we get here.
+fn purl_of(spdx_package: &crate::sbom::spdx::SpdxPackage) -> Option<String> {
+    spdx_package
+        .external_refs
+        .iter()
+        .find(|reference| reference.reference_type == "purl")
+        .map(|reference| reference.reference_locator.clone())
+}
+
 /// Convert SPDX document to CycloneDX BOM
 pub fn convert_spdx_to_cyclonedx(spdx_doc: &SpdxDocument) -> CycloneDxBom {
     let mut bom = CycloneDxBom::new();
@@ -267,7 +280,7 @@ pub fn convert_spdx_to_cyclonedx(spdx_doc: &SpdxDocument) -> CycloneDxBom {
             scope: Some("required".to_string()), // Default scope
             licenses: Vec::new(),
             copyright: spdx_package.copyright_text.clone(),
-            purl: None, // Could be enhanced in the future
+            purl: purl_of(spdx_package),
             external_references: Vec::new(),
         };
 
@@ -431,6 +444,40 @@ mod tests {
         assert_eq!(component.component_type, "library");
         assert_eq!(component.scope, Some("required".to_string()));
         assert!(!component.licenses.is_empty());
+    }
+
+    #[test]
+    fn test_component_carries_the_package_purl() {
+        let mut spdx_doc = SpdxDocument::new("test-project");
+        spdx_doc.add_package(
+            SpdxPackage::new("errors", &spdx_doc.document_namespace)
+                .with_version("v0.9.1")
+                .with_purl("pkg:golang/github.com/pkg/errors@v0.9.1")
+                .with_license("BSD-2-Clause"),
+        );
+
+        let bom = convert_spdx_to_cyclonedx(&spdx_doc);
+
+        assert_eq!(
+            bom.components[0].purl.as_deref(),
+            Some("pkg:golang/github.com/pkg/errors@v0.9.1")
+        );
+
+        let json = serde_json::to_string(&bom).unwrap();
+        assert!(json.contains("\"purl\":\"pkg:golang/github.com/pkg/errors@v0.9.1\""));
+    }
+
+    #[test]
+    fn test_component_without_a_purl_omits_the_field() {
+        let mut spdx_doc = SpdxDocument::new("test-project");
+        spdx_doc.add_package(
+            SpdxPackage::new("mystery", &spdx_doc.document_namespace).with_version("1.0.0"),
+        );
+
+        let bom = convert_spdx_to_cyclonedx(&spdx_doc);
+
+        assert_eq!(bom.components[0].purl, None);
+        assert!(!serde_json::to_string(&bom).unwrap().contains("\"purl\""));
     }
 
     #[test]

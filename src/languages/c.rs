@@ -10,6 +10,7 @@ use crate::licenses::{
     detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
     LicenseCompatibility, LicenseInfo,
 };
+use crate::purl::Ecosystem;
 
 pub fn analyze_c_licenses(project_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
     log(
@@ -85,6 +86,7 @@ pub fn analyze_c_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Lice
                     Some(l) => crate::licenses::get_osi_status(l),
                     None => crate::licenses::OsiStatus::Unknown,
                 },
+                ecosystem: Ecosystem::Generic,
                 sub_project: None,
             }
         })

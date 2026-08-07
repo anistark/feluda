@@ -14,6 +14,7 @@ use crate::licenses::{
     detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
     LicenseCompatibility, LicenseInfo,
 };
+use crate::purl::Ecosystem;
 
 /// Go module names to exclude from dependency analysis
 /// These are special Go directives and built-in modules, not actual dependencies
@@ -99,6 +100,7 @@ pub fn analyze_go_licenses(go_mod_path: &str, config: &FeludaConfig) -> Vec<Lice
                 Some(l) => crate::licenses::get_osi_status(l),
                 None => crate::licenses::OsiStatus::Unknown,
             },
+            ecosystem: Ecosystem::Golang,
             sub_project: None,
         });
     }

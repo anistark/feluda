@@ -467,7 +467,9 @@ Sample Output for a sample cargo.toml file containing `serde` and `tokio` depend
     "license": "MIT",
     "is_restrictive": false,
     "compatibility": "Compatible",
-    "osi_status": "Approved"
+    "osi_status": "Approved",
+    "ecosystem": "cargo",
+    "purl": "pkg:cargo/serde@1.0.151"
   },
   {
     "name": "tokio",
@@ -475,7 +477,9 @@ Sample Output for a sample cargo.toml file containing `serde` and `tokio` depend
     "license": "MIT",
     "is_restrictive": false,
     "compatibility": "Compatible",
-    "osi_status": "Approved"
+    "osi_status": "Approved",
+    "ecosystem": "cargo",
+    "purl": "pkg:cargo/tokio@1.0.2"
   }
 ]
 ```
@@ -497,12 +501,16 @@ Sample Output for a sample cargo.toml file containing `serde` and `tokio` depend
   is_restrictive: false
   compatibility: Compatible
   osi_status: Approved
+  ecosystem: cargo
+  purl: pkg:cargo/serde@1.0.151
 - name: tokio
   version: 1.0.2
   license: MIT
   is_restrictive: false
   compatibility: Compatible
   osi_status: Approved
+  ecosystem: cargo
+  purl: pkg:cargo/tokio@1.0.2
 ```
 
 ### Gist Mode

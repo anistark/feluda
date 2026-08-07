@@ -18,6 +18,7 @@ use crate::cache;
 use crate::cli;
 use crate::config;
 use crate::debug::{log, log_debug, log_error, FeludaResult, LogLevel};
+use crate::purl::Ecosystem;
 
 static GITHUB_TOKEN: OnceLock<Option<String>> = OnceLock::new();
 
@@ -118,7 +119,10 @@ pub struct OsiLicenseInfo {
 }
 
 /// License Info of dependencies
-#[derive(Serialize, Debug, Clone)]
+///
+/// Serialization is written by hand rather than derived because `purl` is a derived field: it is
+/// computed from the ecosystem, name and version so it can never drift out of step with them.
+#[derive(Debug, Clone)]
 pub struct LicenseInfo {
     pub name: String,                        // The name of the software or library
     pub version: String,                     // The version of the software or library
@@ -126,8 +130,39 @@ pub struct LicenseInfo {
     pub is_restrictive: bool,    // A boolean indicating whether the license is restrictive or not
     pub compatibility: LicenseCompatibility, // Compatibility with project license
     pub osi_status: OsiStatus,   // OSI approval status
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ecosystem: Ecosystem,    // The packaging ecosystem the package was resolved from
     pub sub_project: Option<String>, // Workspace member that brought in this dependency (None for non-monorepos)
+}
+
+impl Serialize for LicenseInfo {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
+        let purl = self.purl();
+        let mut len = 7;
+        if purl.is_some() {
+            len += 1;
+        }
+        if self.sub_project.is_some() {
+            len += 1;
+        }
+
+        let mut state = serializer.serialize_struct("LicenseInfo", len)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("version", &self.version)?;
+        state.serialize_field("license", &self.license)?;
+        state.serialize_field("is_restrictive", &self.is_restrictive)?;
+        state.serialize_field("compatibility", &self.compatibility)?;
+        state.serialize_field("osi_status", &self.osi_status)?;
+        state.serialize_field("ecosystem", &self.ecosystem)?;
+        if let Some(ref purl) = purl {
+            state.serialize_field("purl", purl)?;
+        }
+        if let Some(ref sub_project) = self.sub_project {
+            state.serialize_field("sub_project", sub_project)?;
+        }
+        state.end()
+    }
 }
 
 impl LicenseInfo {
@@ -160,6 +195,13 @@ impl LicenseInfo {
 
     pub fn sub_project(&self) -> Option<&str> {
         self.sub_project.as_deref()
+    }
+
+    /// The package's PURL, the coordinate that identifies it across ecosystems.
+    ///
+    /// `None` only when the name is empty, which no analyzer should produce.
+    pub fn purl(&self) -> Option<String> {
+        self.ecosystem.purl(&self.name, &self.version)
     }
 
     #[allow(dead_code)]
@@ -1736,6 +1778,7 @@ mod tests {
             is_restrictive: false,
             compatibility: LicenseCompatibility::Compatible,
             osi_status: OsiStatus::Approved,
+            ecosystem: Ecosystem::Cargo,
             sub_project: None,
         };
 
@@ -1755,10 +1798,59 @@ mod tests {
             is_restrictive: true,
             compatibility: LicenseCompatibility::Unknown,
             osi_status: OsiStatus::Unknown,
+            ecosystem: Ecosystem::Cargo,
             sub_project: None,
         };
 
         assert_eq!(info.get_license(), "No License");
+    }
+
+    #[test]
+    fn test_license_info_derives_its_purl_from_the_ecosystem() {
+        let npm = LicenseInfo {
+            name: "@babel/core".to_string(),
+            version: "7.24.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+            osi_status: OsiStatus::Approved,
+            ecosystem: Ecosystem::Npm,
+            sub_project: None,
+        };
+
+        assert_eq!(npm.purl().as_deref(), Some("pkg:npm/%40babel/core@7.24.0"));
+
+        // Same name, different ecosystem, different package.
+        let cargo = LicenseInfo {
+            name: "core".to_string(),
+            ecosystem: Ecosystem::Cargo,
+            ..npm.clone()
+        };
+        assert_ne!(npm.purl(), cargo.purl());
+    }
+
+    #[test]
+    fn test_license_info_serializes_ecosystem_and_purl() {
+        let info = LicenseInfo {
+            name: "serde".to_string(),
+            version: "1.0.219".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+            osi_status: OsiStatus::Approved,
+            ecosystem: Ecosystem::Cargo,
+            sub_project: None,
+        };
+
+        let json: serde_json::Value = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["name"], "serde");
+        assert_eq!(json["version"], "1.0.219");
+        assert_eq!(json["license"], "MIT");
+        assert_eq!(json["is_restrictive"], false);
+        assert_eq!(json["ecosystem"], "cargo");
+        assert_eq!(json["purl"], "pkg:cargo/serde@1.0.219");
+        // Unset optional fields stay out of the report, as before.
+        assert!(json.get("sub_project").is_none());
     }
 
     #[test]

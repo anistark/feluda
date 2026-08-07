@@ -7,6 +7,7 @@ use crate::licenses::{
     detect_license_from_content, detect_license_in_dir, fetch_licenses_from_github,
     is_license_restrictive, LicenseCompatibility, LicenseInfo,
 };
+use crate::purl::Ecosystem;
 
 /// Analyze the licenses of Rust dependencies from Cargo packages
 #[allow(dead_code)]
@@ -202,6 +203,7 @@ pub fn analyze_rust_licenses_with_config(
                     Some(license) => crate::licenses::get_osi_status(license),
                     None => crate::licenses::OsiStatus::Unknown,
                 },
+                ecosystem: Ecosystem::Cargo,
                 sub_project: None,
             }
         })

@@ -15,6 +15,7 @@ use crate::licenses::{
     detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
     LicenseCompatibility, LicenseInfo,
 };
+use crate::purl::Ecosystem;
 
 #[derive(Debug, Clone)]
 struct JavaDependency {
@@ -84,6 +85,7 @@ pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
                 osi_status: crate::licenses::get_osi_status(&license),
+                ecosystem: Ecosystem::Maven,
                 sub_project: None,
             }
         })

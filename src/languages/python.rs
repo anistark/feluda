@@ -13,6 +13,7 @@ use crate::licenses::{
     detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
     LicenseCompatibility, LicenseInfo,
 };
+use crate::purl::Ecosystem;
 
 /// Represents an environment marker in a Python requirement
 /// Environment markers follow PEP 508 and are used to specify conditional dependencies
@@ -265,6 +266,7 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                                     Some(l) => crate::licenses::get_osi_status(l),
                                     None => crate::licenses::OsiStatus::Unknown,
                                 },
+                                ecosystem: Ecosystem::Pypi,
                                 sub_project,
                             });
                         }
@@ -354,6 +356,7 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                             Some(l) => crate::licenses::get_osi_status(l),
                             None => crate::licenses::OsiStatus::Unknown,
                         },
+                        ecosystem: Ecosystem::Pypi,
                         sub_project: None,
                     });
                 }
