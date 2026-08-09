@@ -187,7 +187,7 @@ fn clean_gem_version(constraint: &str) -> String {
 // RUBYGEMS LICENSE LOOKUP
 // =============================================================================
 
-fn fetch_ruby_license(name: &str, version: &str) -> String {
+pub(crate) fn fetch_ruby_license(name: &str, version: &str) -> String {
     if !version.is_empty() {
         if let Some(license) = fetch_license_for_version(name, version) {
             return license;

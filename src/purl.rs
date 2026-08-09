@@ -56,6 +56,32 @@ pub enum Ecosystem {
 }
 
 impl Ecosystem {
+    /// The ecosystem a purl type string names, or `None` for a type feluda has no analyzer for.
+    ///
+    /// Callers reading a third-party SBOM should treat `None` as [`Ecosystem::Generic`]: an
+    /// unrecognised type still identifies a package, it just identifies one feluda cannot resolve
+    /// a license for.
+    pub fn from_purl_type(purl_type: &str) -> Option<Self> {
+        let lowered = purl_type.to_ascii_lowercase();
+        let ecosystem = match lowered.as_str() {
+            "cargo" | "crates" => Ecosystem::Cargo,
+            "npm" => Ecosystem::Npm,
+            "golang" | "go" => Ecosystem::Golang,
+            "pypi" => Ecosystem::Pypi,
+            "maven" => Ecosystem::Maven,
+            "gem" => Ecosystem::Gem,
+            "nuget" => Ecosystem::Nuget,
+            "cran" => Ecosystem::Cran,
+            "conan" => Ecosystem::Conan,
+            "deb" => Ecosystem::Deb,
+            "rpm" => Ecosystem::Rpm,
+            "apk" => Ecosystem::Apk,
+            "generic" => Ecosystem::Generic,
+            _ => return None,
+        };
+        Some(ecosystem)
+    }
+
     /// The PURL type string for this ecosystem, as registered in the purl spec.
     pub fn purl_type(self) -> &'static str {
         match self {
@@ -155,6 +181,97 @@ impl std::fmt::Display for Ecosystem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.purl_type())
     }
+}
+
+/// A PURL read back into the identity feluda works with.
+///
+/// This is the inverse of [`Ecosystem::purl`], used when the packages come from someone else's
+/// SBOM rather than from a manifest feluda parsed. `name` is the display name an analyzer would
+/// have produced, so `LicenseInfo::purl()` regenerates the coordinate the document carried.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedPurl {
+    pub ecosystem: Ecosystem,
+    pub name: String,
+    pub version: String,
+}
+
+/// Parse a PURL string into an ecosystem, a display name and a version.
+///
+/// Qualifiers (`?arch=amd64`) and the subpath (`#src/lib`) are dropped: they qualify which build
+/// of a package this is, and feluda resolves licenses per package. Returns `None` when the string
+/// is not a PURL or carries no name.
+pub fn parse_purl(purl: &str) -> Option<ParsedPurl> {
+    let purl = purl.trim();
+    let rest = purl
+        .strip_prefix("pkg:")
+        .or_else(|| purl.strip_prefix("PKG:"))?;
+    // Some producers write `pkg://type/name`, which the spec permits readers to accept.
+    let rest = rest.trim_start_matches('/');
+    let rest = rest.split('#').next()?;
+    let rest = rest.split('?').next()?;
+
+    let (purl_type, remainder) = rest.split_once('/')?;
+    if purl_type.is_empty() {
+        return None;
+    }
+    let ecosystem = Ecosystem::from_purl_type(purl_type).unwrap_or(Ecosystem::Generic);
+
+    let mut segments: Vec<&str> = remainder.split('/').filter(|s| !s.is_empty()).collect();
+    let last = segments.pop()?;
+    let (name, version) = match last.rsplit_once('@') {
+        Some((name, version)) => (name, decode_component(version)),
+        None => (last, String::new()),
+    };
+    let name = decode_component(name);
+    if name.is_empty() {
+        return None;
+    }
+
+    let namespace: Vec<String> = segments.iter().map(|s| decode_component(s)).collect();
+    let name = join_name(ecosystem, &namespace, &name);
+
+    Some(ParsedPurl {
+        ecosystem,
+        name,
+        version,
+    })
+}
+
+/// Rejoin a PURL namespace and name into the display name the matching analyzer emits, so the
+/// name round-trips through [`Ecosystem::split_name`].
+///
+/// Ecosystems whose namespace is not part of the package name — the distro in `pkg:deb/debian/...`,
+/// the channel in a Conan reference — keep the bare name.
+fn join_name(ecosystem: Ecosystem, namespace: &[String], name: &str) -> String {
+    if namespace.is_empty() {
+        return name.to_string();
+    }
+    match ecosystem {
+        Ecosystem::Maven => format!("{}:{}", namespace.join("."), name),
+        Ecosystem::Npm | Ecosystem::Golang => format!("{}/{}", namespace.join("/"), name),
+        _ => name.to_string(),
+    }
+}
+
+/// Percent-decode a single PURL component, leaving invalid escapes as literal text rather than
+/// discarding them.
+fn decode_component(component: &str) -> String {
+    let bytes = component.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = &component[index + 1..index + 3];
+            if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                decoded.push(byte);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 /// Whether a byte may appear literally in a PURL component (RFC 3986 unreserved characters).
@@ -322,6 +439,86 @@ mod tests {
     fn test_empty_name_has_no_purl() {
         assert!(Ecosystem::Cargo.purl("", "1.0.0").is_none());
         assert!(Ecosystem::Cargo.purl("   ", "1.0.0").is_none());
+    }
+
+    #[test]
+    fn test_parse_purl_round_trips_display_names() {
+        // Every case here is a PURL one of the analyzers emits, so parsing and re-emitting has to
+        // land back on the same string.
+        for purl in [
+            "pkg:cargo/serde@1.0.219",
+            "pkg:npm/%40babel/core@7.24.0",
+            "pkg:golang/github.com/pkg/errors@v0.9.1",
+            "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.17.0",
+            "pkg:pypi/flask-sqlalchemy@3.1.1",
+            "pkg:gem/rails@7.1.3",
+        ] {
+            let parsed = parse_purl(purl).expect("should parse");
+            assert_eq!(
+                parsed
+                    .ecosystem
+                    .purl(&parsed.name, &parsed.version)
+                    .unwrap(),
+                purl
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_purl_components() {
+        let parsed = parse_purl("pkg:npm/%40babel/core@7.24.0").unwrap();
+        assert_eq!(parsed.ecosystem, Ecosystem::Npm);
+        assert_eq!(parsed.name, "@babel/core");
+        assert_eq!(parsed.version, "7.24.0");
+
+        let parsed = parse_purl("pkg:maven/org.slf4j/slf4j-api@2.0.13").unwrap();
+        assert_eq!(parsed.name, "org.slf4j:slf4j-api");
+    }
+
+    #[test]
+    fn test_parse_purl_drops_qualifiers_and_subpath() {
+        // syft tags OS packages with distro and architecture qualifiers.
+        let parsed = parse_purl("pkg:deb/debian/libssl3@3.0.15-1?arch=amd64&distro=debian-12")
+            .expect("should parse");
+        assert_eq!(parsed.ecosystem, Ecosystem::Deb);
+        assert_eq!(parsed.name, "libssl3");
+        assert_eq!(parsed.version, "3.0.15-1");
+
+        let parsed = parse_purl("pkg:golang/github.com/pkg/errors@v0.9.1#src/lib").unwrap();
+        assert_eq!(parsed.name, "github.com/pkg/errors");
+        assert_eq!(parsed.version, "v0.9.1");
+    }
+
+    #[test]
+    fn test_parse_purl_without_version() {
+        let parsed = parse_purl("pkg:cargo/serde").unwrap();
+        assert_eq!(parsed.name, "serde");
+        assert_eq!(parsed.version, "");
+    }
+
+    #[test]
+    fn test_parse_purl_unknown_type_is_generic() {
+        let parsed = parse_purl("pkg:swift/github.com/apple/swift-log@1.5.3").unwrap();
+        assert_eq!(parsed.ecosystem, Ecosystem::Generic);
+        // A generic name keeps only the last segment, since the namespace is not part of it.
+        assert_eq!(parsed.name, "swift-log");
+    }
+
+    #[test]
+    fn test_parse_purl_rejects_non_purls() {
+        assert!(parse_purl("").is_none());
+        assert!(parse_purl("serde@1.0.0").is_none());
+        assert!(parse_purl("pkg:cargo").is_none());
+        assert!(parse_purl("pkg:/serde@1.0.0").is_none());
+        assert!(parse_purl("pkg:cargo/@1.0.0").is_none());
+    }
+
+    #[test]
+    fn test_decode_component_leaves_invalid_escapes() {
+        assert_eq!(decode_component("%40babel"), "@babel");
+        assert_eq!(decode_component("100%"), "100%");
+        assert_eq!(decode_component("%zz"), "%zz");
+        assert_eq!(decode_component("caf%C3%A9"), "café");
     }
 
     #[test]

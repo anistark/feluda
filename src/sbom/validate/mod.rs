@@ -1,4 +1,5 @@
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
+use crate::sbom::{detect_sbom_type_in, SbomType};
 use serde_json::Value as JsonValue;
 use std::fs;
 
@@ -7,28 +8,11 @@ mod parser;
 mod reporter;
 mod spdx_validator;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum SbomType {
-    Spdx,
-    CycloneDx,
-}
-
 fn detect_sbom_type(content: &str) -> FeludaResult<SbomType> {
     let json: JsonValue = serde_json::from_str(content)
         .map_err(|e| FeludaError::Validation(format!("Failed to parse JSON: {e}")))?;
-
-    if let Some(obj) = json.as_object() {
-        if obj.contains_key("spdxVersion") || obj.contains_key("SPDXID") {
-            return Ok(SbomType::Spdx);
-        }
-        if obj.contains_key("bomFormat") || obj.contains_key("specVersion") {
-            return Ok(SbomType::CycloneDx);
-        }
-    }
-
-    Err(FeludaError::Validation(
-        "Could not detect SBOM type. File is neither SPDX nor CycloneDX.".to_string(),
-    ))
+    detect_sbom_type_in(&json)
+        .ok_or_else(|| FeludaError::Validation(SbomType::DETECTION_FAILURE.to_string()))
 }
 
 pub fn handle_sbom_validate_command(

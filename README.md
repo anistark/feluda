@@ -276,6 +276,31 @@ feluda sbom --output sbom-output
 - 🏢 **Enterprise requirements** - Meet organizational SBOM mandates
 - 🔍 **Audit preparation** - Provide comprehensive dependency documentation
 
+### SBOM as a Scan Source
+
+Feluda can analyse an SBOM someone else produced instead of a project tree. Point `--sbom-input` at an SPDX or CycloneDX JSON document, or pipe one in with `-`, and the whole pipeline applies to it: license resolution, restrictiveness, compatibility, and every CI gate.
+
+```sh
+# Gate a container image on restrictive licenses
+syft nginx:latest -o spdx-json | feluda --sbom-input - --fail-on-restrictive
+
+# Analyse a vendor-supplied SBOM from a file
+feluda --sbom-input vendor-sbom.cdx.json --json
+
+# Check a Trivy or cdxgen document against your project's license
+feluda --sbom-input bom.json --project-license MIT --fail-on-incompatible
+
+# Write the document back out with the licenses Feluda resolved
+feluda --sbom-input bom.json --sbom-enriched bom.enriched.json
+```
+
+**What this covers:**
+- 🐳 **Container images and root filesystems** - anything syft, Trivy or cdxgen can catalogue
+- 📥 **Vendor-supplied SBOMs** - run procurement's document through your own policy
+- 🔎 **NOASSERTION components** - Feluda resolves them against each package's registry, which cataloguing tools do not do
+
+The format is auto-detected. Components are identified by their PURL, so a Debian `libssl3` and an npm package of the same name stay distinct. `--sbom-input` replaces the manifest scan; `--path` still supplies the project license that compatibility is checked against.
+
 ### SBOM Validation
 
 Validate SBOM files to ensure they conform to the SPDX or CycloneDX specifications:

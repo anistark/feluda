@@ -623,7 +623,7 @@ fn fetch_pom_transitive_deps(
 // MAVEN CENTRAL LICENSE LOOKUP
 // =============================================================================
 
-fn fetch_maven_license(group_id: &str, artifact_id: &str, version: &str) -> String {
+pub(crate) fn fetch_maven_license(group_id: &str, artifact_id: &str, version: &str) -> String {
     // Try fetching the POM from Maven Central and extracting license info
     if let Some(license) = fetch_license_from_pom(group_id, artifact_id, version) {
         return license;

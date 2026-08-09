@@ -42,6 +42,11 @@ use utils::clone_repository;
 #[derive(Debug)]
 struct CheckConfig {
     path: String,
+    /// An SPDX or CycloneDX document to analyze in place of `path`'s manifests, or `-` for stdin.
+    /// `path` still supplies the project license the compatibility check runs against.
+    sbom_input: Option<String>,
+    /// Where to write the ingested document back with Feluda's resolved licenses.
+    sbom_enriched: Option<String>,
     json: bool,
     yaml: bool,
     verbose: bool,
@@ -136,6 +141,8 @@ fn run() -> FeludaResult<()> {
         // Default behavior: license analysis
         let config = CheckConfig {
             path: analysis_path.to_string_lossy().to_string(),
+            sbom_input: args.sbom_input,
+            sbom_enriched: args.sbom_enriched,
             json: args.json,
             yaml: args.yaml,
             verbose: args.verbose,
@@ -238,9 +245,20 @@ fn run() -> FeludaResult<()> {
                         "Watch mode operates on a local path; --repo is not supported".to_string(),
                     ));
                 }
+                if args.sbom_input.is_some() {
+                    eprintln!(
+                        "❌ Watch mode re-scans dependency files; --sbom-input is not supported."
+                    );
+                    return Err(FeludaError::InvalidData(
+                        "Watch mode re-scans dependency files; --sbom-input is not supported"
+                            .to_string(),
+                    ));
+                }
 
                 let config = CheckConfig {
                     path,
+                    sbom_input: None,
+                    sbom_enriched: None,
                     json: args.json,
                     yaml: args.yaml,
                     verbose: args.verbose,
@@ -324,6 +342,18 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
                 );
             }
         }
+    }
+
+    // An ingested SBOM is already the inventory: there is no tree behind it to walk for manifests,
+    // own-source headers or vendored copies, so the pipeline picks up from compatibility onwards.
+    if let Some(sbom_input) = &config.sbom_input {
+        let components =
+            sbom::ingest::ingest_sbom(sbom_input, config.strict, config.sbom_enriched.as_deref())?;
+        log(
+            LogLevel::Info,
+            &format!("Ingested {} components from {sbom_input}", components.len()),
+        );
+        return Ok((components, project_license));
     }
 
     // Parse and analyze dependencies

@@ -34,6 +34,10 @@ src/languages/<lang>.rs — parse dependency manifest, resolve licenses
         ↓ (local file check first, then GitHub API fallback)
 src/source_scan.rs + src/vendor_scan.rs — findings no manifest records
         ↓
+   ── or, with --sbom-input, all of the above is replaced by ──
+src/sbom/ingest.rs — read an SPDX/CycloneDX document, map components onto
+                     LicenseInfo by PURL, resolve NOASSERTION from registries
+        ↓
 src/licenses.rs — enrich with compatibility, OSI status, restrictiveness
         ↓
 src/reporter.rs — format output (text/JSON/YAML/CI/gist)
@@ -134,6 +138,7 @@ src/
 ├── reporter.rs          # Text/JSON/YAML/CI/gist output formatting
 ├── table.rs             # TUI mode (ratatui)
 ├── generate.rs          # NOTICE / THIRD_PARTY_LICENSES file generation
+├── purl.rs              # Ecosystem identity, PURL building and parsing
 ├── utils.rs             # Git clone, path utilities
 ├── progress.rs          # Progress display utilities
 ├── languages/
@@ -147,7 +152,8 @@ src/
 │   ├── r.rs             # R dependency analysis
 │   └── dotnet.rs        # .NET dependency analysis
 └── sbom/
-    ├── mod.rs           # SBOM command handler, shared types
+    ├── mod.rs           # SBOM command handler, format detection, shared types
+    ├── ingest.rs        # --sbom-input: read SPDX/CycloneDX as a scan source
     ├── spdx.rs          # SPDX 2.3 format generation
     ├── cyclonedx.rs     # CycloneDX v1.5 format generation
     └── validate/
@@ -163,6 +169,8 @@ src/
 - **Language detection via file patterns.** `src/languages/mod.rs` defines `Language::from_file_name()` which maps manifest filenames to language variants. `src/parser.rs` scans the project root for these files.
 - **Parallel analysis.** Multiple project roots are analyzed in parallel using `rayon`.
 - **Two-tier license resolution.** Local files are checked first (e.g., `node_modules/*/LICENSE`, `Cargo.toml` license field), then GitHub API as fallback. The `--no-local` flag skips local checks.
+- **Two ways in, one pipeline.** The manifest scan and `--sbom-input` both produce a `Vec<LicenseInfo>`; everything downstream (compatibility, filters, reports, exit codes) is shared. A package's identity is its `Ecosystem` + PURL (`src/purl.rs`), which is what lets findings from different ecosystems coexist in one report.
+- **Registry lookups have one home each.** `languages::resolve_license_for(ecosystem, name, version)` dispatches to the lookup its analyzer already uses. Add a new registry client to the language module, not to the dispatcher.
 - **Caching.** GitHub API responses are cached in `.feluda/cache/github_licenses.json` with 30-day expiration.
 - **Configuration layering.** `figment` merges defaults → `.feluda.toml` → environment variables. See `src/config.rs`.
 - **Error handling.** `thiserror`-based `FeludaError` in `src/debug.rs` with `FeludaResult<T>` alias. Debug mode (`--debug`) enables verbose logging.
@@ -319,6 +327,9 @@ feluda                                    # Analyze current directory
 feluda --path /path/to/project            # Analyze specific path
 feluda --language rust                    # Force language detection
 feluda --repo https://github.com/user/repo  # Analyze remote repo
+feluda --sbom-input sbom.json             # Analyze an existing SPDX/CycloneDX document
+syft nginx:latest -o spdx-json | feluda --sbom-input -   # ...or one piped in
+feluda --sbom-input sbom.json --sbom-enriched out.json   # Re-emit it with resolved licenses
 
 # Output formats
 feluda --json                             # JSON output
@@ -375,6 +386,8 @@ feluda --debug                            # Enable debug logging
 | `src/reporter.rs` | Output formatting (text, JSON, YAML, CI, gist) |
 | `src/table.rs` | TUI interface (ratatui) |
 | `src/sbom/mod.rs` | SBOM generation entry point |
+| `src/sbom/ingest.rs` | SBOM ingest (`--sbom-input`), the non-manifest scan source |
+| `src/purl.rs` | `Ecosystem` enum, PURL building and parsing |
 | `src/cache.rs` | GitHub license data caching |
 | `config/license_compatibility.toml` | License compatibility matrix |
 | `action.yml` | GitHub Action definition |

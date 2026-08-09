@@ -16,6 +16,10 @@ Overview
 
 Security teams expect an SBOM at every release, and Feluda can emit both SPDX and CycloneDX formats. SBOMs provide a comprehensive inventory of software components, their licenses, and dependencies.
 
+Feluda also reads them. An SPDX or CycloneDX document from syft, Trivy, cdxgen or a vendor can be
+analysed directly, which is how you cover a shipped container image rather than a source tree.
+See :ref:`sbom-ingest`.
+
 Generate Both Formats
 ---------------------
 

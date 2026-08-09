@@ -698,7 +698,7 @@ fn detect_license_in_vcpkg_install(vcpkg_root: &Path, port: &str) -> Option<Stri
     None
 }
 
-fn fetch_license_from_conan_center(package_name: &str, version: &str) -> String {
+pub(crate) fn fetch_license_from_conan_center(package_name: &str, version: &str) -> String {
     let url = format!("https://conan.io/center/api/packages/{package_name}/{version}");
 
     if let Ok(response) = reqwest::blocking::get(&url) {

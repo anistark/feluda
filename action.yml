@@ -32,6 +32,9 @@ inputs:
   language:
     description: 'Programming language to scan (e.g., rust, python, node, go, cpp, c, r)'
     required: false
+  sbom-input:
+    description: 'Analyze an existing SPDX or CycloneDX JSON document instead of the project tree'
+    required: false
 
 outputs:
   license-check:
@@ -84,6 +87,10 @@ runs:
 
         if [[ "${{ inputs.language }}" != "" ]]; then
           CMD="$CMD --language ${{ inputs.language }}"
+        fi
+
+        if [[ "${{ inputs.sbom-input }}" != "" ]]; then
+          CMD="$CMD --sbom-input ${{ inputs.sbom-input }}"
         fi
 
         # Run Feluda
