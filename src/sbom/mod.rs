@@ -1,4 +1,5 @@
 pub mod cyclonedx;
+pub mod ingest;
 pub mod spdx;
 pub mod validate;
 
@@ -8,7 +9,34 @@ use crate::licenses::LicenseCompatibility;
 use crate::parser::parse_root;
 
 use cyclonedx::generate_cyclonedx_output;
+use serde_json::Value as JsonValue;
 use spdx::{generate_spdx_output, SpdxDocument, SpdxPackage};
+
+/// Which SBOM standard a document follows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SbomType {
+    Spdx,
+    CycloneDx,
+}
+
+impl SbomType {
+    /// The message shown when a document matches neither standard. Shared so `sbom validate` and
+    /// `--sbom-input` fail the same way on the same file.
+    pub const DETECTION_FAILURE: &'static str =
+        "Could not detect SBOM type. File is neither SPDX nor CycloneDX.";
+}
+
+/// Detect which standard a parsed JSON document follows, by the keys only that standard defines.
+pub fn detect_sbom_type_in(json: &JsonValue) -> Option<SbomType> {
+    let obj = json.as_object()?;
+    if obj.contains_key("spdxVersion") || obj.contains_key("SPDXID") {
+        return Some(SbomType::Spdx);
+    }
+    if obj.contains_key("bomFormat") || obj.contains_key("specVersion") {
+        return Some(SbomType::CycloneDx);
+    }
+    None
+}
 
 pub fn handle_sbom_command(
     path: String,

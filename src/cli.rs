@@ -201,6 +201,14 @@ pub struct Cli {
     #[arg(long, help_heading = HEADING_SOURCE)]
     pub ssh_passphrase: Option<String>,
 
+    /// Analyze an existing SPDX or CycloneDX JSON document instead of a project tree ('-' for stdin)
+    #[arg(long, value_name = "FILE", conflicts_with = "repo", help_heading = HEADING_SOURCE)]
+    pub sbom_input: Option<String>,
+
+    /// Write the ingested SBOM back out with the licenses Feluda resolved
+    #[arg(long, value_name = "FILE", requires = "sbom_input", help_heading = HEADING_OUTPUT)]
+    pub sbom_enriched: Option<String>,
+
     /// GitHub personal access token for API authentication (increases rate limits)
     #[arg(long, env = "GITHUB_TOKEN", global = true, help_heading = HEADING_SOURCE)]
     pub github_token: Option<String>,
@@ -355,13 +363,17 @@ fn format_after_help() -> String {
         )
     };
     format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n\n{} {}",
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n\n{} {}",
         "Examples:".bright_cyan().bold(),
         example("feluda", "Scan the current directory"),
         example("feluda --path ../my-project", "Scan another local project"),
         example(
             "feluda --repo https://github.com/user/repo",
             "Scan a remote repository"
+        ),
+        example(
+            "syft nginx:latest -o spdx-json | feluda --sbom-input -",
+            "Analyze an SBOM from another tool",
         ),
         example("feluda --json", "Machine-readable output for pipelines"),
         example(
@@ -775,6 +787,8 @@ mod tests {
             command: None,
             path: "./".to_string(),
             repo: None,
+            sbom_input: None,
+            sbom_enriched: None,
             token: None,
             ssh_key: None,
             ssh_passphrase: None,
@@ -819,6 +833,8 @@ mod tests {
             }),
             path: "./".to_string(),
             repo: None,
+            sbom_input: None,
+            sbom_enriched: None,
             token: None,
             ssh_key: None,
             ssh_passphrase: None,
@@ -870,6 +886,8 @@ mod tests {
             command: None,
             path: "./test".to_string(),
             repo: None,
+            sbom_input: None,
+            sbom_enriched: None,
             token: None,
             ssh_key: None,
             ssh_passphrase: None,

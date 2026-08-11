@@ -359,7 +359,7 @@ fn parse_dotnet_list_output(output: &str) -> Result<Vec<(String, String)>, Strin
     Ok(packages)
 }
 
-fn fetch_license_for_nuget_package(name: &str, version: &str) -> String {
+pub(crate) fn fetch_license_for_nuget_package(name: &str, version: &str) -> String {
     if let Ok(license) = fetch_from_local_nuget_cache(name, version) {
         return license;
     }

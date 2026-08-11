@@ -1592,7 +1592,10 @@ fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -
     }
 }
 
-fn get_license_from_npm_registry_api(package_name: &str, version: &str) -> Option<String> {
+pub(crate) fn get_license_from_npm_registry_api(
+    package_name: &str,
+    version: &str,
+) -> Option<String> {
     log(
         LogLevel::Info,
         &format!("Trying npm registry API for {package_name}"),

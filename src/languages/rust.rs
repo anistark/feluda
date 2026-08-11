@@ -210,6 +210,66 @@ pub fn analyze_rust_licenses_with_config(
         .collect()
 }
 
+/// Fetch a crate's license from the crates.io API.
+///
+/// The manifest-driven path never needs this — `cargo metadata` already carries the `license`
+/// field — but a crate that arrives from someone else's SBOM has no manifest to read, so the
+/// registry is the only source left. crates.io rejects requests without a user agent, hence the
+/// explicit client.
+pub(crate) fn fetch_license_from_crates_io(name: &str, version: &str) -> Option<String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("feluda-license-checker/1.0")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+
+    let version = version.trim();
+    if !version.is_empty() {
+        let url = format!("https://crates.io/api/v1/crates/{name}/{version}");
+        log(
+            LogLevel::Info,
+            &format!("Fetching crates.io metadata: {url}"),
+        );
+        if let Some(license) = crates_io_license(&client, &url, &["version", "license"]) {
+            return Some(license);
+        }
+    }
+
+    // Fall back to the crate's newest published version, which is what the versionless
+    // endpoint lists first.
+    let url = format!("https://crates.io/api/v1/crates/{name}");
+    log(
+        LogLevel::Info,
+        &format!("Fetching crates.io metadata: {url}"),
+    );
+    crates_io_license(&client, &url, &["versions", "0", "license"])
+}
+
+/// Read a license string out of a crates.io response at the given key path.
+fn crates_io_license(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    path: &[&str],
+) -> Option<String> {
+    let response = client.get(url).send().ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let mut value = &response.json::<serde_json::Value>().ok()?;
+    for key in path {
+        value = match key.parse::<usize>() {
+            Ok(index) => value.get(index)?,
+            Err(_) => value.get(key)?,
+        };
+    }
+    let license = value.as_str()?.trim();
+    if license.is_empty() {
+        None
+    } else {
+        Some(license.to_string())
+    }
+}
+
 fn get_license_from_manifest<P: AsRef<std::path::Path>>(manifest_path: P) -> Option<String> {
     use std::fs;
     use toml::Value;

@@ -35,6 +35,7 @@ A GitHub Action that scans your project dependencies for restrictive and incompa
 | `project-license` | Specify the project license (overrides auto-detection) | No | - |
 | `update-badge` | Update README badge with scan results | No | `true` |
 | `badge-path` | Path to README file for badge updates | No | `README.md` |
+| `sbom-input` | Analyze an existing SPDX or CycloneDX JSON document instead of the project tree | No | - |
 
 ## Outputs
 
@@ -46,6 +47,30 @@ A GitHub Action that scans your project dependencies for restrictive and incompa
 | `incompatible-count` | Number of incompatible licenses found |
 
 ## Examples
+
+### Gate the Shipped Image Instead of the Source Tree
+
+```yaml
+name: Image License Check
+on: [push]
+
+jobs:
+  license-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Catalogue the image
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          syft ghcr.io/${{ github.repository }}:${{ github.sha }} -o spdx-json > image.spdx.json
+
+      - name: Scan the SBOM
+        uses: anistark/feluda@v1
+        with:
+          sbom-input: 'image.spdx.json'
+          fail-on-restrictive: true
+```
 
 ### Fail on Both Restrictive and Incompatible Licenses
 

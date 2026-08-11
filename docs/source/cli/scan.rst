@@ -93,6 +93,36 @@ Feluda clones the repository into a temporary location, performs the scan, and r
 
 ----
 
+Scan an Existing SBOM
+---------------------
+
+Feluda can take an SBOM another tool produced in place of a project tree, which is how you check a
+container image or a vendor-supplied inventory rather than a source checkout.
+
+.. code-block:: bash
+
+   syft nginx:latest -o spdx-json | feluda --sbom-input - --fail-on-restrictive
+
+Feluda reads the SPDX or CycloneDX document, resolves the licenses it left unstated, and applies
+every filter, output format and exit code exactly as it would to a source scan.
+
+**Options:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Flag
+     - Description
+   * - ``--sbom-input <FILE>``
+     - SPDX or CycloneDX JSON document to analyse, or ``-`` for stdin
+   * - ``--sbom-enriched <FILE>``
+     - Write the input document back out with the licenses Feluda resolved
+
+See :ref:`sbom-ingest` for the full behaviour.
+
+----
+
 Scan a Workspace or Monorepo
 ----------------------------
 

@@ -11,8 +11,55 @@ pub mod r;
 pub mod ruby;
 pub mod rust;
 
-use crate::licenses::LicenseInfo;
+use crate::debug::{log, LogLevel};
+use crate::licenses::{is_unresolved_license, LicenseInfo};
+use crate::purl::Ecosystem;
 use std::path::Path;
+
+/// Resolve a license from a package's coordinates alone, with no manifest or project tree behind
+/// it.
+///
+/// The manifest path never needs this: an analyzer reads the license out of the file it is already
+/// parsing. Packages that arrive from someone else's SBOM have no such file, so a component the
+/// document left as NOASSERTION can only be resolved by asking that ecosystem's registry. Each
+/// arm delegates to the lookup the matching analyzer already uses, so there is one implementation
+/// of "ask npm" and one of "ask Maven Central".
+///
+/// Returns `None` for ecosystems with no registry to ask — OS packages, Conan, and the generic
+/// bucket — and for any lookup that came back without a real license.
+pub fn resolve_license_for(ecosystem: Ecosystem, name: &str, version: &str) -> Option<String> {
+    log(
+        LogLevel::Info,
+        &format!("Resolving license for {ecosystem} package {name} ({version})"),
+    );
+
+    let license = match ecosystem {
+        Ecosystem::Cargo => rust::fetch_license_from_crates_io(name, version),
+        Ecosystem::Npm => node::get_license_from_npm_registry_api(name, version),
+        Ecosystem::Golang => Some(go::fetch_license_for_go_dependency(name, version)),
+        Ecosystem::Pypi => Some(python::fetch_license_for_python_dependency(name, version)),
+        Ecosystem::Maven => {
+            // Maven display names are `groupId:artifactId`; without a group there is nothing to
+            // build a repository path from.
+            let (group_id, artifact_id) = name.split_once(':')?;
+            Some(java::fetch_maven_license(group_id, artifact_id, version))
+        }
+        Ecosystem::Gem => Some(ruby::fetch_ruby_license(name, version)),
+        Ecosystem::Nuget => Some(dotnet::fetch_license_for_nuget_package(name, version)),
+        Ecosystem::Cran => Some(r::fetch_license_for_r_dependency(name, version)),
+        // Conan Center answers by name and version, but only for packages it hosts; every other
+        // ecosystem here has no registry at all.
+        Ecosystem::Conan => Some(cpp::fetch_license_from_conan_center(name, version)),
+        Ecosystem::Deb | Ecosystem::Rpm | Ecosystem::Apk | Ecosystem::Generic => None,
+    };
+
+    // Analyzers spell a failed lookup several ways ("Unknown", "Unknown license for x: 1.0").
+    // Anything that does not name a license is no better than what the document already said.
+    license
+        .map(|license| license.trim().to_string())
+        .filter(|license| !is_unresolved_license(Some(license)))
+        .filter(|license| !license.to_ascii_lowercase().starts_with("unknown license"))
+}
 
 /// Common trait for language-specific dependency parsers
 #[allow(dead_code)]

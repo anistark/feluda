@@ -176,6 +176,7 @@ Have a session to share? `Open a PR <https://github.com/anistark/feluda/edit/mai
    sbom/index
    sbom/spdx
    sbom/cyclonedx
+   sbom/ingest
    sbom/validate
 
 .. toctree::
