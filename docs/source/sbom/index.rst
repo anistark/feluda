@@ -20,6 +20,10 @@ Feluda also reads them. An SPDX or CycloneDX document from syft, Trivy, cdxgen o
 analysed directly, which is how you cover a shipped container image rather than a source tree.
 See :ref:`sbom-ingest`.
 
+A filesystem can be catalogued directly too, with no other tool involved:
+``feluda sbom spdx --filesystem ./rootfs`` describes what an artifact ships rather than what its
+source declares. See :ref:`cli-filesystem`.
+
 Generate Both Formats
 ---------------------
 

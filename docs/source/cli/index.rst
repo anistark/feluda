@@ -24,6 +24,8 @@ Command Overview
      - Description
    * - ``feluda``
      - Scan dependencies and detect licenses
+   * - ``feluda --filesystem``
+     - Catalogue the OS packages installed under a root filesystem
    * - ``feluda watch``
      - Continuously re-scan when dependency files change
    * - ``feluda cache``

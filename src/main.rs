@@ -2,6 +2,7 @@ mod cache;
 mod cli;
 mod config;
 mod debug;
+mod filesystem;
 mod generate;
 mod init;
 mod languages;
@@ -45,6 +46,9 @@ struct CheckConfig {
     /// An SPDX or CycloneDX document to analyze in place of `path`'s manifests, or `-` for stdin.
     /// `path` still supplies the project license the compatibility check runs against.
     sbom_input: Option<String>,
+    /// A root filesystem or installation tree to catalog installed OS packages from, in place of
+    /// `path`'s manifests. As with `sbom_input`, `path` still supplies the project license.
+    filesystem: Option<String>,
     /// Where to write the ingested document back with Feluda's resolved licenses.
     sbom_enriched: Option<String>,
     json: bool,
@@ -142,6 +146,7 @@ fn run() -> FeludaResult<()> {
         let config = CheckConfig {
             path: analysis_path.to_string_lossy().to_string(),
             sbom_input: args.sbom_input,
+            filesystem: args.filesystem,
             sbom_enriched: args.sbom_enriched,
             json: args.json,
             yaml: args.yaml,
@@ -176,6 +181,7 @@ fn run() -> FeludaResult<()> {
             }
             Commands::Sbom {
                 path,
+                filesystem,
                 format,
                 output,
             } => {
@@ -183,6 +189,7 @@ fn run() -> FeludaResult<()> {
                 match format {
                     Some(cli::SbomCommand::Spdx {
                         path: fmt_path,
+                        filesystem: fmt_filesystem,
                         output: fmt_output,
                     }) => {
                         // Use the subcommand path/output if provided, otherwise use the parent command's
@@ -192,10 +199,16 @@ fn run() -> FeludaResult<()> {
                             path.clone()
                         };
                         let final_output = fmt_output.or(output.clone());
-                        handle_sbom_command(final_path, &cli::SbomFormat::Spdx, final_output)
+                        handle_sbom_command(
+                            final_path,
+                            fmt_filesystem.or(filesystem.clone()),
+                            &cli::SbomFormat::Spdx,
+                            final_output,
+                        )
                     }
                     Some(cli::SbomCommand::Cyclonedx {
                         path: fmt_path,
+                        filesystem: fmt_filesystem,
                         output: fmt_output,
                     }) => {
                         let final_path = if fmt_path != "./" {
@@ -204,7 +217,12 @@ fn run() -> FeludaResult<()> {
                             path.clone()
                         };
                         let final_output = fmt_output.or(output.clone());
-                        handle_sbom_command(final_path, &cli::SbomFormat::Cyclonedx, final_output)
+                        handle_sbom_command(
+                            final_path,
+                            fmt_filesystem.or(filesystem.clone()),
+                            &cli::SbomFormat::Cyclonedx,
+                            final_output,
+                        )
                     }
                     Some(cli::SbomCommand::Validate {
                         sbom_file,
@@ -213,7 +231,7 @@ fn run() -> FeludaResult<()> {
                     }) => handle_sbom_validate_command(sbom_file, validation_output, json),
                     None => {
                         // Default: generate both formats
-                        handle_sbom_command(path, &cli::SbomFormat::All, output)
+                        handle_sbom_command(path, filesystem, &cli::SbomFormat::All, output)
                     }
                 }
             }
@@ -254,10 +272,20 @@ fn run() -> FeludaResult<()> {
                             .to_string(),
                     ));
                 }
+                if args.filesystem.is_some() {
+                    eprintln!(
+                        "❌ Watch mode re-scans dependency files; --filesystem is not supported."
+                    );
+                    return Err(FeludaError::InvalidData(
+                        "Watch mode re-scans dependency files; --filesystem is not supported"
+                            .to_string(),
+                    ));
+                }
 
                 let config = CheckConfig {
                     path,
                     sbom_input: None,
+                    filesystem: None,
                     sbom_enriched: None,
                     json: args.json,
                     yaml: args.yaml,
@@ -354,6 +382,17 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
             &format!("Ingested {} components from {sbom_input}", components.len()),
         );
         return Ok((components, project_license));
+    }
+
+    // A filesystem is an inventory too: what its package databases record is what is installed.
+    // There are no manifests to walk and no project sources in it to check headers on.
+    if let Some(root) = &config.filesystem {
+        let packages = filesystem::scan_filesystem(Path::new(root), config.strict)?;
+        log(
+            LogLevel::Info,
+            &format!("Cataloged {} packages from {root}", packages.len()),
+        );
+        return Ok((packages, project_license));
     }
 
     // Parse and analyze dependencies

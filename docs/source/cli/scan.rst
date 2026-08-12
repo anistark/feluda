@@ -123,6 +123,35 @@ See :ref:`sbom-ingest` for the full behaviour.
 
 ----
 
+Scan a Filesystem
+-----------------
+
+Feluda can catalogue a filesystem itself, reading the databases the system's own package managers
+keep. This is how you check a shipped artifact without another cataloguing tool in the loop.
+
+.. code-block:: bash
+
+   docker export app | tar -x -C rootfs
+   feluda --filesystem rootfs --fail-on-restrictive
+
+Alpine (apk) and Debian or Ubuntu (dpkg) are covered. The same path works on an extracted image
+layer, a chroot, a mounted disk, or any installation tree.
+
+**Options:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Flag
+     - Description
+   * - ``--filesystem <PATH>``
+     - Root filesystem or installation tree to catalogue installed OS packages from
+
+See :ref:`cli-filesystem` for the full behaviour.
+
+----
+
 Scan a Workspace or Monorepo
 ----------------------------
 
