@@ -5,6 +5,7 @@ pub mod validate;
 
 use crate::cli::SbomFormat;
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
+use crate::filesystem::scan_filesystem;
 use crate::licenses::LicenseCompatibility;
 use crate::parser::parse_root;
 
@@ -38,16 +39,27 @@ pub fn detect_sbom_type_in(json: &JsonValue) -> Option<SbomType> {
     None
 }
 
+/// Generate an SBOM from a project tree, or from the packages installed under `filesystem`.
+///
+/// The two sources produce the same `Vec<LicenseInfo>`, so everything below this point is written
+/// once: a document describing a root filesystem is built exactly like one describing a project.
 pub fn handle_sbom_command(
     path: String,
+    filesystem: Option<String>,
     format: &SbomFormat,
     output_file: Option<String>,
 ) -> FeludaResult<()> {
-    log(LogLevel::Info, &format!("Generating SBOM for path: {path}"));
+    let source = filesystem.as_deref().unwrap_or(&path);
+    log(
+        LogLevel::Info,
+        &format!("Generating SBOM for path: {source}"),
+    );
 
-    // Parse project dependencies using existing parser
-    let analyzed_data = parse_root(&path, None, false, false)
-        .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?;
+    let analyzed_data = match &filesystem {
+        Some(root) => scan_filesystem(std::path::Path::new(root), false)?,
+        None => parse_root(&path, None, false, false)
+            .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?,
+    };
 
     log(
         LogLevel::Info,
@@ -55,7 +67,7 @@ pub fn handle_sbom_command(
     );
 
     // Extract project name from path
-    let project_name = std::path::Path::new(&path)
+    let project_name = std::path::Path::new(source)
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("project");

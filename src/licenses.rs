@@ -774,6 +774,33 @@ pub fn is_license_restrictive(
     false
 }
 
+/// Classify findings for restrictiveness and OSI approval.
+///
+/// The scan sources that build their own findings rather than going through a language analyzer
+/// (an ingested SBOM, a cataloged filesystem) all need this same last step, and they need it done
+/// identically: the whole point of one pipeline is that a package classifies the same way whatever
+/// discovered it. Compatibility against the project license is deliberately not done here, since
+/// the shared pipeline annotates every source with it afterwards.
+///
+/// The known-license table is fetched once for the whole batch, not per finding.
+pub fn classify_findings(findings: &mut [LicenseInfo], strict: bool) {
+    let known_licenses = fetch_licenses_from_github().unwrap_or_else(|e| {
+        log(
+            LogLevel::Error,
+            &format!("Failed to fetch known licenses from GitHub: {e}"),
+        );
+        HashMap::new()
+    });
+
+    for info in findings.iter_mut() {
+        info.is_restrictive = is_license_restrictive(&info.license, &known_licenses, strict);
+        info.osi_status = match &info.license {
+            Some(license) => get_osi_status(license),
+            None => OsiStatus::Unknown,
+        };
+    }
+}
+
 /// Whether a reported license value means "no license was resolved" rather than naming one.
 ///
 /// Analyzers spell an unresolved license several ways depending on the ecosystem, and reports
