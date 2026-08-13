@@ -13,6 +13,25 @@ Feluda CLI
 
 Feluda provides a comprehensive command-line interface for scanning dependencies, generating compliance artifacts, and managing license detection. Each command is designed to fit seamlessly into both interactive workflows and automated CI/CD pipelines.
 
+Every command carries its own reference. The fastest way through this page is to keep
+one terminal open and ask Feluda directly.
+
+.. raw:: html
+
+   <div class="term-illustration" role="figure" aria-label="A terminal running feluda --help">
+     <div class="term-chrome" aria-hidden="true">
+       <span class="term-dot"></span>
+       <span class="term-dot"></span>
+       <span class="term-dot"></span>
+       <span class="term-chrome-title">feluda</span>
+     </div>
+     <div class="term-body">
+       <code><span class="term-prompt" aria-hidden="true">$</span>feluda --help<span class="term-cursor" aria-hidden="true"></span></code>
+     </div>
+   </div>
+
+Append ``--help`` to any subcommand for its own flags, such as ``feluda sbom --help``.
+
 Command Overview
 ----------------
 

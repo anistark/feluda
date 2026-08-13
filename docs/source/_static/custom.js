@@ -6,6 +6,38 @@ document.addEventListener('DOMContentLoaded', function() {
         link.setAttribute('rel', 'noopener noreferrer');
     });
 
+    // Version pills, in the navbar and pinned to the sidebar bottom.
+    // Sphinx emits `release` from conf.py as DOCUMENTATION_OPTIONS.VERSION.
+    // It's declared with `const`, so it lives in global scope but never on
+    // `window` — reach for the bare name, guarded by typeof.
+    const version = typeof DOCUMENTATION_OPTIONS !== 'undefined' && DOCUMENTATION_OPTIONS.VERSION;
+    if (version) {
+        const makePill = () => {
+            const pill = document.createElement('span');
+            pill.className = 'feluda-version';
+            pill.textContent = version;
+            return pill;
+        };
+
+        // Navbar: beside the wordmark. Hidden on narrow screens.
+        const brand = document.querySelector('.sy-head-brand');
+        if (brand && !brand.querySelector('.feluda-version')) {
+            const pill = makePill();
+            pill.classList.add('sy-head-version');
+            brand.appendChild(pill);
+        }
+
+        // Sidebar: below the scrolling nav, so the version stays reachable
+        // at the widths where the navbar drops it.
+        const sidebar = document.querySelector('.sy-lside-inner');
+        if (sidebar && !sidebar.querySelector('.sy-lside-version')) {
+            const tile = document.createElement('div');
+            tile.className = 'sy-lside-version';
+            tile.appendChild(makePill());
+            sidebar.appendChild(tile);
+        }
+    }
+
     // Fetch and render contributors
     const contributorsContainer = document.getElementById('contributors-container');
     if (contributorsContainer) {

@@ -144,6 +144,7 @@ Have a session to share? `Open a PR <https://github.com/anistark/feluda/edit/mai
    :hidden:
 
    👋 Feluda <self>
+   quickstart
 
 .. toctree::
    :maxdepth: 1
@@ -151,7 +152,6 @@ Have a session to share? `Open a PR <https://github.com/anistark/feluda/edit/mai
    :hidden:
 
    install
-   quickstart
    features
    supported-languages
 
