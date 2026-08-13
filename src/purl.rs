@@ -38,17 +38,15 @@ pub enum Ecosystem {
     Cran,
     /// C/C++ packages declared through Conan.
     Conan,
-    // TODO: The three OS-package ecosystems below are reserved for the filesystem and container
-    // scanning phase of https://github.com/anistark/feluda/issues/247. They are part of the
-    // identity model now so the PURL type mapping does not have to change when that lands.
-    /// Debian and derivatives (`dpkg`).
-    #[allow(dead_code)]
+    /// Debian and derivatives (`dpkg`), cataloged by [`crate::filesystem`].
     Deb,
+    // TODO: RPM is reserved for https://github.com/anistark/feluda/issues/253, which adds the
+    // cataloger. It is part of the identity model now so reading an rpm package out of someone
+    // else's SBOM already lands in the right ecosystem.
     /// RPM-based distributions.
     #[allow(dead_code)]
     Rpm,
-    /// Alpine packages (`apk`).
-    #[allow(dead_code)]
+    /// Alpine packages (`apk`), cataloged by [`crate::filesystem`].
     Apk,
     /// Anything without a package registry of its own: C/C++ deps from Makefiles, CMake, Bazel or
     /// vcpkg, and the path-named findings the source and vendor scans produce.
@@ -170,6 +168,18 @@ impl Ecosystem {
             }
             // PEP 503: lowercase, and every run of `-`, `_` or `.` collapses to a single `-`.
             Ecosystem::Pypi => Some((None, encode_component(&normalize_pypi_name(name)))),
+            // An OS package's namespace is the distro that ships it, which is part of its identity:
+            // `pkg:deb/debian/libssl3` and `pkg:deb/ubuntu/libssl3` are different packages. The
+            // cataloger puts it in front of the name, so the split mirrors npm's.
+            Ecosystem::Deb | Ecosystem::Rpm | Ecosystem::Apk => {
+                let lowered = name.to_lowercase();
+                match lowered.split_once('/') {
+                    Some((distro, package)) if !distro.is_empty() && !package.is_empty() => {
+                        Some((Some(encode_component(distro)), encode_component(package)))
+                    }
+                    _ => Some((None, encode_component(&lowered))),
+                }
+            }
             // Everything else is a flat, case-preserving name. Generic names are often paths, and
             // encoding the whole string keeps a path from being mistaken for a namespace.
             _ => Some((None, encode_component(name))),
@@ -240,15 +250,17 @@ pub fn parse_purl(purl: &str) -> Option<ParsedPurl> {
 /// Rejoin a PURL namespace and name into the display name the matching analyzer emits, so the
 /// name round-trips through [`Ecosystem::split_name`].
 ///
-/// Ecosystems whose namespace is not part of the package name — the distro in `pkg:deb/debian/...`,
-/// the channel in a Conan reference — keep the bare name.
+/// Ecosystems whose namespace is not part of the package name — the channel in a Conan reference —
+/// keep the bare name.
 fn join_name(ecosystem: Ecosystem, namespace: &[String], name: &str) -> String {
     if namespace.is_empty() {
         return name.to_string();
     }
     match ecosystem {
         Ecosystem::Maven => format!("{}:{}", namespace.join("."), name),
-        Ecosystem::Npm | Ecosystem::Golang => format!("{}/{}", namespace.join("/"), name),
+        Ecosystem::Npm | Ecosystem::Golang | Ecosystem::Deb | Ecosystem::Rpm | Ecosystem::Apk => {
+            format!("{}/{}", namespace.join("/"), name)
+        }
         _ => name.to_string(),
     }
 }
@@ -477,16 +489,46 @@ mod tests {
 
     #[test]
     fn test_parse_purl_drops_qualifiers_and_subpath() {
-        // syft tags OS packages with distro and architecture qualifiers.
+        // syft tags OS packages with distro and architecture qualifiers. The distro namespace is
+        // identity and is kept; the qualifiers say which build this is, and are not.
         let parsed = parse_purl("pkg:deb/debian/libssl3@3.0.15-1?arch=amd64&distro=debian-12")
             .expect("should parse");
         assert_eq!(parsed.ecosystem, Ecosystem::Deb);
-        assert_eq!(parsed.name, "libssl3");
+        assert_eq!(parsed.name, "debian/libssl3");
         assert_eq!(parsed.version, "3.0.15-1");
 
         let parsed = parse_purl("pkg:golang/github.com/pkg/errors@v0.9.1#src/lib").unwrap();
         assert_eq!(parsed.name, "github.com/pkg/errors");
         assert_eq!(parsed.version, "v0.9.1");
+    }
+
+    #[test]
+    fn test_os_package_namespace_round_trips() {
+        // What the cataloger emits has to come back out of its own PURL unchanged, or a feluda
+        // SBOM read back through `--sbom-input` would rename every OS package.
+        for (ecosystem, name) in [
+            (Ecosystem::Deb, "debian/libssl3"),
+            (Ecosystem::Apk, "alpine/musl"),
+            (Ecosystem::Rpm, "fedora/glibc"),
+        ] {
+            let purl = ecosystem.purl(name, "1.0").expect("should build");
+            let parsed = parse_purl(&purl).expect("should parse");
+            assert_eq!(parsed.ecosystem, ecosystem);
+            assert_eq!(parsed.name, name);
+        }
+
+        // A rootfs with no /etc/os-release has no namespace to give, which is still a valid PURL.
+        assert_eq!(
+            Ecosystem::Apk.purl("musl", "1.2.5-r0").unwrap(),
+            "pkg:apk/musl@1.2.5-r0"
+        );
+    }
+
+    #[test]
+    fn test_os_packages_from_different_distros_are_distinct() {
+        let debian = Ecosystem::Deb.coordinates("debian/libssl3").unwrap();
+        let ubuntu = Ecosystem::Deb.coordinates("ubuntu/libssl3").unwrap();
+        assert_ne!(debian, ubuntu);
     }
 
     #[test]

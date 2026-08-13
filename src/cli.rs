@@ -53,6 +53,10 @@ pub enum SbomCommand {
         #[arg(short, long, default_value = "./")]
         path: String,
 
+        /// Catalog the OS packages installed under a root filesystem instead of a project tree
+        #[arg(long, value_name = "PATH")]
+        filesystem: Option<String>,
+
         /// Path to write the SBOM file
         #[arg(short, long)]
         output: Option<String>,
@@ -62,6 +66,10 @@ pub enum SbomCommand {
         /// Path to the local project directory
         #[arg(short, long, default_value = "./")]
         path: String,
+
+        /// Catalog the OS packages installed under a root filesystem instead of a project tree
+        #[arg(long, value_name = "PATH")]
+        filesystem: Option<String>,
 
         /// Path to write the SBOM file
         #[arg(short, long)]
@@ -105,6 +113,10 @@ pub enum Commands {
         /// Path to the local project directory
         #[arg(short, long, default_value = "./")]
         path: String,
+
+        /// Catalog the OS packages installed under a root filesystem instead of a project tree
+        #[arg(long, value_name = "PATH")]
+        filesystem: Option<String>,
 
         /// Path to write the SBOM files
         #[arg(short, long)]
@@ -204,6 +216,15 @@ pub struct Cli {
     /// Analyze an existing SPDX or CycloneDX JSON document instead of a project tree ('-' for stdin)
     #[arg(long, value_name = "FILE", conflicts_with = "repo", help_heading = HEADING_SOURCE)]
     pub sbom_input: Option<String>,
+
+    /// Catalog the OS packages installed under a root filesystem or installation tree
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = ["repo", "sbom_input"],
+        help_heading = HEADING_SOURCE
+    )]
+    pub filesystem: Option<String>,
 
     /// Write the ingested SBOM back out with the licenses Feluda resolved
     #[arg(long, value_name = "FILE", requires = "sbom_input", help_heading = HEADING_OUTPUT)]
@@ -788,6 +809,7 @@ mod tests {
             path: "./".to_string(),
             repo: None,
             sbom_input: None,
+            filesystem: None,
             sbom_enriched: None,
             token: None,
             ssh_key: None,
@@ -834,6 +856,7 @@ mod tests {
             path: "./".to_string(),
             repo: None,
             sbom_input: None,
+            filesystem: None,
             sbom_enriched: None,
             token: None,
             ssh_key: None,
@@ -887,6 +910,7 @@ mod tests {
             path: "./test".to_string(),
             repo: None,
             sbom_input: None,
+            filesystem: None,
             sbom_enriched: None,
             token: None,
             ssh_key: None,
@@ -1182,6 +1206,7 @@ mod tests {
     fn test_sbom_command_default_all() {
         let sbom_cmd = Commands::Sbom {
             path: "./".to_string(),
+            filesystem: None,
             format: None,
             output: None,
         };
@@ -1191,6 +1216,7 @@ mod tests {
                 path,
                 format,
                 output,
+                ..
             } => {
                 assert_eq!(path, "./");
                 assert!(format.is_none());
@@ -1204,8 +1230,10 @@ mod tests {
     fn test_sbom_command_spdx() {
         let sbom_cmd = Commands::Sbom {
             path: "/project".to_string(),
+            filesystem: None,
             format: Some(SbomCommand::Spdx {
                 path: "/project".to_string(),
+                filesystem: None,
                 output: Some("sbom.json".to_string()),
             }),
             output: None,
@@ -1216,12 +1244,15 @@ mod tests {
                 path,
                 format,
                 output,
+                ..
             } => {
                 assert_eq!(path, "/project");
                 assert!(format.is_some());
                 assert!(output.is_none());
                 match format.unwrap() {
-                    SbomCommand::Spdx { path: p, output: o } => {
+                    SbomCommand::Spdx {
+                        path: p, output: o, ..
+                    } => {
                         assert_eq!(p, "/project");
                         assert_eq!(o, Some("sbom.json".to_string()));
                     }
@@ -1236,8 +1267,10 @@ mod tests {
     fn test_sbom_command_cyclonedx() {
         let sbom_cmd = Commands::Sbom {
             path: "/project".to_string(),
+            filesystem: None,
             format: Some(SbomCommand::Cyclonedx {
                 path: "/project".to_string(),
+                filesystem: None,
                 output: Some("sbom.xml".to_string()),
             }),
             output: None,
@@ -1248,12 +1281,15 @@ mod tests {
                 path,
                 format,
                 output,
+                ..
             } => {
                 assert_eq!(path, "/project");
                 assert!(format.is_some());
                 assert!(output.is_none());
                 match format.unwrap() {
-                    SbomCommand::Cyclonedx { path: p, output: o } => {
+                    SbomCommand::Cyclonedx {
+                        path: p, output: o, ..
+                    } => {
                         assert_eq!(p, "/project");
                         assert_eq!(o, Some("sbom.xml".to_string()));
                     }

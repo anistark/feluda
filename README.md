@@ -301,6 +301,31 @@ feluda --sbom-input bom.json --sbom-enriched bom.enriched.json
 
 The format is auto-detected. Components are identified by their PURL, so a Debian `libssl3` and an npm package of the same name stay distinct. `--sbom-input` replaces the manifest scan; `--path` still supplies the project license that compatibility is checked against.
 
+### Filesystems as a Scan Source
+
+Feluda can also catalogue a filesystem itself, with no other tool in the loop. Point `--filesystem` at a root filesystem, an extracted image layer, a chroot, or a mounted disk, and Feluda reads the package databases the system's own package managers keep.
+
+```sh
+# Gate a container image on restrictive licenses, with no cataloguing tool involved
+docker export app | tar -x -C rootfs
+feluda --filesystem rootfs --fail-on-restrictive
+
+# Report what a root filesystem actually ships
+feluda --filesystem ./rootfs --json
+
+# Produce an SBOM for a shipped artifact rather than a source tree
+feluda sbom spdx --filesystem ./rootfs --output rootfs.spdx.json
+```
+
+**What this covers:**
+- 🏔️ **Alpine** - the apk installed database, which records each package's license directly
+- 🌀 **Debian and Ubuntu** - the dpkg database for what is installed, plus each package's `copyright` file for its license, including the machine-readable DEP-5 format
+- 📦 **Anything unpacked** - `docker export` output, extracted layers, chroots, installation trees
+
+Packages carry the distro in their PURL (`pkg:deb/debian/libssl3@3.0.15-1`), so Feluda's findings match what other tools report for the same package. Debian's own license short names are translated to SPDX, so `GPL-2+` classifies as `GPL-2.0-or-later` rather than as unknown. A package whose license cannot be read is reported as unknown and never guessed at.
+
+RPM-based distributions and installed language artifacts (`site-packages`, `node_modules`) are not covered yet; pipe syft through `--sbom-input` for those in the meantime. Pointing `--filesystem` at a tree with no package database is an error, not an empty report.
+
 ### SBOM Validation
 
 Validate SBOM files to ensure they conform to the SPDX or CycloneDX specifications:

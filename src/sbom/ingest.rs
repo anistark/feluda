@@ -24,8 +24,7 @@ use crate::cli::with_spinner;
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
 use crate::languages::resolve_license_for;
 use crate::licenses::{
-    detect_license_from_content, fetch_licenses_from_github, get_osi_status,
-    is_license_restrictive, LicenseCompatibility, LicenseInfo, OsiStatus,
+    classify_findings, detect_license_from_content, LicenseCompatibility, LicenseInfo, OsiStatus,
 };
 use crate::purl::{parse_purl, Ecosystem};
 use crate::sbom::{detect_sbom_type_in, SbomType};
@@ -72,7 +71,7 @@ pub fn ingest_sbom(
     );
 
     resolve_missing_licenses(&mut components, &mut origins);
-    classify(&mut components, strict);
+    classify_findings(&mut components, strict);
 
     if let Some(output_path) = enriched_output {
         write_enriched(&document, format, &components, &origins, output_path)?;
@@ -402,28 +401,6 @@ fn resolve_missing_licenses(components: &mut [LicenseInfo], origins: &mut [Origi
     });
 }
 
-/// Classify every component for restrictiveness and OSI approval.
-///
-/// Compatibility against the project license is left to the shared pipeline, which annotates a
-/// source scan and an ingested SBOM the same way.
-fn classify(components: &mut [LicenseInfo], strict: bool) {
-    let known_licenses = fetch_licenses_from_github().unwrap_or_else(|e| {
-        log(
-            LogLevel::Error,
-            &format!("Failed to fetch known licenses from GitHub: {e}"),
-        );
-        HashMap::new()
-    });
-
-    for info in components.iter_mut() {
-        info.is_restrictive = is_license_restrictive(&info.license, &known_licenses, strict);
-        info.osi_status = match &info.license {
-            Some(license) => get_osi_status(license),
-            None => OsiStatus::Unknown,
-        };
-    }
-}
-
 // =============================================================================
 // ENRICHED OUTPUT
 // =============================================================================
@@ -667,10 +644,15 @@ mod tests {
         assert_eq!(components.len(), 3);
         assert_eq!(origins.len(), 3);
 
-        // The PURL, not the package name, decides the ecosystem.
+        // The PURL, not the package name, decides the ecosystem. An OS package keeps the distro
+        // namespace the document gave it, so the PURL it round-trips to is the one that arrived.
         assert_eq!(components[0].ecosystem, Ecosystem::Deb);
-        assert_eq!(components[0].name, "libssl3");
+        assert_eq!(components[0].name, "debian/libssl3");
         assert_eq!(components[0].version, "3.0.15-1");
+        assert_eq!(
+            components[0].purl().as_deref(),
+            Some("pkg:deb/debian/libssl3@3.0.15-1")
+        );
         // NOASSERTION on the conclusion falls through to the declaration.
         assert_eq!(components[0].license.as_deref(), Some("OpenSSL"));
 
@@ -818,11 +800,11 @@ mod tests {
     #[test]
     fn test_classify_marks_restrictive_components() {
         let (mut components, _) = extract_spdx(&spdx_fixture());
-        classify(&mut components, false);
+        classify_findings(&mut components, false);
 
         let readline = components
             .iter()
-            .find(|info| info.name == "readline")
+            .find(|info| info.name == "debian/readline")
             .expect("readline should be present");
         assert!(readline.is_restrictive);
 
