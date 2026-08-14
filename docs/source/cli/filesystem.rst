@@ -1,4 +1,4 @@
-:description: Catalogue the OS packages installed under a root filesystem with Feluda.
+:description: Catalogue the OS packages and language artifacts installed under a root filesystem with Feluda.
 
 .. _cli-filesystem:
 
@@ -16,15 +16,17 @@ Overview
 
 Every other scan source answers "what did someone write down?": a manifest, or an SBOM another tool
 produced. ``--filesystem`` answers "what is actually on this disk?", by reading the databases the
-system's own package managers keep.
+system's own package managers keep and the metadata that language installers leave next to the code
+they installed.
 
 .. code-block:: bash
 
    docker export app | tar -x -C rootfs
    feluda --filesystem rootfs --fail-on-restrictive
 
-That makes a shipped container analysable with nothing else in the pipeline: no cataloguing tool,
-no registry client, no network. The licenses are already in the tree.
+That makes a shipped container analysable with nothing else in the pipeline: no cataloguing tool
+and no image handling. For the OS packages there is no network either, since their licenses are
+already in the tree.
 
 ----
 
@@ -44,12 +46,20 @@ What Is Covered
    * - dpkg
      - Debian, Ubuntu and derivatives
      - ``/usr/share/doc/<package>/copyright``, since dpkg's database has no license field at all
+   * - pip, and anything that installs a wheel
+     - Python distributions
+     - ``*.dist-info/METADATA`` and ``*.egg-info/PKG-INFO``
+   * - npm, pnpm, yarn
+     - Node packages
+     - The ``package.json`` inside each ``node_modules`` entry
 
 The tree does not have to be a full root filesystem. An extracted image layer, a chroot, a mounted
-disk, or an installation directory all work, as long as one of those databases is in it.
+disk, or an installation directory all work.
 
-Both catalogers run, so an image carrying more than one package manager's database is reported in
-full.
+Every cataloger runs, so an image carrying more than one package manager's database is reported in
+full, and so is the application installed on top of it. In most images the application's own
+dependencies are the larger half: a base image contributes on the order of ninety dpkg packages,
+and what is in ``site-packages`` or ``node_modules`` is what the image was built to run.
 
 ----
 
@@ -67,6 +77,59 @@ The distribution is part of a package's identity, not decoration: a Debian ``lib
 Ubuntu one are different packages, and consumers matching Feluda's SBOM against another tool's need
 to see which is which. A tree with no ``os-release`` file simply has no namespace, which is still a
 valid PURL.
+
+Installed language artifacts carry the PURL of their own ecosystem, exactly as they would from a
+manifest scan, so a finding means the same thing wherever it came from:
+
+.. code-block:: text
+
+   pkg:pypi/requests@2.32.3
+   pkg:npm/%40babel/core@7.24.0
+
+----
+
+One Library, One Finding
+------------------------
+
+A distribution's language packages install real artifacts. Debian's ``python3-yaml`` puts a PyYAML
+distribution into ``dist-packages``, metadata directory and all, so without care the same library
+would be reported twice, once as ``pkg:deb/debian/python3-yaml`` and once as ``pkg:pypi/pyyaml``.
+
+Feluda suppresses the second by ownership rather than by name: dpkg records every file a package
+installed in ``/var/lib/dpkg/info/<package>.list``, and apk records the same in its installed
+database. An artifact whose metadata file appears in one of those lists is already in the report as
+an OS package.
+
+Nothing is matched on names, because ``python3-yaml`` to ``pyyaml`` is a guess that both over- and
+under-suppresses. And a library installed in more than one place — a virtualenv beside the system
+interpreter, a dependency hoisted into two ``node_modules`` trees — is one finding, since it is one
+package at one version.
+
+----
+
+Licenses for Installed Artifacts
+--------------------------------
+
+Installed metadata states a license several ways, and Feluda reads them in descending order of
+confidence.
+
+For Python: ``License-Expression`` (PEP 639) first, since it is an SPDX expression by definition;
+then a ``License`` field that states an expression; then the Trove ``License ::`` classifiers, which
+come from a fixed vocabulary that maps onto SPDX; then the ``License`` field itself, matched as text
+when a distribution has put its whole license in there.
+
+Classifiers that name a family rather than a license — ``BSD License``, which covers three different
+licenses, or ``GNU General Public License (GPL)``, which names no version — map to nothing. Picking
+one would put a license in the distribution's mouth that it never claimed. Those fall through to the
+license text the wheel shipped in its metadata directory, which does say which one it is.
+
+For Node: the ``license`` field, including the legacy ``{"type": ...}`` object and ``licenses``
+array; then the package's own ``LICENSE`` file, which its tarball ships. ``SEE LICENSE IN <file>``
+names no license and is treated as unstated.
+
+Anything still unresolved goes to the package's registry. This is the one thing a filesystem scan
+can do for an installed artifact that it cannot do for an OS package: a distribution in
+``site-packages`` is a real PyPI release, so there is somewhere to ask.
 
 ----
 
@@ -106,8 +169,10 @@ that predate the machine-readable copyright format sometimes state their license
 points at ``/usr/share/common-licenses``, and Feluda will not infer a license from a reference. In a
 stock ``debian:12-slim`` image this affects a handful of the 88 installed packages; the rest resolve.
 
-Pointing ``--filesystem`` at a tree with no package database at all is an error rather than an empty
-report, so a mistyped path cannot read as a clean scan.
+Pointing ``--filesystem`` at a tree with nothing installed in it at all is an error rather than an
+empty report, so a mistyped path cannot read as a clean scan. A tree holding only installed
+artifacts is fine: an installation directory like ``/opt/app`` has no package database behind it and
+is still worth scanning.
 
 ----
 
@@ -126,9 +191,8 @@ The same source feeds the document writers:
 Not Yet Covered
 ---------------
 
-RPM-based distributions and installed language artifacts (``site-packages``, ``node_modules``,
-gemspecs, jars) are not catalogued yet. Until they are, pipe syft's output through
-:ref:`sbom-ingest` for those cases:
+RPM-based distributions, installed Ruby gemspecs, jars and Go build info are not catalogued yet.
+Until they are, pipe syft's output through :ref:`sbom-ingest` for those cases:
 
 .. code-block:: bash
 

@@ -9,20 +9,26 @@
 //! feluda --filesystem rootfs --fail-on-restrictive
 //! ```
 //!
-//! The same path works on an extracted image layer, a chroot, or a mounted disk. No registry
-//! client, no image handling, no network: the licenses are already in the tree.
+//! The same path works on an extracted image layer, a chroot, or a mounted disk. No image handling
+//! and, for the OS packages, no network either: their licenses are already in the tree.
+//!
+//! Two questions get asked of the tree, because a distro's package database answers only half of
+//! it. [`apk`] and [`dpkg`] report what the distribution installed; [`artifacts`] reports what
+//! landed alongside it with no manifest behind it — the distributions in `site-packages`, the
+//! packages in `node_modules`. In a container the second is usually the larger half, and it is the
+//! half that is the application rather than the base image.
 //!
 //! Alpine and Debian are covered here because their databases are text. RPM is a binary store with
-//! three possible backends and is tracked separately (issue #253), as are installed language
-//! artifacts like `site-packages` and `node_modules` (issue #254). What this module reports is OS
-//! packages.
+//! three possible backends and is tracked separately (issue #253).
 
 pub mod apk;
+pub mod artifacts;
 pub mod copyright;
 pub mod deb822;
 pub mod dpkg;
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use crate::cli::with_spinner;
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
@@ -33,9 +39,22 @@ use crate::purl::Ecosystem;
 /// images that ship the file only under `/usr/lib`.
 const OS_RELEASE_PATHS: &[&str] = &["etc/os-release", "usr/lib/os-release"];
 
+/// What one package manager's database says about a filesystem.
+#[derive(Default)]
+pub struct Catalog {
+    /// One finding per installed package.
+    pub packages: Vec<LicenseInfo>,
+    /// The installed artifact metadata files the manager claims, relative to the scan root.
+    ///
+    /// Filtered to what [`artifacts`] keys on as the database is read, so a root filesystem's whole
+    /// file list — hundreds of thousands of entries — never has to be held. It is what keeps a
+    /// distro's Python package and the distribution it installs from being reported as two things.
+    pub owned: HashSet<PathBuf>,
+}
+
 /// A package manager's cataloger: reads a root filesystem, returns `Ok(None)` when its database is
 /// not there.
-type Cataloger = fn(&Path, Option<&str>) -> FeludaResult<Option<Vec<LicenseInfo>>>;
+type Cataloger = fn(&Path, Option<&str>) -> FeludaResult<Option<Catalog>>;
 
 /// The catalogers, in the order they are tried. Both run: an image can carry more than one package
 /// manager's database, and reporting only the first would hide the rest.
@@ -44,10 +63,12 @@ const CATALOGERS: &[(&str, &str, Cataloger)] = &[
     ("dpkg", dpkg::DATABASE_PATH, dpkg::catalog),
 ];
 
-/// Catalog every installed OS package under `root`.
+/// Catalog everything installed under `root`: the distro's own packages, then the language
+/// artifacts that arrived alongside them.
 ///
-/// Fails when the tree holds no package database at all. An empty report would be
-/// indistinguishable from a clean one, and a mistyped path should not read as a pass.
+/// Fails when the tree holds neither. An empty report would be indistinguishable from a clean one,
+/// and a mistyped path should not read as a pass. A tree that holds only artifacts is fine — an
+/// installation directory like `/opt/app` has no package database and is still worth scanning.
 pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInfo>> {
     if !root.is_dir() {
         return Err(source_error(format!(
@@ -67,31 +88,49 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
     );
 
     let mut findings: Vec<LicenseInfo> = Vec::new();
-    let mut cataloged = Vec::new();
+    let mut owned: HashSet<PathBuf> = HashSet::new();
+    let mut cataloged: Vec<String> = Vec::new();
 
     for (manager, database, catalog) in CATALOGERS {
-        let packages = with_spinner(&format!("📦: {manager} packages"), |indicator| {
-            let packages = catalog(root, namespace.as_deref());
-            let count = packages.as_ref().map(|found| match found {
-                Some(packages) => packages.len(),
+        let found = with_spinner(&format!("📦: {manager} packages"), |indicator| {
+            let found = catalog(root, namespace.as_deref());
+            let count = found.as_ref().map(|found| match found {
+                Some(catalog) => catalog.packages.len(),
                 None => 0,
             });
             indicator.update_progress(&match count {
                 Ok(count) => format!("{count} package{}", if count == 1 { "" } else { "s" }),
                 Err(_) => "unreadable".to_string(),
             });
-            packages
+            found
         })?;
 
-        if let Some(packages) = packages {
-            cataloged.push(*manager);
-            findings.extend(packages);
+        if let Some(catalog) = found {
+            cataloged.push((*manager).to_string());
+            findings.extend(catalog.packages);
+            owned.extend(catalog.owned);
         } else {
             log(
                 LogLevel::Info,
                 &format!("No {manager} database at {database}"),
             );
         }
+    }
+
+    // Second, everything installed that no package manager recorded. This runs after the OS
+    // catalogers because what they claim ownership of is what it has to skip.
+    let installed = with_spinner("📦: installed language artifacts", |indicator| {
+        let installed = artifacts::catalog(root, &owned);
+        indicator.update_progress(&format!(
+            "{} artifact{}",
+            installed.len(),
+            if installed.len() == 1 { "" } else { "s" }
+        ));
+        installed
+    });
+    if !installed.is_empty() {
+        cataloged.push(format!("{} installed artifacts", installed.len()));
+        findings.extend(installed);
     }
 
     if cataloged.is_empty() {
@@ -101,7 +140,8 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
             .collect::<Vec<_>>()
             .join(", ");
         return Err(source_error(format!(
-            "No installed package database found under {}. Looked for: {looked_for}.",
+            "Nothing installed found under {}. Looked for: {looked_for}, and for installed \
+             Python distributions and Node packages.",
             root.display()
         )));
     }
@@ -115,6 +155,7 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
         ),
     );
 
+    artifacts::resolve_missing_licenses(&mut findings);
     classify_findings(&mut findings, strict);
     Ok(findings)
 }
@@ -262,16 +303,83 @@ mod tests {
     }
 
     #[test]
-    fn test_a_tree_with_no_package_database_is_an_error() {
+    fn test_a_tree_with_nothing_installed_is_an_error() {
         // Silence would look exactly like a clean scan.
         let temp = tempfile::tempdir().unwrap();
         write(temp.path(), "etc/os-release", "ID=debian\n");
 
         let error = scan_filesystem(temp.path(), false).unwrap_err();
         assert!(
-            error.to_string().contains("No installed package database"),
+            error.to_string().contains("Nothing installed found"),
             "unexpected error: {error}"
         );
+    }
+
+    #[test]
+    fn test_an_installation_tree_needs_no_package_database() {
+        // `/opt/app` is a legitimate thing to point --filesystem at, and it has no distro behind it.
+        let temp = tempfile::tempdir().unwrap();
+        write(
+            temp.path(),
+            "node_modules/lodash/package.json",
+            r#"{"name":"lodash","version":"4.17.21","license":"MIT"}"#,
+        );
+
+        let findings = scan_filesystem(temp.path(), false).unwrap();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].name, "lodash");
+        assert_eq!(findings[0].license.as_deref(), Some("MIT"));
+    }
+
+    #[test]
+    fn test_an_artifact_an_os_package_ships_is_reported_once() {
+        let temp = tempfile::tempdir().unwrap();
+        write(temp.path(), "etc/os-release", "ID=debian\n");
+        write(
+            temp.path(),
+            dpkg::DATABASE_PATH,
+            "Package: python3-yaml\nStatus: install ok installed\nVersion: 6.0-3\n",
+        );
+        let metadata = "usr/lib/python3/dist-packages/PyYAML-6.0.egg-info/PKG-INFO";
+        write(
+            temp.path(),
+            metadata,
+            "Metadata-Version: 2.1\nName: PyYAML\nVersion: 6.0\nLicense: MIT\n",
+        );
+        write(
+            temp.path(),
+            "var/lib/dpkg/info/python3-yaml.list",
+            &format!("/{metadata}\n"),
+        );
+
+        let findings = scan_filesystem(temp.path(), false).unwrap();
+        let names: Vec<&str> = findings.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["debian/python3-yaml"]);
+    }
+
+    #[test]
+    fn test_an_artifact_no_os_package_ships_is_reported() {
+        // The same tree without the file list: nothing says the deb owns it, so it is the
+        // application's own dependency and belongs in the report.
+        let temp = tempfile::tempdir().unwrap();
+        write(temp.path(), "etc/os-release", "ID=debian\n");
+        write(
+            temp.path(),
+            dpkg::DATABASE_PATH,
+            "Package: python3-minimal\nStatus: install ok installed\nVersion: 3.11.2-1\n",
+        );
+        write(
+            temp.path(),
+            "usr/local/lib/python3.11/site-packages/requests-2.32.3.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: requests\nVersion: 2.32.3\nLicense: Apache-2.0\n",
+        );
+
+        let findings = scan_filesystem(temp.path(), false).unwrap();
+        let requests = findings
+            .iter()
+            .find(|finding| finding.name == "requests")
+            .expect("installed distribution missing");
+        assert_eq!(requests.purl().as_deref(), Some("pkg:pypi/requests@2.32.3"));
     }
 
     #[test]

@@ -9,18 +9,26 @@
 //! network: every answer is already inside the filesystem being scanned.
 
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::debug::{log, FeludaResult, LogLevel};
-use crate::licenses::LicenseInfo;
 use crate::purl::Ecosystem;
 
+use super::artifacts::is_artifact_metadata;
 use super::copyright::license_from_copyright;
 use super::deb822::parse_stanzas;
-use super::{package_finding, read_database};
+use super::{package_finding, read_database, Catalog};
 
 /// Where dpkg records what is installed, relative to the root of the filesystem being scanned.
 pub const DATABASE_PATH: &str = "var/lib/dpkg/status";
+
+/// Where dpkg records the files each package installed, one `<package>.list` per package.
+const INFO_DIRECTORY: &str = "var/lib/dpkg/info";
+
+/// The extension of a file list in that directory. The same directory holds maintainer scripts and
+/// checksums, which say nothing about what a package owns.
+const FILE_LIST_EXTENSION: &str = "list";
 
 /// Where Debian Policy puts each package's copyright file.
 const DOC_DIRECTORY: &str = "usr/share/doc";
@@ -45,7 +53,7 @@ struct Entry {
 ///
 /// `Ok(None)` means the tree has no dpkg database, which is the normal answer for an Alpine or RPM
 /// image and not an error. A database that is there but unreadable is.
-pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Vec<LicenseInfo>>> {
+pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Catalog>> {
     let Some(content) = read_database(&root.join(DATABASE_PATH))? else {
         return Ok(None);
     };
@@ -70,7 +78,71 @@ pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Vec<
         })
         .collect();
 
-    Ok(Some(packages))
+    Ok(Some(Catalog {
+        packages,
+        owned: owned_paths(root),
+    }))
+}
+
+/// The artifact metadata files dpkg records as belonging to a package.
+///
+/// A Debian Python package installs a real distribution into `dist-packages`, metadata directory
+/// and all. Without this the same library reports twice, once as `pkg:deb/debian/python3-yaml` and
+/// once as `pkg:pypi/pyyaml`, and a reader has no way to tell that they are one thing.
+///
+/// Filtered as it is read: a full root filesystem's file list runs to hundreds of thousands of
+/// entries and only the metadata files are ever asked about.
+fn owned_paths(root: &Path) -> HashSet<PathBuf> {
+    let directory = root.join(INFO_DIRECTORY);
+    let Ok(entries) = std::fs::read_dir(&directory) else {
+        log(
+            LogLevel::Warn,
+            &format!(
+                "No dpkg file lists at {}; installed artifacts cannot be attributed to packages",
+                directory.display()
+            ),
+        );
+        return HashSet::new();
+    };
+
+    let lists: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext == FILE_LIST_EXTENSION)
+        })
+        .collect();
+
+    let owned: HashSet<PathBuf> = lists
+        .par_iter()
+        .flat_map(|list| {
+            let Ok(content) = std::fs::read_to_string(list) else {
+                return Vec::new();
+            };
+            content.lines().filter_map(owned_path).collect::<Vec<_>>()
+        })
+        .collect();
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "{} of the files in {} dpkg packages are installed artifact metadata",
+            owned.len(),
+            lists.len()
+        ),
+    );
+    owned
+}
+
+/// One line of a file list, as a path relative to the scan root, when it is metadata worth
+/// remembering.
+///
+/// dpkg writes absolute paths; everything else in this module is relative to the root being
+/// scanned, which is what the artifact catalogers compare against.
+fn owned_path(line: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(line.trim().trim_start_matches('/'));
+    is_artifact_metadata(&path).then_some(path)
 }
 
 /// Read the installed packages out of a `status` file.
@@ -292,7 +364,10 @@ mod tests {
              License: Expat\n",
         );
 
-        let packages = catalog(temp.path(), Some("debian")).unwrap().unwrap();
+        let packages = catalog(temp.path(), Some("debian"))
+            .unwrap()
+            .unwrap()
+            .packages;
         assert_eq!(packages.len(), 2);
 
         let libssl = &packages[0];
@@ -312,14 +387,20 @@ mod tests {
         let temp = rootfs(STATUS);
         write_copyright(temp.path(), "openssl", GPL_COPYRIGHT);
 
-        let packages = catalog(temp.path(), Some("debian")).unwrap().unwrap();
+        let packages = catalog(temp.path(), Some("debian"))
+            .unwrap()
+            .unwrap()
+            .packages;
         assert_eq!(packages[0].license.as_deref(), Some("GPL-3.0-or-later"));
     }
 
     #[test]
     fn test_a_package_with_no_copyright_file_reports_unknown() {
         let temp = rootfs(STATUS);
-        let packages = catalog(temp.path(), Some("debian")).unwrap().unwrap();
+        let packages = catalog(temp.path(), Some("debian"))
+            .unwrap()
+            .unwrap()
+            .packages;
         assert!(packages.iter().all(|package| package.license.is_none()));
     }
 
@@ -327,5 +408,46 @@ mod tests {
     fn test_catalog_returns_none_without_a_database() {
         let temp = tempfile::tempdir().unwrap();
         assert!(catalog(temp.path(), Some("debian")).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_file_lists_claim_the_artifact_metadata_a_package_installs() {
+        let temp = rootfs(STATUS);
+        std::fs::create_dir_all(temp.path().join(INFO_DIRECTORY)).unwrap();
+        std::fs::write(
+            temp.path().join(INFO_DIRECTORY).join("python3-yaml.list"),
+            "/.\n\
+             /usr/lib/python3/dist-packages\n\
+             /usr/lib/python3/dist-packages/PyYAML-6.0.egg-info/PKG-INFO\n\
+             /usr/lib/python3/dist-packages/yaml/__init__.py\n",
+        )
+        .unwrap();
+        std::fs::write(
+            // Not a file list, and its contents are not paths.
+            temp.path()
+                .join(INFO_DIRECTORY)
+                .join("python3-yaml.md5sums"),
+            "d41d8cd98f00b204e9800998ecf8427e  usr/lib/python3/dist-packages/yaml/__init__.py\n",
+        )
+        .unwrap();
+
+        let owned = catalog(temp.path(), Some("debian")).unwrap().unwrap().owned;
+        assert_eq!(
+            owned,
+            HashSet::from([PathBuf::from(
+                "usr/lib/python3/dist-packages/PyYAML-6.0.egg-info/PKG-INFO"
+            )])
+        );
+    }
+
+    #[test]
+    fn test_a_tree_with_no_file_lists_claims_nothing() {
+        // Some minimal images ship the status file and drop `/var/lib/dpkg/info` to save space.
+        let temp = rootfs(STATUS);
+        assert!(catalog(temp.path(), Some("debian"))
+            .unwrap()
+            .unwrap()
+            .owned
+            .is_empty());
     }
 }

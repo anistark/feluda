@@ -245,7 +245,7 @@ fn both_package_managers_in_one_tree_are_reported_together() {
 }
 
 #[test]
-fn a_tree_without_a_package_database_is_an_error() {
+fn a_tree_with_nothing_installed_is_an_error() {
     // Silence here would be indistinguishable from a clean scan, so a mistyped path must not
     // report as a pass.
     let temp = tempfile::tempdir().unwrap();
@@ -255,8 +255,183 @@ fn a_tree_without_a_package_database_is_an_error() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("No installed package database"),
+        stderr.contains("Nothing installed found"),
         "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn installed_language_artifacts_are_cataloged_alongside_os_packages() {
+    // What the distro packaged is one half of an image; the application's own dependencies, which
+    // arrive with no manifest behind them, are the other.
+    let temp = debian_rootfs();
+    write(
+        temp.path(),
+        "usr/local/lib/python3.11/site-packages/requests-2.32.3.dist-info/METADATA",
+        "Metadata-Version: 2.1\nName: requests\nVersion: 2.32.3\nLicense: Apache-2.0\n",
+    );
+    write(
+        temp.path(),
+        "usr/local/lib/python3.11/site-packages/chardet-5.2.0.dist-info/METADATA",
+        "Metadata-Version: 2.1\n\
+         Name: chardet\n\
+         Version: 5.2.0\n\
+         Classifier: License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)\n",
+    );
+    write(
+        temp.path(),
+        "srv/app/node_modules/@babel/core/package.json",
+        r#"{"name":"@babel/core","version":"7.24.0","license":"MIT"}"#,
+    );
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+    assert_eq!(report.len(), 6);
+
+    let requests = find(&report, "requests");
+    assert_eq!(requests["license"], "Apache-2.0");
+    assert_eq!(requests["ecosystem"], "pypi");
+    assert_eq!(requests["purl"], "pkg:pypi/requests@2.32.3");
+
+    // A Trove classifier is a fixed vocabulary, so it maps onto SPDX rather than being reported as
+    // the prose it is written in.
+    assert_eq!(find(&report, "chardet")["license"], "LGPL-2.0-or-later");
+
+    // The npm scope is part of the name and therefore part of the PURL.
+    let babel = find(&report, "@babel/core");
+    assert_eq!(babel["ecosystem"], "npm");
+    assert_eq!(babel["purl"], "pkg:npm/%40babel/core@7.24.0");
+
+    // And the OS packages are still all there.
+    assert_eq!(find(&report, "debian/bash")["ecosystem"], "deb");
+}
+
+#[test]
+fn an_artifact_an_os_package_ships_is_not_reported_twice() {
+    // python3-yaml installs a real PyYAML distribution. It is one library, so it is one finding.
+    let temp = debian_rootfs();
+    let metadata = "usr/lib/python3/dist-packages/PyYAML-6.0.egg-info/PKG-INFO";
+    write(
+        temp.path(),
+        metadata,
+        "Metadata-Version: 2.1\nName: PyYAML\nVersion: 6.0\nLicense: MIT\n",
+    );
+    write(
+        temp.path(),
+        "var/lib/dpkg/info/python3-yaml.list",
+        &format!("/usr/lib/python3/dist-packages\n/{metadata}\n"),
+    );
+    write(
+        temp.path(),
+        "var/lib/dpkg/status",
+        &format!(
+            "{DPKG_STATUS}Package: python3-yaml\nStatus: install ok installed\nVersion: 6.0-3\n\n"
+        ),
+    );
+    write(
+        temp.path(),
+        "usr/share/doc/python3-yaml/copyright",
+        &dep5("Expat"),
+    );
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+
+    assert_eq!(find(&report, "debian/python3-yaml")["license"], "MIT");
+    assert!(
+        !report.iter().any(|entry| entry["name"] == "PyYAML"),
+        "the distribution the deb installs was reported a second time: {report:?}"
+    );
+}
+
+#[test]
+fn an_installation_tree_needs_no_package_database() {
+    // `/opt/app` has no distro behind it and is still worth scanning, which is the case that
+    // motivated a filesystem source in the first place.
+    let temp = tempfile::tempdir().unwrap();
+    write(
+        temp.path(),
+        "node_modules/copyleft-thing/package.json",
+        r#"{"name":"copyleft-thing","version":"1.0.0","license":"GPL-3.0-only"}"#,
+    );
+
+    let output = feluda(&[
+        "--filesystem",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--fail-on-restrictive",
+    ]);
+    let report = report(&output);
+    assert_eq!(report.len(), 1);
+    assert_eq!(find(&report, "copyleft-thing")["is_restrictive"], true);
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn an_artifact_stating_no_license_goes_to_its_registry() {
+    // Unlike an OS package, an installed distribution has coordinates a registry can answer for.
+    // The fixture names nothing real, so the lookup comes back empty whether or not there is a
+    // network, and the package is reported as unknown rather than guessed at.
+    let temp = tempfile::tempdir().unwrap();
+    write(
+        temp.path(),
+        "node_modules/feluda-fixture-no-such-package/package.json",
+        r#"{"name":"feluda-fixture-no-such-package","version":"9.9.9"}"#,
+    );
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+    assert!(find(&report, "feluda-fixture-no-such-package")["license"].is_null());
+
+    // The resolution pass has to actually run, or the fall-through is only theoretical.
+    let debug = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--debug"]);
+    let stdout = String::from_utf8_lossy(&debug.stdout);
+    assert!(
+        stdout.contains("whose metadata stated none"),
+        "the registry fall-through did not run: {stdout}"
+    );
+}
+
+#[test]
+fn sbom_generation_describes_installed_artifacts_too() {
+    let temp = debian_rootfs();
+    write(
+        temp.path(),
+        "usr/local/lib/python3.11/site-packages/requests-2.32.3.dist-info/METADATA",
+        "Metadata-Version: 2.1\nName: requests\nVersion: 2.32.3\nLicense: Apache-2.0\n",
+    );
+    let output_path = temp.path().join("app.cdx.json");
+
+    let output = feluda(&[
+        "sbom",
+        "cyclonedx",
+        "--filesystem",
+        temp.path().to_str().unwrap(),
+        "--output",
+        output_path.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "sbom generation failed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let document: Value =
+        serde_json::from_str(&fs::read_to_string(&output_path).expect("SBOM should be written"))
+            .expect("SBOM should be JSON");
+    let purls: Vec<&str> = document["components"]
+        .as_array()
+        .expect("CycloneDX document should list components")
+        .iter()
+        .filter_map(|component| component["purl"].as_str())
+        .collect();
+    assert!(
+        purls.contains(&"pkg:pypi/requests@2.32.3"),
+        "the installed distribution is missing from {purls:?}"
+    );
+    assert!(
+        purls.contains(&"pkg:deb/debian/libssl3@3.0.15-1~deb12u1"),
+        "the OS package is missing from {purls:?}"
     );
 }
 

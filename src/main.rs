@@ -46,7 +46,7 @@ struct CheckConfig {
     /// An SPDX or CycloneDX document to analyze in place of `path`'s manifests, or `-` for stdin.
     /// `path` still supplies the project license the compatibility check runs against.
     sbom_input: Option<String>,
-    /// A root filesystem or installation tree to catalog installed OS packages from, in place of
+    /// A root filesystem or installation tree to catalog installed packages and artifacts from, in place of
     /// `path`'s manifests. As with `sbom_input`, `path` still supplies the project license.
     filesystem: Option<String>,
     /// Where to write the ingested document back with Feluda's resolved licenses.

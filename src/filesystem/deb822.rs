@@ -23,6 +23,17 @@ impl Stanza {
             .map(|(_, value)| value.as_str())
     }
 
+    /// Every value of a field, in the order the fields appeared.
+    ///
+    /// Debian's own files state each field once, but the Python metadata that reuses this format
+    /// repeats `Classifier` freely, and only the whole set says what a distribution is.
+    pub fn all<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a str> {
+        self.fields
+            .iter()
+            .filter(move |(field, _)| field.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+
     /// The first line of a field, which is the part that carries the value when the rest of the
     /// field is prose: a `License` short name above its text, a `Description` summary above its
     /// long form.
@@ -122,6 +133,29 @@ mod tests {
             Some("GPL-2+\nThis program is free software.\n\nSee it.")
         );
         assert_eq!(stanzas[0].first_line("License"), Some("GPL-2+"));
+    }
+
+    #[test]
+    fn test_every_value_of_a_repeated_field_is_available() {
+        let stanzas = parse_stanzas(
+            "Name: pkg\n\
+             Classifier: Programming Language :: Python :: 3\n\
+             Classifier: License :: OSI Approved :: MIT License\n",
+        );
+        let classifiers: Vec<&str> = stanzas[0].all("Classifier").collect();
+        assert_eq!(
+            classifiers,
+            [
+                "Programming Language :: Python :: 3",
+                "License :: OSI Approved :: MIT License"
+            ]
+        );
+        // `get` still answers with the first, which is what the single-valued callers want.
+        assert_eq!(
+            stanzas[0].get("classifier"),
+            Some("Programming Language :: Python :: 3")
+        );
+        assert_eq!(stanzas[0].all("Source").count(), 0);
     }
 
     #[test]

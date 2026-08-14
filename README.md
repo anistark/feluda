@@ -303,7 +303,7 @@ The format is auto-detected. Components are identified by their PURL, so a Debia
 
 ### Filesystems as a Scan Source
 
-Feluda can also catalogue a filesystem itself, with no other tool in the loop. Point `--filesystem` at a root filesystem, an extracted image layer, a chroot, or a mounted disk, and Feluda reads the package databases the system's own package managers keep.
+Feluda can also catalogue a filesystem itself, with no other tool in the loop. Point `--filesystem` at a root filesystem, an extracted image layer, a chroot, or a mounted disk, and Feluda reads both the package databases the system's own package managers keep and the language artifacts installed alongside them.
 
 ```sh
 # Gate a container image on restrictive licenses, with no cataloguing tool involved
@@ -320,11 +320,15 @@ feluda sbom spdx --filesystem ./rootfs --output rootfs.spdx.json
 **What this covers:**
 - 🏔️ **Alpine** - the apk installed database, which records each package's license directly
 - 🌀 **Debian and Ubuntu** - the dpkg database for what is installed, plus each package's `copyright` file for its license, including the machine-readable DEP-5 format
+- 🐍 **Installed Python distributions** - `*.dist-info/METADATA` and `*.egg-info/PKG-INFO`, wherever they sit
+- 📗 **Installed Node packages** - the `package.json` inside every `node_modules` entry
 - 📦 **Anything unpacked** - `docker export` output, extracted layers, chroots, installation trees
 
-Packages carry the distro in their PURL (`pkg:deb/debian/libssl3@3.0.15-1`), so Feluda's findings match what other tools report for the same package. Debian's own license short names are translated to SPDX, so `GPL-2+` classifies as `GPL-2.0-or-later` rather than as unknown. A package whose license cannot be read is reported as unknown and never guessed at.
+OS packages carry the distro in their PURL (`pkg:deb/debian/libssl3@3.0.15-1`), so Feluda's findings match what other tools report for the same package. Debian's own license short names are translated to SPDX, so `GPL-2+` classifies as `GPL-2.0-or-later` rather than as unknown. A package whose license cannot be read is reported as unknown and never guessed at.
 
-RPM-based distributions and installed language artifacts (`site-packages`, `node_modules`) are not covered yet; pipe syft through `--sbom-input` for those in the meantime. Pointing `--filesystem` at a tree with no package database is an error, not an empty report.
+The application's own dependencies are usually the larger half of an image, and they arrive with no manifest behind them, so they are catalogued too. An artifact that a distro package already ships is reported once, not twice: Feluda reads dpkg's and apk's file lists to see which is which. An artifact whose installed metadata states no license is resolved against its registry, which is something an OS package can never do.
+
+RPM-based distributions, gemspecs, jars and Go build info are not covered yet; pipe syft through `--sbom-input` for those in the meantime. Pointing `--filesystem` at a tree with nothing installed in it is an error, not an empty report.
 
 ### SBOM Validation
 
