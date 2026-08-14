@@ -39,8 +39,9 @@ src/sbom/ingest.rs — read an SPDX/CycloneDX document, map components onto
                      LicenseInfo by PURL, resolve NOASSERTION from registries
         ↓
    ── or, with --filesystem, all of the above is replaced by ──
-src/filesystem/ — catalog installed OS packages from a root filesystem:
-                  apk's installed database, dpkg's status + copyright files
+src/filesystem/ — catalog what a root filesystem has installed: OS packages from
+                  apk's installed database and dpkg's status + copyright files,
+                  plus installed language artifacts (site-packages, node_modules)
         ↓
 src/licenses.rs — enrich with compatibility, OSI status, restrictiveness
         ↓
@@ -146,11 +147,15 @@ src/
 ├── utils.rs             # Git clone, path utilities
 ├── progress.rs          # Progress display utilities
 ├── filesystem/
-│   ├── mod.rs           # --filesystem: catalog installed OS packages from a tree
+│   ├── mod.rs           # --filesystem: catalog what a tree has installed
 │   ├── apk.rs           # Alpine: /lib/apk/db/installed
 │   ├── dpkg.rs          # Debian/Ubuntu: /var/lib/dpkg/status
 │   ├── copyright.rs     # DEP-5 parsing, Debian license short name → SPDX
-│   └── deb822.rs        # Shared stanza parser for dpkg's file formats
+│   ├── deb822.rs        # Shared stanza parser for dpkg's file formats
+│   └── artifacts/
+│       ├── mod.rs       # Tree walk for installed artifacts, OS-ownership filter
+│       ├── python.rs    # *.dist-info/METADATA, *.egg-info/PKG-INFO
+│       └── node.rs      # package.json inside node_modules
 ├── languages/
 │   ├── mod.rs           # Language enum, LanguageParser trait, file patterns
 │   ├── rust.rs          # Rust/Cargo dependency analysis
@@ -181,6 +186,7 @@ src/
 - **Two-tier license resolution.** Local files are checked first (e.g., `node_modules/*/LICENSE`, `Cargo.toml` license field), then GitHub API as fallback. The `--no-local` flag skips local checks.
 - **Three ways in, one pipeline.** The manifest scan, `--sbom-input` and `--filesystem` all produce a `Vec<LicenseInfo>`; everything downstream (compatibility, filters, reports, exit codes) is shared. A package's identity is its `Ecosystem` + PURL (`src/purl.rs`), which is what lets findings from different ecosystems coexist in one report. Sources that build findings themselves rather than through a language analyzer finish with `licenses::classify_findings`, so restrictiveness and OSI status are decided identically whatever discovered the package.
 - **OS packages carry their distro in the name.** A cataloged package is named `debian/libssl3`, which is what puts the namespace in its PURL (`pkg:deb/debian/libssl3`). This mirrors how maven, npm and golang names already carry their namespace. PURL qualifiers (`arch`, `distro`) are deliberately not emitted, because `parse_purl` deliberately drops them on read.
+- **Installed artifacts are deduped by file ownership, never by name.** dpkg's `/var/lib/dpkg/info/*.list` and apk's `F:`/`R:` records say which files belong to which package, so an artifact a distro package already ships is suppressed exactly. The OS catalogers filter those file lists through `filesystem::artifacts::is_artifact_metadata` as they read them, so only the handful of relevant paths are held in memory. Adding a new artifact cataloger means teaching that one function about its metadata file, and the ownership check follows for free.
 - **Registry lookups have one home each.** `languages::resolve_license_for(ecosystem, name, version)` dispatches to the lookup its analyzer already uses. Add a new registry client to the language module, not to the dispatcher.
 - **Caching.** GitHub API responses are cached in `.feluda/cache/github_licenses.json` with 30-day expiration.
 - **Configuration layering.** `figment` merges defaults → `.feluda.toml` → environment variables. See `src/config.rs`.
@@ -341,7 +347,7 @@ feluda --repo https://github.com/user/repo  # Analyze remote repo
 feluda --sbom-input sbom.json             # Analyze an existing SPDX/CycloneDX document
 syft nginx:latest -o spdx-json | feluda --sbom-input -   # ...or one piped in
 feluda --sbom-input sbom.json --sbom-enriched out.json   # Re-emit it with resolved licenses
-feluda --filesystem ./rootfs              # Catalog installed OS packages (apk, dpkg)
+feluda --filesystem ./rootfs              # Catalog installed OS packages + language artifacts
 feluda sbom spdx --filesystem ./rootfs    # ...and describe them in an SBOM
 
 # Output formats
@@ -400,7 +406,7 @@ feluda --debug                            # Enable debug logging
 | `src/table.rs` | TUI interface (ratatui) |
 | `src/sbom/mod.rs` | SBOM generation entry point |
 | `src/sbom/ingest.rs` | SBOM ingest (`--sbom-input`), the non-manifest scan source |
-| `src/filesystem/mod.rs` | Filesystem scan (`--filesystem`), the OS-package scan source |
+| `src/filesystem/mod.rs` | Filesystem scan (`--filesystem`), the installed-tree scan source |
 | `src/purl.rs` | `Ecosystem` enum, PURL building and parsing |
 | `src/cache.rs` | GitHub license data caching |
 | `config/license_compatibility.toml` | License compatibility matrix |

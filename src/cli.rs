@@ -53,7 +53,7 @@ pub enum SbomCommand {
         #[arg(short, long, default_value = "./")]
         path: String,
 
-        /// Catalog the OS packages installed under a root filesystem instead of a project tree
+        /// Catalog the packages and artifacts installed under a root filesystem instead of a project tree
         #[arg(long, value_name = "PATH")]
         filesystem: Option<String>,
 
@@ -67,7 +67,7 @@ pub enum SbomCommand {
         #[arg(short, long, default_value = "./")]
         path: String,
 
-        /// Catalog the OS packages installed under a root filesystem instead of a project tree
+        /// Catalog the packages and artifacts installed under a root filesystem instead of a project tree
         #[arg(long, value_name = "PATH")]
         filesystem: Option<String>,
 
@@ -114,7 +114,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "./")]
         path: String,
 
-        /// Catalog the OS packages installed under a root filesystem instead of a project tree
+        /// Catalog the packages and artifacts installed under a root filesystem instead of a project tree
         #[arg(long, value_name = "PATH")]
         filesystem: Option<String>,
 
@@ -217,7 +217,7 @@ pub struct Cli {
     #[arg(long, value_name = "FILE", conflicts_with = "repo", help_heading = HEADING_SOURCE)]
     pub sbom_input: Option<String>,
 
-    /// Catalog the OS packages installed under a root filesystem or installation tree
+    /// Catalog the packages and artifacts installed under a root filesystem or installation tree
     #[arg(
         long,
         value_name = "PATH",
