@@ -65,11 +65,43 @@ html.dark body::before {
     backdrop-filter: blur(16px) saturate(160%);
 }
 
-.sy-head-brand::after {
-    content: "Feluda";
+/* Brand lockup: [crab] Feluda [v1.2.3]
+   Shibuya hides the wordmark whenever a logo is set; we want both,
+   plus room for the version pill custom.js appends after it. */
+.sy-head-brand {
+    display: inline-flex;
+    align-items: center;
+}
+
+.sy-head-brand img + strong {
+    display: inline;
     margin-left: 0.5rem;
     font-size: 1.25rem;
     font-weight: 600;
+}
+
+/* Version pill — reads as metadata, never competes with the wordmark.
+   Shared by the navbar and the sidebar tile; the placement classes
+   below only position it. */
+.feluda-version {
+    padding: 0.15rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.25;
+    white-space: nowrap;
+    color: var(--tomato-11, #d13415);
+    background: rgba(229, 77, 46, 0.10);
+    border: 1px solid rgba(229, 77, 46, 0.28);
+}
+
+html.dark .feluda-version {
+    background: rgba(229, 77, 46, 0.16);
+    border-color: rgba(229, 77, 46, 0.38);
+}
+
+.sy-head-version {
+    margin-left: 0.45rem;
 }
 
 /* ============================================================
@@ -138,11 +170,43 @@ html.dark body::before {
     }
 }
 
-/* Tighter screens: drop the wordmark, keep the crab */
+/* Tighter screens: drop the wordmark and version, keep the crab.
+   The sidebar tile carries the version at these widths. */
 @media (max-width: 445px) {
-    .sy-head-brand::after {
-        content: none;
+    .sy-head-brand img + strong,
+    .sy-head-version {
+        display: none;
     }
+}
+
+/* ============================================================
+   Sidebar version tile, pinned to the bottom of the sidebar.
+   The inner wrapper becomes a full-height flex column so the
+   nav list scrolls inside it while the tile stays put — the
+   tile sits outside the scroll area, never over it.
+   Height matches both layouts: on desktop `.sy-lside-inner` is
+   sticky under the header, on mobile `#lside` is a fixed panel
+   spanning header to viewport bottom.
+   ============================================================ */
+.sy-lside-inner {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--sy-s-offset-top));
+}
+
+.sy-lside .sy-scrollbar {
+    flex: 1 1 auto;
+    min-height: 0;
+    /* Breathing room so the last nav item clears the tile */
+    padding-bottom: 2.5rem;
+}
+
+.sy-lside-version {
+    flex: none;
+    padding: 0.7rem 1.5rem;
+    padding-bottom: calc(0.7rem + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--glass-edge);
+    background: var(--sy-c-background);
 }
 
 /* ============================================================
@@ -297,6 +361,152 @@ div.highlight-default::before { content: none; }
 .sd-card.glassmorphic .sd-card-text a {
     color: var(--sy-c-link);
     font-weight: 500;
+}
+
+/* Iconify glyphs leading a card title: accent tinted, optically aligned
+   with the text rather than sitting on the baseline. */
+.sd-card.glassmorphic .sd-card-title iconify-icon,
+.sd-card.glassmorphic .sd-card-header iconify-icon {
+    color: var(--feluda-accent);
+    font-size: 1.15em;
+    vertical-align: -0.15em;
+    margin-right: 0.4rem;
+}
+
+/* ============================================================
+   Proof strip — the four product facts under the features lead.
+   Static figures, so no chart: label in muted ink, value in the
+   heading face at display size with proportional figures.
+   ============================================================ */
+.proof-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin: 2rem 0 2.5rem;
+}
+
+.proof-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 1.1rem 1rem;
+    border-radius: 16px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+
+.proof-value {
+    font-family: var(--sy-f-heading);
+    font-size: 2.25rem;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--feluda-accent);
+}
+
+.proof-label {
+    font-size: 0.82rem;
+    line-height: 1.35;
+    color: var(--sy-c-text-muted, #6b7280);
+}
+
+@media (max-width: 720px) {
+    .proof-strip {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem;
+    }
+
+    .proof-value {
+        font-size: 1.9rem;
+    }
+}
+
+/* ============================================================
+   Terminal illustration — a prompt with a command waiting to be
+   run. Deliberately dark in both color modes: a terminal reads
+   as a terminal, not as a themed surface.
+   ============================================================ */
+.term-illustration {
+    margin: 1.75rem 0;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    box-shadow: var(--glass-shadow);
+    background: #16181d;
+}
+
+.term-chrome {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.6rem 0.85rem;
+    background: #1f2229;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.term-dot {
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 50%;
+    background: #3f444e;
+}
+
+.term-dot:first-child { background: #ef5f56; }
+.term-dot:nth-child(2) { background: #f5bd4f; }
+.term-dot:nth-child(3) { background: #61c554; }
+
+.term-chrome-title {
+    margin-left: 0.35rem;
+    font-family: var(--sy-f-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+    color: #8b929f;
+}
+
+.term-body {
+    padding: 1.1rem 1.15rem 1.25rem;
+    overflow-x: auto;
+}
+
+.term-body code {
+    font-family: var(--sy-f-mono);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    white-space: pre;
+    color: #e8eaf0;
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+.term-prompt {
+    margin-right: 0.6rem;
+    font-weight: 600;
+    color: var(--tomato-11, #ff977d);
+}
+
+/* Caret parked after the command: the page is telling you to run it */
+.term-cursor {
+    display: inline-block;
+    width: 0.55rem;
+    height: 1.05em;
+    margin-left: 0.2rem;
+    vertical-align: -0.2em;
+    background: #e8eaf0;
+    animation: term-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes term-blink {
+    to { visibility: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .term-cursor {
+        animation: none;
+        opacity: 0.55;
+    }
 }
 
 /* Maintainer handles inside the "DM the Maintainers" card:

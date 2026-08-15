@@ -22,6 +22,11 @@ extensions = [
 ]
 
 templates_path = ['_templates']
+
+# Console blocks show a `$ ` prompt followed by real output; copy just the
+# command. Blocks with no prompt (bash, yaml, json) still copy in full.
+copybutton_prompt_text = r"\$ "
+copybutton_prompt_is_regexp = True
 exclude_patterns = []
 
 language = 'en'
