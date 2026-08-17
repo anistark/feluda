@@ -46,6 +46,9 @@ What Is Covered
    * - dpkg
      - Debian, Ubuntu and derivatives
      - ``/usr/share/doc/<package>/copyright``, since dpkg's database has no license field at all
+   * - rpm
+     - Fedora, RHEL, Rocky, Alma, CentOS Stream
+     - The ``License`` tag of each package header in ``/var/lib/rpm``
    * - pip, and anything that installs a wheel
      - Python distributions
      - ``*.dist-info/METADATA`` and ``*.egg-info/PKG-INFO``
@@ -72,6 +75,7 @@ Packages carry the distribution in their PURL, taken from the tree's own ``/etc/
 
    pkg:deb/debian/libssl3@3.0.15-1
    pkg:apk/alpine/musl@1.2.5-r0
+   pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41
 
 The distribution is part of a package's identity, not decoration: a Debian ``libssl3`` and an
 Ubuntu one are different packages, and consumers matching Feluda's SBOM against another tool's need
@@ -96,9 +100,9 @@ distribution into ``dist-packages``, metadata directory and all, so without care
 would be reported twice, once as ``pkg:deb/debian/python3-yaml`` and once as ``pkg:pypi/pyyaml``.
 
 Feluda suppresses the second by ownership rather than by name: dpkg records every file a package
-installed in ``/var/lib/dpkg/info/<package>.list``, and apk records the same in its installed
-database. An artifact whose metadata file appears in one of those lists is already in the report as
-an OS package.
+installed in ``/var/lib/dpkg/info/<package>.list``, apk records the same in its installed database,
+and an rpm header carries its file list in its own tags. An artifact whose metadata file appears in
+one of those lists is already in the report as an OS package.
 
 Nothing is matched on names, because ``python3-yaml`` to ``pyyaml`` is a guess that both over- and
 under-suppresses. And a library installed in more than one place — a virtualenv beside the system
@@ -161,6 +165,71 @@ feature exists for would stay green.
 
 ----
 
+RPM License Names
+-----------------
+
+Fedora has migrated its packages to SPDX identifiers, but package by package and release by release,
+so both spellings are live and Feluda reads both. A current ``fedora:41`` image states
+``GPL-2.0-or-later AND BSD-2-Clause`` directly; a ``rockylinux:9`` image states
+``(GPLv2+ or LGPLv3+) and GPLv3+`` for the same kind of thing.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Fedora legacy
+     - SPDX
+   * - ``GPLv2+``
+     - ``GPL-2.0-or-later``
+   * - ``LGPLv2.1``
+     - ``LGPL-2.1-only``
+   * - ``ASL 2.0``
+     - ``Apache-2.0``
+   * - ``BSD with advertising``
+     - ``BSD-4-Clause``
+   * - ``(GPLv2+ or LGPLv3+) and GPLv3+``
+     - ``(GPL-2.0-or-later OR LGPL-3.0-or-later) AND GPL-3.0-or-later``
+
+An expression that is already SPDX is returned unchanged, down to its grouping, so nothing is
+rewritten that was correct to begin with.
+
+Two names are deliberately left alone. A bare ``BSD`` maps to nothing, because Fedora used it for
+both the two and three clause licenses and a compliance report should not pick one, and
+``Public Domain`` maps to nothing because SPDX has no identifier for it. Both are reported as the
+package stated them.
+
+----
+
+RPM Database Backends
+---------------------
+
+rpm keeps its packages in a binary store, and which store depends on the rpm version that built the
+image. Feluda reads the sqlite backend, which rpm has defaulted to since 4.16 and which covers every
+RPM distribution still in support.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 25 45
+
+   * - File in ``/var/lib/rpm``
+     - Backend
+     - Status
+   * - ``rpmdb.sqlite``
+     - sqlite
+     - Read, covering Fedora 33+, RHEL 9+ and derivatives
+   * - ``Packages.db``
+     - ndb
+     - Reported by name, used by SUSE and openSUSE
+   * - ``Packages``
+     - Berkeley DB
+     - Reported by name, used by CentOS 7, RHEL 8 and Amazon Linux 2
+
+An image whose backend cannot be read is an error naming that backend, never an empty report, so an
+unreadable database can never be mistaken for a machine with nothing installed. For those images,
+catalogue with syft and pass the result through :ref:`sbom-ingest`.
+
+----
+
 Unknown Licenses
 ----------------
 
@@ -168,6 +237,10 @@ A package whose license cannot be read is reported as unknown, never guessed at.
 that predate the machine-readable copyright format sometimes state their license only in prose that
 points at ``/usr/share/common-licenses``, and Feluda will not infer a license from a reference. In a
 stock ``debian:12-slim`` image this affects a handful of the 88 installed packages; the rest resolve.
+
+apk and rpm have no such gap, because both record the license in the package's own metadata rather
+than in a file alongside it. A stock ``fedora:41`` or ``rockylinux:9`` image resolves every installed
+package.
 
 Pointing ``--filesystem`` at a tree with nothing installed in it at all is an error rather than an
 empty report, so a mistyped path cannot read as a clean scan. A tree holding only installed
@@ -191,8 +264,9 @@ The same source feeds the document writers:
 Not Yet Covered
 ---------------
 
-RPM-based distributions, installed Ruby gemspecs, jars and Go build info are not catalogued yet.
-Until they are, pipe syft's output through :ref:`sbom-ingest` for those cases:
+Installed Ruby gemspecs, jars and Go build info are not catalogued yet, and neither are the two
+older rpm backends above. Until they are, pipe syft's output through :ref:`sbom-ingest` for those
+cases:
 
 .. code-block:: bash
 

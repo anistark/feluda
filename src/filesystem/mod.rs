@@ -18,14 +18,16 @@
 //! packages in `node_modules`. In a container the second is usually the larger half, and it is the
 //! half that is the application rather than the base image.
 //!
-//! Alpine and Debian are covered here because their databases are text. RPM is a binary store with
-//! three possible backends and is tracked separately (issue #253).
+//! Alpine and Debian are covered because their databases are text. RPM is a binary store, and
+//! [`rpm`] reads the sqlite backend every in-support RPM distribution uses; the two older backends
+//! are reported by name rather than read.
 
 pub mod apk;
 pub mod artifacts;
 pub mod copyright;
 pub mod deb822;
 pub mod dpkg;
+pub mod rpm;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -40,7 +42,7 @@ use crate::purl::Ecosystem;
 const OS_RELEASE_PATHS: &[&str] = &["etc/os-release", "usr/lib/os-release"];
 
 /// What one package manager's database says about a filesystem.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Catalog {
     /// One finding per installed package.
     pub packages: Vec<LicenseInfo>,
@@ -56,11 +58,12 @@ pub struct Catalog {
 /// not there.
 type Cataloger = fn(&Path, Option<&str>) -> FeludaResult<Option<Catalog>>;
 
-/// The catalogers, in the order they are tried. Both run: an image can carry more than one package
-/// manager's database, and reporting only the first would hide the rest.
+/// The catalogers, in the order they are tried. All of them run: an image can carry more than one
+/// package manager's database, and reporting only the first would hide the rest.
 const CATALOGERS: &[(&str, &str, Cataloger)] = &[
     ("apk", apk::DATABASE_PATH, apk::catalog),
     ("dpkg", dpkg::DATABASE_PATH, dpkg::catalog),
+    ("rpm", rpm::DATABASE_PATH, rpm::catalog),
 ];
 
 /// Catalog everything installed under `root`: the distro's own packages, then the language

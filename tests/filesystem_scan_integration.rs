@@ -102,6 +102,28 @@ fn alpine_rootfs() -> tempfile::TempDir {
     temp
 }
 
+/// A Fedora root filesystem carrying the checked in rpm database.
+///
+/// The fixture is seven real headers taken from a `fedora:41` image, so the licenses under test are
+/// the ones Fedora actually ships rather than ones written to suit the test.
+fn fedora_rootfs() -> tempfile::TempDir {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    write(
+        temp.path(),
+        "etc/os-release",
+        "NAME=\"Fedora Linux\"\nID=fedora\nVERSION_ID=41\n",
+    );
+
+    let database = temp.path().join("var/lib/rpm");
+    fs::create_dir_all(&database).expect("failed to create rpm directory");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rpm/rpmdb.sqlite"),
+        database.join("rpmdb.sqlite"),
+    )
+    .expect("failed to copy the rpm fixture");
+    temp
+}
+
 /// A Debian root filesystem with a dpkg database and the copyright files it points at.
 fn debian_rootfs() -> tempfile::TempDir {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
@@ -480,6 +502,96 @@ fn sbom_generation_takes_the_same_source() {
     assert!(
         purls.contains(&"pkg:deb/debian/libssl3@3.0.15-1~deb12u1"),
         "namespaced PURL missing from {purls:?}"
+    );
+}
+
+#[test]
+fn fedora_rootfs_is_cataloged_from_the_rpm_database() {
+    let temp = fedora_rootfs();
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+
+    // Seven headers, less the gpg-pubkey pseudo package rpm records alongside them.
+    assert_eq!(report.len(), 6);
+    assert!(!report.iter().any(|entry| entry["name"]
+        .as_str()
+        .is_some_and(|name| name.contains("gpg-pubkey"))));
+
+    let bzip2 = find(&report, "fedora/bzip2-libs");
+    assert_eq!(bzip2["license"], "BSD-4-Clause");
+    assert_eq!(bzip2["ecosystem"], "rpm");
+    assert_eq!(bzip2["version"], "1.0.8-19.fc41");
+    assert_eq!(bzip2["purl"], "pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41");
+
+    // Fedora states SPDX expressions directly, and an AND expression has to survive intact for the
+    // restrictive half of it to count.
+    let lz4 = find(&report, "fedora/lz4-libs");
+    assert_eq!(lz4["license"], "GPL-2.0-or-later AND BSD-2-Clause");
+    assert_eq!(lz4["is_restrictive"], true);
+
+    assert_eq!(
+        find(&report, "fedora/libssh-config")["license"],
+        "LGPL-2.1-or-later"
+    );
+    assert_eq!(
+        find(&report, "fedora/publicsuffix-list-dafsa")["license"],
+        "MPL-2.0"
+    );
+}
+
+#[test]
+fn an_unsupported_rpm_backend_names_itself() {
+    // A CentOS 7 image. Reporting nothing installed would read as a clean scan of a machine with
+    // several hundred packages on it, which is the failure this message exists to prevent.
+    let temp = tempfile::tempdir().unwrap();
+    write(temp.path(), "etc/os-release", "ID=centos\n");
+    write(
+        temp.path(),
+        "var/lib/rpm/Packages",
+        "a berkeley db lives here",
+    );
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Berkeley DB") && stderr.contains("sqlite"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn an_rpm_root_filesystem_generates_an_sbom() {
+    let temp = fedora_rootfs();
+    let output_path = temp.path().join("rpm-sbom.json");
+    let output = feluda(&[
+        "sbom",
+        "spdx",
+        "--filesystem",
+        temp.path().to_str().unwrap(),
+        "--output",
+        output_path.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "sbom generation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let document: Value =
+        serde_json::from_str(&fs::read_to_string(&output_path).expect("SBOM should be written"))
+            .expect("SBOM should be JSON");
+    let purls: Vec<&str> = document["packages"]
+        .as_array()
+        .expect("SPDX document should list packages")
+        .iter()
+        .filter_map(|package| package["externalRefs"].as_array())
+        .flatten()
+        .filter_map(|reference| reference["referenceLocator"].as_str())
+        .collect();
+    assert!(
+        purls.contains(&"pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41"),
+        "namespaced rpm PURL missing from {purls:?}"
     );
 }
 

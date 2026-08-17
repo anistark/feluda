@@ -40,8 +40,9 @@ src/sbom/ingest.rs — read an SPDX/CycloneDX document, map components onto
         ↓
    ── or, with --filesystem, all of the above is replaced by ──
 src/filesystem/ — catalog what a root filesystem has installed: OS packages from
-                  apk's installed database and dpkg's status + copyright files,
-                  plus installed language artifacts (site-packages, node_modules)
+                  apk's installed database, dpkg's status + copyright files and
+                  rpm's sqlite header store, plus installed language artifacts
+                  (site-packages, node_modules)
         ↓
 src/licenses.rs — enrich with compatibility, OSI status, restrictiveness
         ↓
@@ -152,6 +153,11 @@ src/
 │   ├── dpkg.rs          # Debian/Ubuntu: /var/lib/dpkg/status
 │   ├── copyright.rs     # DEP-5 parsing, Debian license short name → SPDX
 │   ├── deb822.rs        # Shared stanza parser for dpkg's file formats
+│   ├── rpm/
+│   │   ├── mod.rs       # Fedora/RHEL: /var/lib/rpm, backend detection
+│   │   ├── sqlite.rs    # Read-only SQLite b-tree reader (no C dependency)
+│   │   ├── header.rs    # rpm header blob: tags, values, file list
+│   │   └── license.rs   # Fedora legacy license short name → SPDX
 │   └── artifacts/
 │       ├── mod.rs       # Tree walk for installed artifacts, OS-ownership filter
 │       ├── python.rs    # *.dist-info/METADATA, *.egg-info/PKG-INFO
@@ -186,7 +192,8 @@ src/
 - **Two-tier license resolution.** Local files are checked first (e.g., `node_modules/*/LICENSE`, `Cargo.toml` license field), then GitHub API as fallback. The `--no-local` flag skips local checks.
 - **Three ways in, one pipeline.** The manifest scan, `--sbom-input` and `--filesystem` all produce a `Vec<LicenseInfo>`; everything downstream (compatibility, filters, reports, exit codes) is shared. A package's identity is its `Ecosystem` + PURL (`src/purl.rs`), which is what lets findings from different ecosystems coexist in one report. Sources that build findings themselves rather than through a language analyzer finish with `licenses::classify_findings`, so restrictiveness and OSI status are decided identically whatever discovered the package.
 - **OS packages carry their distro in the name.** A cataloged package is named `debian/libssl3`, which is what puts the namespace in its PURL (`pkg:deb/debian/libssl3`). This mirrors how maven, npm and golang names already carry their namespace. PURL qualifiers (`arch`, `distro`) are deliberately not emitted, because `parse_purl` deliberately drops them on read.
-- **Installed artifacts are deduped by file ownership, never by name.** dpkg's `/var/lib/dpkg/info/*.list` and apk's `F:`/`R:` records say which files belong to which package, so an artifact a distro package already ships is suppressed exactly. The OS catalogers filter those file lists through `filesystem::artifacts::is_artifact_metadata` as they read them, so only the handful of relevant paths are held in memory. Adding a new artifact cataloger means teaching that one function about its metadata file, and the ownership check follows for free.
+- **Installed artifacts are deduped by file ownership, never by name.** dpkg's `/var/lib/dpkg/info/*.list`, apk's `F:`/`R:` records and rpm's `DIRNAMES`/`DIRINDEXES`/`BASENAMES` tags say which files belong to which package, so an artifact a distro package already ships is suppressed exactly. The OS catalogers filter those file lists through `filesystem::artifacts::is_artifact_metadata` as they read them, so only the handful of relevant paths are held in memory. Adding a new artifact cataloger means teaching that one function about its metadata file, and the ownership check follows for free.
+- **The rpm database is read without a SQLite dependency.** `filesystem/rpm/sqlite.rs` is a read-only b-tree reader for the one table rpm keeps headers in. This is deliberate: linking `rusqlite` (bundled) would put a C toolchain in front of every target in `release-binaries.yml`, and the `sqlite3` CLI is not guaranteed on the host. Don't replace it with either. Only the sqlite backend is read; ndb and Berkeley DB are detected and reported by name.
 - **Registry lookups have one home each.** `languages::resolve_license_for(ecosystem, name, version)` dispatches to the lookup its analyzer already uses. Add a new registry client to the language module, not to the dispatcher.
 - **Caching.** GitHub API responses are cached in `.feluda/cache/github_licenses.json` with 30-day expiration.
 - **Configuration layering.** `figment` merges defaults → `.feluda.toml` → environment variables. See `src/config.rs`.

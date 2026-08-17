@@ -40,11 +40,7 @@ pub enum Ecosystem {
     Conan,
     /// Debian and derivatives (`dpkg`), cataloged by [`crate::filesystem`].
     Deb,
-    // TODO: RPM is reserved for https://github.com/anistark/feluda/issues/253, which adds the
-    // cataloger. It is part of the identity model now so reading an rpm package out of someone
-    // else's SBOM already lands in the right ecosystem.
-    /// RPM-based distributions.
-    #[allow(dead_code)]
+    /// RPM-based distributions, cataloged by [`crate::filesystem`].
     Rpm,
     /// Alpine packages (`apk`), cataloged by [`crate::filesystem`].
     Apk,
