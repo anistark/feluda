@@ -134,8 +134,9 @@ keep. This is how you check a shipped artifact without another cataloguing tool 
    docker export app | tar -x -C rootfs
    feluda --filesystem rootfs --fail-on-restrictive
 
-Alpine (apk) and Debian or Ubuntu (dpkg) are covered. The same path works on an extracted image
-layer, a chroot, a mounted disk, or any installation tree.
+Alpine (apk), Debian or Ubuntu (dpkg) and the RPM distributions (Fedora, RHEL and derivatives) are
+covered. The same path works on an extracted image layer, a chroot, a mounted disk, or any
+installation tree.
 
 **Options:**
 
