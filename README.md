@@ -190,6 +190,9 @@ feluda --no-local
 # Skip the vendored/unmanaged tree walk (faster on very large repos)
 feluda --no-vendor-scan
 
+# Skip the ClearlyDefined lookup for licenses Feluda could not resolve
+feluda --no-clearlydefined
+
 # Filter by OSI approval status
 feluda --osi approved        # Show only OSI approved licenses
 feluda --osi not-approved   # Show only non-OSI approved licenses
@@ -204,6 +207,21 @@ By default, Feluda checks local files first for license information before makin
 - **Java**: Fetches POM files from Maven Central to extract `<licenses>` metadata
 
 Use `--no-local` to skip local checks and force network-only license lookup.
+
+### ClearlyDefined Fallback
+
+Anything still unresolved after local files and registries is looked up in
+[ClearlyDefined](https://clearlydefined.io), whose curated definitions often name a license Feluda
+could not find on its own. One batched request covers a whole scan, answers are cached for a week,
+and a license that arrives this way is classified and gated exactly like any other. If the service
+is unreachable the dependency simply stays unresolved.
+
+Turn it off with `--no-clearlydefined`, or in `.feluda.toml`:
+
+```toml
+[clearlydefined]
+enabled = false
+```
 
 ### Beyond Manifests
 

@@ -1518,6 +1518,8 @@ pub fn handle_generate_command(
         }
     };
 
+    crate::clearlydefined::resolve_unknown_licenses(&mut analyzed_data, false);
+
     log_debug("Analyzed dependencies for generate command", &analyzed_data);
 
     // Update each dependency with compatibility information if project license is known

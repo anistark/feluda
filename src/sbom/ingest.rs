@@ -72,6 +72,10 @@ pub fn ingest_sbom(
 
     resolve_missing_licenses(&mut components, &mut origins);
     classify_findings(&mut components, strict);
+    // Before the enriched document is written, so what it states is everything feluda resolved.
+    for index in crate::clearlydefined::resolve_unknown_licenses(&mut components, strict) {
+        origins[index].resolved = true;
+    }
 
     if let Some(output_path) = enriched_output {
         write_enriched(&document, format, &components, &origins, output_path)?;

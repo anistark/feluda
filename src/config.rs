@@ -70,6 +70,8 @@ pub struct FeludaConfig {
     #[serde(default)]
     pub dependencies: DependencyConfig,
     #[serde(default)]
+    pub clearlydefined: ClearlyDefinedConfig,
+    #[serde(default)]
     pub strict: bool,
 }
 
@@ -94,6 +96,44 @@ impl FeludaConfig {
 /// - EPL-2.0
 ///
 /// This can be overridden via `.feluda.toml` or environment variables.
+/// Whether unresolved licenses may be looked up in ClearlyDefined.
+///
+/// On by default: the lookup only runs for findings that already failed to resolve, and one
+/// batched request answers a whole scan. Projects that must not talk to a third party service turn
+/// it off here, or per run with `--no-clearlydefined`.
+///
+/// ```toml
+/// [clearlydefined]
+/// enabled = false
+/// ```
+///
+/// `endpoint` points the lookup somewhere else: an air-gapped mirror, a proxy, or a self-hosted
+/// instance. It is the definitions endpoint, without a query string.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ClearlyDefinedConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_clearlydefined_endpoint")]
+    pub endpoint: String,
+}
+
+impl Default for ClearlyDefinedConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            endpoint: default_clearlydefined_endpoint(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_clearlydefined_endpoint() -> String {
+    "https://api.clearlydefined.io/definitions".to_string()
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LicenseConfig {
     #[serde(default = "default_restrictive_licenses")]
@@ -807,6 +847,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
     #[test]
     fn test_config_serialization() {
         let config = FeludaConfig {
+            clearlydefined: ClearlyDefinedConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
@@ -1160,6 +1201,7 @@ match_all = ["Cal.com, Inc."]
     #[test]
     fn test_feluda_config_validation_success() {
         let config = FeludaConfig {
+            clearlydefined: ClearlyDefinedConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string(), "GPL-3.0".to_string()],
@@ -1177,6 +1219,7 @@ match_all = ["Cal.com, Inc."]
     #[test]
     fn test_feluda_config_validation_license_failure() {
         let config = FeludaConfig {
+            clearlydefined: ClearlyDefinedConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["".to_string()], // Invalid empty license
@@ -1199,6 +1242,7 @@ match_all = ["Cal.com, Inc."]
     #[test]
     fn test_feluda_config_validation_dependency_failure() {
         let config = FeludaConfig {
+            clearlydefined: ClearlyDefinedConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string()],
@@ -1631,6 +1675,7 @@ reason = "All versions ignored"
     #[test]
     fn test_feluda_config_with_dependency_ignore() {
         let config = FeludaConfig {
+            clearlydefined: ClearlyDefinedConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["GPL-3.0".to_string()],

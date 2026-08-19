@@ -301,6 +301,10 @@ pub struct Cli {
     /// Skip the vendored/unmanaged dependency tree walk (faster on large repos)
     #[arg(long, help_heading = HEADING_DETECTION)]
     pub no_vendor_scan: bool,
+
+    /// Skip the ClearlyDefined lookup for licenses Feluda could not resolve
+    #[arg(long, help_heading = HEADING_DETECTION)]
+    pub no_clearlydefined: bool,
 }
 
 impl Cli {
@@ -832,6 +836,7 @@ mod tests {
             strict: false,
             no_local: false,
             no_vendor_scan: false,
+            no_clearlydefined: false,
         };
 
         assert_eq!(cli.path, "./");
@@ -879,6 +884,7 @@ mod tests {
             strict: false,
             no_local: false,
             no_vendor_scan: false,
+            no_clearlydefined: false,
         };
 
         let cmd = cli.get_command_args();
@@ -933,6 +939,7 @@ mod tests {
             strict: false,
             no_local: false,
             no_vendor_scan: false,
+            no_clearlydefined: false,
         };
 
         let cmd = cli.get_command_args();

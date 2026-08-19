@@ -1,4 +1,5 @@
 mod cache;
+mod clearlydefined;
 mod cli;
 mod config;
 mod debug;
@@ -101,6 +102,8 @@ fn run() -> FeludaResult<()> {
 
     // Set GitHub API token for authenticated requests
     set_github_token(args.github_token.clone());
+
+    clearlydefined::set_disabled(args.no_clearlydefined);
 
     // Handle repository cloning if --repo is provided
     let (analysis_path, _temp_dir) = match &args.repo.clone() {
@@ -450,6 +453,11 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
         analyzed_data.extend(vendored_findings);
     }
 
+    // Last resort for anything still unresolved. The other two sources run this themselves, since
+    // an ingested SBOM has to be enriched with the result and a cataloged filesystem is finished
+    // by the time it returns.
+    clearlydefined::resolve_unknown_licenses(&mut analyzed_data, config.strict);
+
     Ok((analyzed_data, project_license))
 }
 
@@ -728,8 +736,8 @@ fn handle_cache_command(clear: bool) -> FeludaResult<()> {
         cache::clear_github_licenses_cache()?;
         println!("✓ Cache cleared successfully\n");
     } else {
-        let status = cache::get_cache_status()?;
-        status.print_status();
+        cache::get_cache_status()?.print_status();
+        cache::get_clearlydefined_cache_status()?.print_status();
     }
     Ok(())
 }

@@ -139,9 +139,13 @@ const CDXGEN_CYCLONEDX: &str = r#"{
   ]
 }"#;
 
+/// Every test drives the binary with the ClearlyDefined fallback off: the fixtures are built so
+/// license resolution succeeds locally, and a network lookup would make the suite depend on a
+/// third party service being up.
 fn feluda(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_feluda"))
         .args(args)
+        .env("FELUDA_CLEARLYDEFINED_ENABLED", "false")
         .output()
         .expect("failed to run feluda binary")
 }
@@ -150,6 +154,7 @@ fn feluda(args: &[&str]) -> Output {
 fn feluda_with_stdin(args: &[&str], input: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_feluda"))
         .args(args)
+        .env("FELUDA_CLEARLYDEFINED_ENABLED", "false")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

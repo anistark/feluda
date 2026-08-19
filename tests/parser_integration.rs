@@ -19,7 +19,10 @@ const MIT_TEXT: &str = "MIT License\n\nCopyright (c) 2026 Fixture\n\nPermission 
 
 fn run_feluda(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_feluda"));
-    cmd.current_dir(dir)
+    // The fixtures resolve locally; the ClearlyDefined fallback would make the suite depend on a
+    // third party service being up.
+    cmd.env("FELUDA_CLEARLYDEFINED_ENABLED", "false")
+        .current_dir(dir)
         .arg("--path")
         .arg(dir.to_str().unwrap())
         .args(args);

@@ -300,6 +300,32 @@ Feluda skips filesystem lookups and goes straight to remote sources, which is sl
 
 ----
 
+Resolve the Last Unknowns
+-------------------------
+
+Anything still unresolved after local files and registries goes to ClearlyDefined, whose curated
+definitions often name a license Feluda could not find on its own. It runs on every scan source and
+fails silently, so an unreachable service leaves the report exactly as it would have been.
+
+.. code-block:: bash
+
+   feluda --no-clearlydefined
+
+**Options:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Flag
+     - Description
+   * - ``--no-clearlydefined``
+     - Skip the ClearlyDefined lookup for unresolved licenses
+
+See :ref:`cli-clearlydefined` for what is asked, what comes back, and how to point it elsewhere.
+
+----
+
 Authenticate with GitHub
 ------------------------
 

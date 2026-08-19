@@ -14,7 +14,22 @@ cache
 Overview
 --------
 
-Feluda caches GitHub license responses under ``.feluda/cache/github_licenses.json`` to stay under rate limits and speed up repeated scans.
+Feluda caches what it fetches, to stay under rate limits and to speed up repeated scans. Two files
+live in your user cache directory:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 20 45
+
+   * - File
+     - Expires after
+     - Holds
+   * - ``github_licenses.json``
+     - 30 days
+     - The GitHub license table, which drives restrictiveness classification
+   * - ``clearlydefined.json``
+     - 7 days
+     - Declared licenses ClearlyDefined answered with, keyed by package coordinate. Packages it had no answer for are cached too, so they are not asked about again on every run
 
 ----
 
@@ -27,7 +42,7 @@ Inspect cache statistics like size and freshness.
 
    feluda cache
 
-Feluda prints the cache location, the number of entries, and whether the cache is still valid.
+Feluda prints each cache's location, its number of entries, and whether it is still valid.
 
 **Output includes:**
 
@@ -47,7 +62,7 @@ Remove stale or corrupted cache data.
 
    feluda cache --clear
 
-Feluda deletes the cache file so the next scan starts fresh with remote data.
+Feluda deletes both cache files so the next scan starts fresh with remote data.
 
 **Options:**
 
@@ -58,7 +73,7 @@ Feluda deletes the cache file so the next scan starts fresh with remote data.
    * - Flag
      - Description
    * - ``--clear``
-     - Delete the cache file and start fresh
+     - Delete both cache files and start fresh
 
 ----
 
@@ -77,4 +92,7 @@ Cache Behavior
 
 **Cache location:**
 
-The cache is stored at ``.feluda/cache/github_licenses.json`` relative to the scanned project directory.
+Your user cache directory, which is ``~/Library/Caches/feluda`` on macOS,
+``$XDG_CACHE_HOME/feluda`` (or ``~/.cache/feluda``) on Linux, and ``%LOCALAPPDATA%\feluda`` on
+Windows. It is shared across projects, so a license resolved for one is already resolved for the
+next.

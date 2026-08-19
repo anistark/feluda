@@ -44,6 +44,9 @@ src/filesystem/ — catalog what a root filesystem has installed: OS packages fr
                   rpm's sqlite header store, plus installed language artifacts
                   (site-packages, node_modules)
         ↓
+src/clearlydefined.rs — last resort for findings still unresolved: batch-ask
+                        ClearlyDefined by package coordinate, then reclassify
+        ↓
 src/licenses.rs — enrich with compatibility, OSI status, restrictiveness
         ↓
 src/reporter.rs — format output (text/JSON/YAML/CI/gist)
@@ -67,7 +70,7 @@ src/reporter.rs — format output (text/JSON/YAML/CI/gist)
 
 ### Critical Rules
 
-1. **Local-first license resolution.** Feluda checks local files before making network requests. The `--no-local` flag overrides this. Respect this order in all language parsers.
+1. **Local-first license resolution.** Feluda checks local files before making network requests. The `--no-local` flag overrides this. Respect this order in all language parsers. ClearlyDefined comes last, after everything else has failed — never make it a first choice.
 
 2. **GitHub API rate limits matter.** Unauthenticated: 60 req/hr. Authenticated (`--github-token`): 5,000 req/hr. Never make unnecessary API calls. Use the cache system (`src/cache.rs`).
 
@@ -140,7 +143,8 @@ src/
 ├── licenses.rs          # License analysis, compatibility, OSI status, GitHub API
 ├── source_scan.rs       # Own-source license header findings (default scan)
 ├── vendor_scan.rs       # Vendored/unmanaged dependency findings (default scan)
-├── cache.rs             # GitHub license data caching (.feluda/cache/)
+├── clearlydefined.rs    # Last-resort license lookup for unresolved findings
+├── cache.rs             # GitHub license table + ClearlyDefined answer caching
 ├── reporter.rs          # Text/JSON/YAML/CI/gist output formatting
 ├── table.rs             # TUI mode (ratatui)
 ├── generate.rs          # NOTICE / THIRD_PARTY_LICENSES file generation
@@ -189,13 +193,14 @@ src/
 
 - **Language detection via file patterns.** `src/languages/mod.rs` defines `Language::from_file_name()` which maps manifest filenames to language variants. `src/parser.rs` scans the project root for these files.
 - **Parallel analysis.** Multiple project roots are analyzed in parallel using `rayon`.
-- **Two-tier license resolution.** Local files are checked first (e.g., `node_modules/*/LICENSE`, `Cargo.toml` license field), then GitHub API as fallback. The `--no-local` flag skips local checks.
+- **Three-tier license resolution.** Local files are checked first (e.g., `node_modules/*/LICENSE`, `Cargo.toml` license field), then the ecosystem's registry or the GitHub API, then ClearlyDefined for whatever is still unresolved. The `--no-local` flag skips the first tier, `--no-clearlydefined` skips the last.
 - **Three ways in, one pipeline.** The manifest scan, `--sbom-input` and `--filesystem` all produce a `Vec<LicenseInfo>`; everything downstream (compatibility, filters, reports, exit codes) is shared. A package's identity is its `Ecosystem` + PURL (`src/purl.rs`), which is what lets findings from different ecosystems coexist in one report. Sources that build findings themselves rather than through a language analyzer finish with `licenses::classify_findings`, so restrictiveness and OSI status are decided identically whatever discovered the package.
 - **OS packages carry their distro in the name.** A cataloged package is named `debian/libssl3`, which is what puts the namespace in its PURL (`pkg:deb/debian/libssl3`). This mirrors how maven, npm and golang names already carry their namespace. PURL qualifiers (`arch`, `distro`) are deliberately not emitted, because `parse_purl` deliberately drops them on read.
 - **Installed artifacts are deduped by file ownership, never by name.** dpkg's `/var/lib/dpkg/info/*.list`, apk's `F:`/`R:` records and rpm's `DIRNAMES`/`DIRINDEXES`/`BASENAMES` tags say which files belong to which package, so an artifact a distro package already ships is suppressed exactly. The OS catalogers filter those file lists through `filesystem::artifacts::is_artifact_metadata` as they read them, so only the handful of relevant paths are held in memory. Adding a new artifact cataloger means teaching that one function about its metadata file, and the ownership check follows for free.
 - **The rpm database is read without a SQLite dependency.** `filesystem/rpm/sqlite.rs` is a read-only b-tree reader for the one table rpm keeps headers in. This is deliberate: linking `rusqlite` (bundled) would put a C toolchain in front of every target in `release-binaries.yml`, and the `sqlite3` CLI is not guaranteed on the host. Don't replace it with either. Only the sqlite backend is read; ndb and Berkeley DB are detected and reported by name.
 - **Registry lookups have one home each.** `languages::resolve_license_for(ecosystem, name, version)` dispatches to the lookup its analyzer already uses. Add a new registry client to the language module, not to the dispatcher.
-- **Caching.** GitHub API responses are cached in `.feluda/cache/github_licenses.json` with 30-day expiration.
+- **ClearlyDefined is the exception, and deliberately not a language module.** It answers for every ecosystem at once, so it lives in `src/clearlydefined.rs` and runs as a pass over finished findings rather than inside an analyzer: `resolve_unknown_licenses(&mut findings, strict)` picks out what is still unresolved, maps it onto a ClearlyDefined coordinate, asks in one batch, and reclassifies what it fills in. Each scan source calls it once where its findings are final — the SBOM ingest before it writes the enriched copy, `scan_filesystem` after `classify_findings`, and `analyze_dependencies` at the end of the manifest branch. It returns the indices it changed, which is how the enriched SBOM knows what to write back. Only `licensed.declared` is read; the per-file scan results in the same document describe fixtures and vendored code inside the package.
+- **Caching.** Two files in the user cache directory (`~/Library/Caches/feluda`, `$XDG_CACHE_HOME/feluda`, `%LOCALAPPDATA%\feluda`): `github_licenses.json` for the GitHub license table (30 days) and `clearlydefined.json` for ClearlyDefined answers (7 days, misses cached too). Both go through the generic `load_cache`/`save_cache` pair in `src/cache.rs`; `feluda cache` reports both and `--clear` removes both.
 - **Configuration layering.** `figment` merges defaults → `.feluda.toml` → environment variables. See `src/config.rs`.
 - **Error handling.** `thiserror`-based `FeludaError` in `src/debug.rs` with `FeludaResult<T>` alias. Debug mode (`--debug`) enables verbose logging.
 
@@ -295,6 +300,8 @@ cargo run -- --path examples/python-example
 ## Testing
 
 - **Unit tests** live alongside source code (standard Rust `#[cfg(test)]` modules).
+- **Integration tests** in `tests/` drive the real binary (`CARGO_BIN_EXE_feluda`) against fixtures built in temp directories. They must pass offline: fixtures are crafted so licenses resolve locally, and every harness sets `FELUDA_CLEARLYDEFINED_ENABLED=false` so the suite never depends on a third party service. Keep that env var on any new harness that runs the binary.
+- **Testing something that talks to the network** — point it at a stub server rather than the real one. `tests/clearlydefined_integration.rs` runs a `TcpListener` on localhost and sets `FELUDA_CLEARLYDEFINED_ENDPOINT`; it also gives each run its own `HOME`/`XDG_CACHE_HOME`, since a cached answer would otherwise mean the stub is never called. Live checks against the real service go behind `#[ignore]`.
 - **Dev dependencies** include `tempfile`, `mockall`, `http`, `temp-env`, `serial_test`.
 - Always run `cargo test` before committing.
 - The CI expects zero clippy warnings: `cargo clippy --all-targets --all-features -- -D warnings`.
@@ -390,6 +397,7 @@ feluda cache --clear                      # Clear cache
 feluda --github-token <token>             # Authenticated API requests
 feluda --no-local                         # Skip local license detection
 feluda --no-vendor-scan                   # Skip the vendored/unmanaged tree walk
+feluda --no-clearlydefined                # Skip the ClearlyDefined lookup for unresolved licenses
 feluda --strict                           # Strict license parsing
 feluda --debug                            # Enable debug logging
 ```
@@ -415,11 +423,12 @@ feluda --debug                            # Enable debug logging
 | `src/sbom/ingest.rs` | SBOM ingest (`--sbom-input`), the non-manifest scan source |
 | `src/filesystem/mod.rs` | Filesystem scan (`--filesystem`), the installed-tree scan source |
 | `src/purl.rs` | `Ecosystem` enum, PURL building and parsing |
-| `src/cache.rs` | GitHub license data caching |
+| `src/clearlydefined.rs` | ClearlyDefined fallback for licenses nothing else resolved |
+| `src/cache.rs` | GitHub license table and ClearlyDefined answer caching |
 | `config/license_compatibility.toml` | License compatibility matrix |
 | `action.yml` | GitHub Action definition |
 | `justfile` | All development task commands |
-| `.feluda.toml` | User configuration (restrictive overrides, ignores) |
+| `.feluda.toml` | User configuration (restrictive overrides, ignores, custom licenses, ClearlyDefined toggle) |
 | `skills/feluda/SKILL.md` | Claude Code skill — install in any project to get auto license checks |
 
 ---
@@ -482,6 +491,8 @@ feluda --debug                            # Enable debug logging
 - **clippy must pass with zero warnings** — CI enforces `-D warnings`.
 - **The `--debug` flag controls logging.** All `log()`, `log_debug()`, `log_error()` calls in `src/debug.rs` are no-ops unless `--debug` is active.
 - **`reqwest` is in blocking mode.** Despite `tokio` being a dependency, HTTP calls use `reqwest::blocking`. This is intentional for CLI simplicity.
+- **The ClearlyDefined API needs HTTP/1.1.** It accepts an HTTP/2 POST and never answers it, so its client sets `http1_only()`. It also intermittently hangs on HTTP/1.1 (accepts the request, never responds), which is why that client has a short timeout, one retry on a fresh connection, and gives up on the run after a batch fails twice. Don't remove either without testing against the live service.
+- **Two tests depend on the GitHub license table.** The apk and rpm filesystem integration tests assert GPL packages classify as restrictive, which comes from `fetch_licenses_from_github`. They fail on a machine with an empty cache and an exhausted unauthenticated rate limit (60 req/hr). Pre-existing; a `GITHUB_TOKEN` or a warm cache makes them pass.
 - **`serial_test` is used for tests that share global state.** Some tests modify static state (e.g., debug mode, GitHub token). Use `#[serial]` for these.
 - **The `progress` module and `LoadingIndicator`** write directly to stdout with ANSI escape codes. They're skipped in debug mode to avoid garbled output.
 - **Configuration validation is strict.** Duplicate licenses in restrictive/ignore lists, empty license strings, and licenses appearing in both lists are caught. See `src/config.rs`.

@@ -50,6 +50,9 @@ Use this table to double-check flag behavior before scripting.
    * - ``feluda --no-vendor-scan``
      - Skip the vendored/unmanaged dependency tree walk.
      - The walk covers the whole source tree; skip it on very large repos.
+   * - ``feluda --no-clearlydefined``
+     - Skip the ClearlyDefined lookup for unresolved licenses.
+     - The lookup is on by default; see :ref:`cli-clearlydefined`.
    * - ``feluda --github-token <token>``
      - Pass a GitHub token inline.
      - Overridden by ``GITHUB_TOKEN`` env var when both are present.
