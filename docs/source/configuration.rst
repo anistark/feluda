@@ -197,6 +197,30 @@ Feluda re-evaluates every dependency against the updated matrix and flags incomp
 
 ----
 
+Control the ClearlyDefined fallback
+-----------------------------------
+
+Licenses Feluda cannot resolve on its own are looked up in ClearlyDefined. The lookup is on by
+default and only ever runs for dependencies that already failed to resolve.
+
+.. code-block:: toml
+
+   [clearlydefined]
+   enabled = true
+   endpoint = "https://api.clearlydefined.io/definitions"
+
+Set ``enabled = false`` when package names and versions must not leave the machine, or point
+``endpoint`` at a mirror, a proxy, or a self-hosted instance. Both have environment equivalents:
+
+.. code-block:: bash
+
+   export FELUDA_CLEARLYDEFINED_ENABLED=false
+   export FELUDA_CLEARLYDEFINED_ENDPOINT=https://clearlydefined.internal/definitions
+
+``--no-clearlydefined`` turns it off for a single run. See :ref:`cli-clearlydefined`.
+
+----
+
 Control environment overrides
 -----------------------------
 

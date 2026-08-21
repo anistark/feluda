@@ -57,8 +57,12 @@ pub fn handle_sbom_command(
 
     let analyzed_data = match &filesystem {
         Some(root) => scan_filesystem(std::path::Path::new(root), false)?,
-        None => parse_root(&path, None, false, false)
-            .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?,
+        None => {
+            let mut analyzed_data = parse_root(&path, None, false, false)
+                .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?;
+            crate::clearlydefined::resolve_unknown_licenses(&mut analyzed_data, false);
+            analyzed_data
+        }
     };
 
     log(

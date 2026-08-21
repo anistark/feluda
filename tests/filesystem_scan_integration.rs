@@ -64,9 +64,13 @@ const DPKG_STATUS: &str = "Package: libssl3\n\
     Version: 1.0\n\
     \n";
 
+/// Every test drives the binary with the ClearlyDefined fallback off: the fixtures are built so
+/// license resolution succeeds locally, and a network lookup would make the suite depend on a
+/// third party service being up.
 fn feluda(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_feluda"))
         .args(args)
+        .env("FELUDA_CLEARLYDEFINED_ENABLED", "false")
         .output()
         .expect("failed to run feluda binary")
 }

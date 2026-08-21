@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::debug::{log, log_error, FeludaResult, LogLevel};
@@ -16,13 +16,18 @@ const CACHE_SUBDIR: &str = "feluda";
 const GITHUB_LICENSES_CACHE_FILE: &str = "github_licenses.json";
 const CACHE_TTL_SECS: u64 = 30 * 24 * 60 * 60; // 30 days
 
+/// ClearlyDefined answers are cached separately and expire sooner: the GitHub table is the SPDX
+/// license list, which barely moves, while ClearlyDefined definitions gain curations continuously.
+const CLEARLYDEFINED_CACHE_FILE: &str = "clearlydefined.json";
+const CLEARLYDEFINED_TTL_SECS: u64 = 7 * 24 * 60 * 60; // 7 days
+
 const CACHE_VERSION: u32 = 1;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-struct CacheEntry {
+struct CacheEntry<T> {
     #[serde(default)]
     version: u32,
-    data: HashMap<String, License>,
+    data: HashMap<String, T>,
     timestamp: u64,
 }
 
@@ -49,13 +54,17 @@ fn github_cache_path() -> FeludaResult<PathBuf> {
     Ok(cache_dir_path()?.join(GITHUB_LICENSES_CACHE_FILE))
 }
 
-fn is_entry_fresh(timestamp: u64) -> bool {
+fn clearlydefined_cache_path() -> FeludaResult<PathBuf> {
+    Ok(cache_dir_path()?.join(CLEARLYDEFINED_CACHE_FILE))
+}
+
+fn is_entry_fresh_for(timestamp: u64, ttl_secs: u64) -> bool {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let age = now.saturating_sub(timestamp);
-    let is_fresh = age < CACHE_TTL_SECS;
+    let is_fresh = age < ttl_secs;
     log(
         LogLevel::Info,
         &format!("Cache age: {age} seconds (fresh: {is_fresh})"),
@@ -71,66 +80,73 @@ fn entry_age_secs(timestamp: u64) -> u64 {
     now.saturating_sub(timestamp)
 }
 
-pub fn load_github_licenses_from_cache() -> FeludaResult<Option<HashMap<String, License>>> {
-    let cache_path = github_cache_path()?;
-
-    if !cache_path.exists() {
-        log(LogLevel::Info, "No GitHub licenses cache found");
+/// Read a cache file, or `None` when it is absent, stale, from an older layout, or unreadable.
+///
+/// A cache that cannot be read is never an error: the caller's fallback is to fetch, which is what
+/// it would have done anyway.
+fn load_cache<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    ttl_secs: u64,
+) -> FeludaResult<Option<HashMap<String, T>>> {
+    if !path.exists() {
+        log(
+            LogLevel::Info,
+            &format!("No cache found at {}", path.display()),
+        );
         return Ok(None);
     }
 
-    log(LogLevel::Info, "Loading GitHub licenses from cache");
-
-    match fs::read_to_string(&cache_path) {
-        Ok(content) => match serde_json::from_str::<CacheEntry>(&content) {
-            Ok(entry) => {
-                if entry.version != CACHE_VERSION {
-                    log(
-                        LogLevel::Info,
-                        &format!(
-                            "Cache version mismatch (got {}, expected {CACHE_VERSION}), will re-fetch",
-                            entry.version
-                        ),
-                    );
-                    return Ok(None);
-                }
-                if !is_entry_fresh(entry.timestamp) {
-                    log(
-                        LogLevel::Info,
-                        "GitHub licenses cache is stale, will re-fetch",
-                    );
-                    return Ok(None);
-                }
-                log(
-                    LogLevel::Info,
-                    &format!(
-                        "Successfully loaded {} licenses from cache",
-                        entry.data.len()
-                    ),
-                );
-                Ok(Some(entry.data))
-            }
-            Err(e) => {
-                log(
-                    LogLevel::Warn,
-                    &format!("Corrupt cache file, will re-fetch: {e}"),
-                );
-                Ok(None)
-            }
-        },
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
         Err(e) => {
             log(
                 LogLevel::Warn,
                 &format!("Failed to read cache file, will re-fetch: {e}"),
             );
-            Ok(None)
+            return Ok(None);
         }
+    };
+
+    let entry = match serde_json::from_str::<CacheEntry<T>>(&content) {
+        Ok(entry) => entry,
+        Err(e) => {
+            log(
+                LogLevel::Warn,
+                &format!("Corrupt cache file, will re-fetch: {e}"),
+            );
+            return Ok(None);
+        }
+    };
+
+    if entry.version != CACHE_VERSION {
+        log(
+            LogLevel::Info,
+            &format!(
+                "Cache version mismatch (got {}, expected {CACHE_VERSION}), will re-fetch",
+                entry.version
+            ),
+        );
+        return Ok(None);
     }
+
+    if !is_entry_fresh_for(entry.timestamp, ttl_secs) {
+        log(LogLevel::Info, "Cache is stale, will re-fetch");
+        return Ok(None);
+    }
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Loaded {} cached entries from {}",
+            entry.data.len(),
+            path.display()
+        ),
+    );
+    Ok(Some(entry.data))
 }
 
-pub fn save_github_licenses_to_cache(licenses: &HashMap<String, License>) -> FeludaResult<()> {
-    let cache_dir = ensure_cache_dir()?;
-    let cache_path = cache_dir.join(GITHUB_LICENSES_CACHE_FILE);
+fn save_cache<T: serde::Serialize>(path: &Path, data: &HashMap<String, T>) -> FeludaResult<()> {
+    ensure_cache_dir()?;
 
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -139,7 +155,7 @@ pub fn save_github_licenses_to_cache(licenses: &HashMap<String, License>) -> Fel
 
     let json = match serde_json::to_string_pretty(&serde_json::json!({
         "version": CACHE_VERSION,
-        "data": licenses,
+        "data": data,
         "timestamp": timestamp,
     })) {
         Ok(json) => json,
@@ -149,27 +165,56 @@ pub fn save_github_licenses_to_cache(licenses: &HashMap<String, License>) -> Fel
         }
     };
 
-    fs::write(&cache_path, json).inspect_err(|e| log_error("Failed to write cache file", e))?;
+    fs::write(path, json).inspect_err(|e| log_error("Failed to write cache file", e))?;
 
     log(
         LogLevel::Info,
         &format!(
-            "Saved {} licenses to cache at {}",
-            licenses.len(),
-            cache_path.display()
+            "Saved {} entries to cache at {}",
+            data.len(),
+            path.display()
         ),
     );
 
     Ok(())
 }
 
-pub fn clear_github_licenses_cache() -> FeludaResult<()> {
-    let cache_path = github_cache_path()?;
+pub fn load_github_licenses_from_cache() -> FeludaResult<Option<HashMap<String, License>>> {
+    load_cache(&github_cache_path()?, CACHE_TTL_SECS)
+}
 
-    if cache_path.exists() {
-        fs::remove_file(&cache_path).inspect_err(|e| log_error("Failed to clear cache", e))?;
-        log(LogLevel::Info, "Cleared GitHub licenses cache");
-    } else {
+pub fn save_github_licenses_to_cache(licenses: &HashMap<String, License>) -> FeludaResult<()> {
+    save_cache(&github_cache_path()?, licenses)
+}
+
+/// Declared licenses ClearlyDefined answered with, keyed by coordinate.
+///
+/// The value is `None` for a coordinate ClearlyDefined has no answer for. Those are cached too, so
+/// a package it has never heard of is not asked about again on every run.
+pub fn load_clearlydefined_from_cache() -> FeludaResult<Option<HashMap<String, Option<String>>>> {
+    load_cache(&clearlydefined_cache_path()?, CLEARLYDEFINED_TTL_SECS)
+}
+
+pub fn save_clearlydefined_to_cache(
+    definitions: &HashMap<String, Option<String>>,
+) -> FeludaResult<()> {
+    save_cache(&clearlydefined_cache_path()?, definitions)
+}
+
+/// Clear every cache feluda keeps: the GitHub license table and the ClearlyDefined answers.
+pub fn clear_github_licenses_cache() -> FeludaResult<()> {
+    let mut cleared = false;
+    for path in [github_cache_path()?, clearlydefined_cache_path()?] {
+        if path.exists() {
+            fs::remove_file(&path).inspect_err(|e| log_error("Failed to clear cache", e))?;
+            log(
+                LogLevel::Info,
+                &format!("Cleared cache at {}", path.display()),
+            );
+            cleared = true;
+        }
+    }
+    if !cleared {
         log(LogLevel::Info, "No cache to clear");
     }
 
@@ -179,6 +224,8 @@ pub fn clear_github_licenses_cache() -> FeludaResult<()> {
 #[derive(Debug, serde::Serialize)]
 pub struct CacheStatus {
     pub exists: bool,
+    /// What this cache holds, for the status line.
+    pub label: &'static str,
     pub path: PathBuf,
     pub size_bytes: u64,
     pub is_fresh: bool,
@@ -217,7 +264,7 @@ impl CacheStatus {
 
     pub fn print_status(&self) {
         if !self.exists {
-            println!("\n📦 Cache Status: EMPTY");
+            println!("\n📦 {} Cache: EMPTY", self.label);
             println!("   No cache found at: {}", self.path.display());
             println!("   Cache will be created on next license analysis.\n");
             return;
@@ -229,11 +276,11 @@ impl CacheStatus {
             "✗ STALE"
         };
 
-        println!("\n📦 Cache Status: {health}");
+        println!("\n📦 {} Cache: {health}", self.label);
         println!("   Location: {}", self.path.display());
         println!("   Size: {}", Self::format_size(self.size_bytes));
         println!("   Age: {}", Self::format_age(self.age_secs));
-        println!("   Licenses cached: {}", self.license_count);
+        println!("   Entries cached: {}", self.license_count);
         println!();
     }
 }
@@ -241,8 +288,11 @@ impl CacheStatus {
 /// Visible for testing: parse a cache entry from JSON content and check freshness.
 #[cfg(test)]
 fn load_from_content(content: &str) -> Option<HashMap<String, License>> {
-    match serde_json::from_str::<CacheEntry>(content) {
-        Ok(entry) if entry.version == CACHE_VERSION && is_entry_fresh(entry.timestamp) => {
+    match serde_json::from_str::<CacheEntry<License>>(content) {
+        Ok(entry)
+            if entry.version == CACHE_VERSION
+                && is_entry_fresh_for(entry.timestamp, CACHE_TTL_SECS) =>
+        {
             Some(entry.data)
         }
         _ => None,
@@ -250,11 +300,28 @@ fn load_from_content(content: &str) -> Option<HashMap<String, License>> {
 }
 
 pub fn get_cache_status() -> FeludaResult<CacheStatus> {
-    let cache_path = github_cache_path()?;
+    status_of::<License>(github_cache_path()?, "GitHub Licenses", CACHE_TTL_SECS)
+}
 
+/// The ClearlyDefined answers cache, reported next to the GitHub one so `feluda cache` accounts
+/// for everything `--clear` would remove.
+pub fn get_clearlydefined_cache_status() -> FeludaResult<CacheStatus> {
+    status_of::<Option<String>>(
+        clearlydefined_cache_path()?,
+        "ClearlyDefined Answers",
+        CLEARLYDEFINED_TTL_SECS,
+    )
+}
+
+fn status_of<T: serde::de::DeserializeOwned>(
+    cache_path: PathBuf,
+    label: &'static str,
+    ttl_secs: u64,
+) -> FeludaResult<CacheStatus> {
     if !cache_path.exists() {
         return Ok(CacheStatus {
             exists: false,
+            label,
             path: cache_path,
             size_bytes: 0,
             is_fresh: false,
@@ -266,9 +333,9 @@ pub fn get_cache_status() -> FeludaResult<CacheStatus> {
     let size_bytes = fs::metadata(&cache_path)?.len();
 
     let (is_fresh, age_secs, license_count) = match fs::read_to_string(&cache_path) {
-        Ok(content) => match serde_json::from_str::<CacheEntry>(&content) {
+        Ok(content) => match serde_json::from_str::<CacheEntry<T>>(&content) {
             Ok(entry) => (
-                is_entry_fresh(entry.timestamp),
+                is_entry_fresh_for(entry.timestamp, ttl_secs),
                 entry_age_secs(entry.timestamp),
                 entry.data.len(),
             ),
@@ -279,6 +346,7 @@ pub fn get_cache_status() -> FeludaResult<CacheStatus> {
 
     Ok(CacheStatus {
         exists: true,
+        label,
         path: cache_path,
         size_bytes,
         is_fresh,
@@ -310,13 +378,13 @@ mod tests {
 
     #[test]
     fn fresh_entry_is_fresh() {
-        assert!(is_entry_fresh(now_secs()));
+        assert!(is_entry_fresh_for(now_secs(), CACHE_TTL_SECS));
     }
 
     #[test]
     fn stale_entry_is_not_fresh() {
         let old = now_secs() - CACHE_TTL_SECS - 1;
-        assert!(!is_entry_fresh(old));
+        assert!(!is_entry_fresh_for(old, CACHE_TTL_SECS));
     }
 
     #[test]
@@ -336,7 +404,7 @@ mod tests {
             timestamp: now_secs(),
         };
         let json = serde_json::to_string(&entry).unwrap();
-        let decoded: CacheEntry = serde_json::from_str(&json).unwrap();
+        let decoded: CacheEntry<License> = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.data.len(), 1);
         assert_eq!(decoded.data["MIT"].spdx_id, "MIT");
         assert_eq!(decoded.timestamp, entry.timestamp);

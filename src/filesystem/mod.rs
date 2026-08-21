@@ -160,6 +160,7 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
 
     artifacts::resolve_missing_licenses(&mut findings);
     classify_findings(&mut findings, strict);
+    crate::clearlydefined::resolve_unknown_licenses(&mut findings, strict);
     Ok(findings)
 }
 
