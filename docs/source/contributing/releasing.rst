@@ -52,6 +52,12 @@ The version lives in two places, and both have to be updated before publishing:
 
 ``conf.py`` feeds the version pill next to the Feluda logo in the docs sidebar, so if it is missed the documentation site keeps advertising the previous release.
 
+Bump ``Cargo.toml`` by hand, then let just copy it across:
+
+.. code-block:: sh
+
+   just sync-version
+
 Commit both together, for example ``chore: release vX.Y.Z``.
 
 Step 2: Publish to crates.io and push tag
