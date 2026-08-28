@@ -32,9 +32,29 @@ We'll be using justfile for next steps, so setup `just <https://github.com/casey
 Release Process
 ---------------
 
-The release process is split into two steps:
+The release process is split into three steps:
 
-Step 1: Publish to crates.io and push tag
+Step 1: Bump the version
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The version lives in two places, and both have to be updated before publishing:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - File
+     - Field
+   * - ``Cargo.toml``
+     - ``version = "X.Y.Z"`` (source of truth; ``Cargo.lock`` updates on the next build)
+   * - ``docs/source/conf.py``
+     - ``release = 'vX.Y.Z'``
+
+``conf.py`` feeds the version pill next to the Feluda logo in the docs sidebar, so if it is missed the documentation site keeps advertising the previous release.
+
+Commit both together, for example ``chore: release vX.Y.Z``.
+
+Step 2: Publish to crates.io and push tag
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: sh
@@ -52,7 +72,7 @@ This will:
 4. Publish to crates.io
 5. Create and push the version tag to GitHub (with optional pre-release suffix)
 
-Step 2: Create GitHub release manually
+Step 3: Create GitHub release manually
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 After the tag is pushed, create the GitHub release manually via the GitHub UI:
