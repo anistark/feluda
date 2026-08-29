@@ -87,6 +87,8 @@ impl FeludaConfig {
 /// Configuration for license-related settings
 ///
 /// By default, the following licenses are considered restrictive:
+/// - GPL-1.0
+/// - GPL-2.0
 /// - GPL-3.0
 /// - AGPL-3.0
 /// - LGPL-3.0
@@ -499,7 +501,14 @@ fn default_max_depth() -> u32 {
 
 /// Returns the default list of restrictive licenses
 fn default_restrictive_licenses() -> Vec<String> {
+    // Matching is a substring test, so an entry covers every id that contains it: "GPL-2.0" also
+    // catches "GPL-2.0-only", "GPL-2.0-or-later", "LGPL-2.0" and "AGPL-2.0". This list is the
+    // fallback used whenever the GitHub license registry is unreachable, so the GPL family has to
+    // be complete here: a missing version means a copyleft dependency is reported as permissive on
+    // any offline or rate limited run.
     let licenses = vec![
+        "GPL-1.0",
+        "GPL-2.0",
         "GPL-3.0",
         "AGPL-3.0",
         "LGPL-3.0",
@@ -602,7 +611,7 @@ mod tests {
             std::env::set_current_dir(dir.path()).unwrap();
 
             let config = load_config().unwrap();
-            assert_eq!(config.licenses.restrictive.len(), 7);
+            assert_eq!(config.licenses.restrictive.len(), 9);
             assert!(config.licenses.restrictive.contains(&"GPL-3.0".to_string()));
         });
     }
@@ -682,7 +691,7 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
     #[test]
     fn test_license_config_default() {
         let config = LicenseConfig::default();
-        assert_eq!(config.restrictive.len(), 7);
+        assert_eq!(config.restrictive.len(), 9);
         assert!(config.restrictive.contains(&"GPL-3.0".to_string()));
         assert!(config.restrictive.contains(&"AGPL-3.0".to_string()));
         assert!(config.restrictive.contains(&"LGPL-3.0".to_string()));
@@ -697,13 +706,15 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
     #[test]
     fn test_feluda_config_default() {
         let config = FeludaConfig::default();
-        assert_eq!(config.licenses.restrictive.len(), 7);
+        assert_eq!(config.licenses.restrictive.len(), 9);
     }
 
     #[test]
     fn test_default_restrictive_licenses() {
         let licenses = default_restrictive_licenses();
-        assert_eq!(licenses.len(), 7);
+        assert_eq!(licenses.len(), 9);
+        assert!(licenses.contains(&"GPL-1.0".to_string()));
+        assert!(licenses.contains(&"GPL-2.0".to_string()));
         assert!(licenses.contains(&"GPL-3.0".to_string()));
         assert!(licenses.contains(&"AGPL-3.0".to_string()));
         assert!(licenses.contains(&"LGPL-3.0".to_string()));
@@ -721,7 +732,7 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
 
             let config = load_config().unwrap();
 
-            assert_eq!(config.licenses.restrictive.len(), 7);
+            assert_eq!(config.licenses.restrictive.len(), 9);
             assert!(config.licenses.restrictive.contains(&"GPL-3.0".to_string()));
         });
     }
@@ -756,7 +767,7 @@ some_field = "value"
 
             let config = load_config().unwrap();
 
-            assert_eq!(config.licenses.restrictive.len(), 7);
+            assert_eq!(config.licenses.restrictive.len(), 9);
         });
     }
 
@@ -970,7 +981,7 @@ restrictive = [
 
                 let config = load_config().unwrap();
 
-                assert_eq!(config.licenses.restrictive.len(), 7);
+                assert_eq!(config.licenses.restrictive.len(), 9);
                 assert!(config.licenses.restrictive.contains(&"GPL-3.0".to_string()));
                 assert!(!config
                     .licenses

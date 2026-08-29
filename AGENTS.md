@@ -344,9 +344,11 @@ test: description          # Adding/fixing tests
 
 ## Versioning
 
-- Version source of truth: `Cargo.toml` (`version = "X.Y.Z"`).
+- Version source of truth: `Cargo.toml` (`version = "X.Y.Z"`). `Cargo.lock` picks it up on the next build.
+- A version bump must also update `release = 'vX.Y.Z'` in `docs/source/conf.py`. It drives the version pill in the docs sidebar, and `just publish` does not touch it. Run `just sync-version` after editing `Cargo.toml` to copy the version across.
 - Follow [Semantic Versioning](https://semver.org/).
 - `just publish` handles: build → test → package → crates.io publish → git tag → push tag.
+- Full release steps: `docs/source/contributing/releasing.rst`.
 
 ---
 

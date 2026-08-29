@@ -65,6 +65,14 @@ debian-release:
     dpkg-buildpackage -us -uc
     dput ppa:your-ppa-name ../{{CRATE_NAME}}_{{VERSION}}_source.changes
 
+# Sync the docs version in conf.py from Cargo.toml
+sync-version:
+    @echo "🔄 Syncing docs version to v{{VERSION}}..."
+    sed -i.bak "s/^release = .*/release = 'v{{VERSION}}'/" "{{DOCS_SOURCE}}/conf.py"
+    @rm -f "{{DOCS_SOURCE}}/conf.py.bak"
+    @grep -n "^release = " "{{DOCS_SOURCE}}/conf.py"
+    @echo "✅ Docs version synced. Commit the change before publishing."
+
 # Publish the crate to crates.io
 publish RELEASE_TYPE="": build test-release package
     cargo publish

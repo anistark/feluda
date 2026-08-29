@@ -88,6 +88,8 @@ fn generate_feluda_toml(project_license: Option<&str>) -> String {
 # AI coding tools (Cursor, Copilot, Windsurf) can silently pull in GPL/AGPL deps —
 # keeping this list tight catches those before they reach production.
 restrictive = [
+    "GPL-1.0",
+    "GPL-2.0",
     "GPL-3.0",
     "AGPL-3.0",
     "LGPL-3.0",

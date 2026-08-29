@@ -790,6 +790,8 @@ Feluda allows you to customize which licenses are considered restrictive and whi
 ### Default Restrictive Licenses
 
 By default, Feluda considers the following licenses as restrictive:
+- GPL-1.0
+- GPL-2.0
 - GPL-3.0
 - AGPL-3.0
 - LGPL-3.0

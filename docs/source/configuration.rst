@@ -23,7 +23,7 @@ Feluda ships with a conservative restrictive list so risky licenses stand out on
    * - Default category
      - Contents
    * - Restrictive licenses
-     - ``GPL-3.0``, ``AGPL-3.0``, ``LGPL-3.0``, ``MPL-2.0``, ``SEE LICENSE IN LICENSE``, ``CC-BY-SA-4.0``, ``EPL-2.0``
+     - ``GPL-1.0``, ``GPL-2.0``, ``GPL-3.0``, ``AGPL-3.0``, ``LGPL-3.0``, ``MPL-2.0``, ``SEE LICENSE IN LICENSE``, ``CC-BY-SA-4.0``, ``EPL-2.0``
    * - Cache location
      - ``.feluda/cache/github_licenses.json`` refreshed automatically every 30 days
    * - Compatibility data
