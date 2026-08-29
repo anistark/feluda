@@ -158,8 +158,12 @@ pub fn convert_to_spdx_license_expression(license: &str) -> String {
     }
 
     // Check structural constraints
-    if result.len() > 100
-        || !is_valid_spdx_license_format(&result)
+    //
+    // Note: no maximum-length constraint is imposed here. SPDX 2.3 and CycloneDX
+    // place no length limit on a license expression, and a valid expression is
+    // long precisely when a package aggregates many licensed components. Capping
+    // the length silently replaced such expressions with NOASSERTION (issue #257).
+    if !is_valid_spdx_license_format(&result)
         || result.is_empty()
         || result.trim() != result
         || result.contains("  ")
@@ -814,12 +818,13 @@ fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
     // - Or the literal string "NOASSERTION"
     // - Or the literal string "NONE" (rarely used)
     //
-    // Must be ASCII-only and not exceed 200 characters
+    // Must be ASCII-only. No maximum-length constraint is imposed: SPDX 2.3 places
+    // no length limit on a license expression, so a valid long expression (e.g. a
+    // package aggregating many licensed components) must be preserved (issue #257).
     let validate_license = |license_opt: &mut Option<String>, _field_name: &str| -> bool {
         if let Some(ref mut license) = license_opt {
             if license.trim().is_empty()
                 || spdx_charset::contains_forbidden_chars(license)
-                || license.len() > 200
                 || !license.is_ascii()
                 || !is_valid_spdx_license_format(license)
             {
@@ -967,6 +972,45 @@ mod tests {
         assert_eq!(
             convert_to_spdx_license_expression("MIT OR Apache-2.0"),
             "MIT OR Apache-2.0"
+        );
+    }
+
+    /// Regression test for issue #257: valid license expressions must not be
+    /// discarded by an arbitrary length cap. SPDX 2.3 and CycloneDX place no length
+    /// limit on a license expression, yet valid multi-license expressions were being
+    /// replaced with NOASSERTION once they crossed 100 characters in
+    /// `convert_to_spdx_license_expression`, and again at 200 characters during
+    /// document sanitization in `validate_and_sanitize_spdx_package`. Both paths must
+    /// preserve a valid long expression while still rejecting genuinely invalid input.
+    #[test]
+    #[serial]
+    fn test_long_valid_license_expression_is_preserved() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
+        // The minimal npm reproduction from the issue (119 characters).
+        let npm_expr = "MIT AND Apache-2.0 AND BSD-3-Clause AND ISC AND Zlib AND MPL-2.0 AND GPL-2.0-or-later AND LGPL-2.1-or-later AND CC0-1.0";
+        assert!(npm_expr.len() > 100);
+        assert_eq!(convert_to_spdx_license_expression(npm_expr), npm_expr);
+
+        // A libgomp-style aggregate expression using WITH exceptions (> 200 characters).
+        let gomp_expr = "GPL-3.0-or-later WITH GCC-exception-3.1 AND GPL-2.0-or-later WITH GCC-exception-2.0 AND LGPL-2.1-or-later AND GPL-3.0-only AND Apache-2.0 AND MIT AND BSD-3-Clause AND ISC AND Zlib AND MPL-2.0 AND CC0-1.0 AND Unlicense";
+        assert!(gomp_expr.len() > 200);
+        assert_eq!(convert_to_spdx_license_expression(gomp_expr), gomp_expr);
+
+        // End-to-end through the SBOM document sanitizer: a valid long expression set on
+        // a package must not be downgraded to NOASSERTION.
+        let mut package =
+            SpdxPackage::new("longlic", "https://example.com/longlic").with_version("1.0.0");
+        package.license_declared = Some(gomp_expr.to_string());
+        package.license_concluded = Some(gomp_expr.to_string());
+        validate_and_sanitize_spdx_package(&mut package);
+        assert_eq!(package.license_declared.as_deref(), Some(gomp_expr));
+        assert_eq!(package.license_concluded.as_deref(), Some(gomp_expr));
+
+        // Genuinely invalid content is still rejected regardless of length.
+        assert_eq!(
+            convert_to_spdx_license_expression("MIT AND MIT{}injection AND Apache-2.0"),
+            "NOASSERTION"
         );
     }
 
@@ -1120,10 +1164,14 @@ mod tests {
             "NOASSERTION"
         );
 
-        // Test very long license strings
-        let long_license = "A".repeat(250);
+        // Very long but syntactically valid expressions are preserved: length alone
+        // is not a reason to discard a valid license expression (issue #257).
+        let long_valid = "A".repeat(250);
+        assert_eq!(convert_to_spdx_license_expression(&long_valid), long_valid);
+        // A long string containing forbidden characters is still rejected.
+        let long_invalid = format!("{}{{}}", "A".repeat(250));
         assert_eq!(
-            convert_to_spdx_license_expression(&long_license),
+            convert_to_spdx_license_expression(&long_invalid),
             "NOASSERTION"
         );
 
@@ -1414,12 +1462,10 @@ mod tests {
             "NOASSERTION"
         );
 
-        // Test shorter length limit
-        let long_license = "A".repeat(101);
-        assert_eq!(
-            convert_to_spdx_license_expression(&long_license),
-            "NOASSERTION"
-        );
+        // Expressions longer than the former 100-character cap are preserved when
+        // otherwise valid (issue #257: length is not a validation criterion).
+        let long_valid = "A".repeat(101);
+        assert_eq!(convert_to_spdx_license_expression(&long_valid), long_valid);
 
         // Test character whitelist
         assert_eq!(
