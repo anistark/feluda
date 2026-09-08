@@ -161,8 +161,10 @@ Have a session to share? `Open a PR <https://github.com/anistark/feluda/edit/mai
    :hidden:
 
    cli/index
+   cli/init
    cli/scan
    cli/filesystem
+   cli/containers
    cli/clearlydefined
    cli/watch
    cli/filter

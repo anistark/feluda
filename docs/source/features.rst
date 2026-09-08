@@ -93,6 +93,46 @@ some other way, and that is exactly the code nobody audits.
 
 ----
 
+Scan what you ship, not what you declare
+----------------------------------------
+
+A manifest describes a source tree. What reaches production is an image: a base
+distribution nobody wrote a manifest for, plus whatever the build installed on top of
+it. Feluda reads that directly, with no cataloguing tool in the pipeline.
+
+.. code-block:: console
+
+   $ feluda --filesystem ./rootfs --fail-on-restrictive
+
+.. grid:: 1 1 3 3
+   :gutter: 3
+
+   .. grid-item-card:: :iconify:`lucide:hard-drive` Installed packages, not declared ones
+      :class-card: glassmorphic
+      :link: cli/filesystem
+      :link-type: doc
+
+      apk, dpkg and rpm databases, read where the system keeps them, plus the Python
+      distributions and Node packages installed beside them. For OS packages there is no
+      network call at all, since the licenses are already in the tree.
+
+   .. grid-item-card:: :iconify:`simple-icons:docker` Container images
+      :class-card: glassmorphic
+      :link: cli/containers
+      :link-type: doc
+
+      Export an image and scan the tree, or pipe syft's output straight in. Both routes
+      end in the same verdict, and both feed the SBOM writers.
+
+   .. grid-item-card:: :iconify:`lucide:fingerprint` One identity per package
+      :class-card: glassmorphic
+
+      Every finding carries an ecosystem and a PURL, down to the distribution a package
+      came from: ``pkg:deb/debian/libssl3@3.0.15-1``. A library the OS installed and the
+      same library in ``site-packages`` is reported once, not twice.
+
+----
+
 Know which licenses actually matter
 -----------------------------------
 
@@ -317,3 +357,11 @@ Start investigating
       :link-type: doc
 
       From install to first verdict, with the flags worth knowing on day one.
+
+   .. grid-item-card:: :iconify:`lucide:settings` Set up the project
+      :class-card: glassmorphic
+      :link: cli/init
+      :link-type: doc
+
+      ``feluda init`` writes a policy file with your license already detected, and a
+      pre-commit hook that fails the commit rather than the release.

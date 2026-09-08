@@ -43,8 +43,12 @@ Command Overview
      - Description
    * - ``feluda``
      - Scan dependencies and detect licenses
+   * - ``feluda init``
+     - Write ``.feluda.toml`` and a pre-commit hook for the project
    * - ``feluda --filesystem``
-     - Catalogue the OS packages installed under a root filesystem
+     - Catalogue the OS packages and installed artifacts under a root filesystem
+   * - ``feluda --sbom-input``
+     - Scan an SPDX or CycloneDX document another tool produced
    * - ``feluda watch``
      - Continuously re-scan when dependency files change
    * - ``feluda cache``

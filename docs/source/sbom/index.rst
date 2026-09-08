@@ -24,6 +24,9 @@ A filesystem can be catalogued directly too, with no other tool involved:
 ``feluda sbom spdx --filesystem ./rootfs`` describes what an artifact ships rather than what its
 source declares. See :ref:`cli-filesystem`.
 
+For container images specifically, :ref:`cli-containers` covers the routes from an image reference
+to either of those two sources.
+
 Generate Both Formats
 ---------------------
 
