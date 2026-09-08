@@ -44,6 +44,15 @@ Use this table to double-check flag behavior before scripting.
    * - ``feluda --fail-on-restrictive`` / ``feluda --fail-on-incompatible``
      - Exit non-zero when risky findings exist.
      - Ideal for CI as in :ref:`integrations`.
+   * - ``feluda --filesystem <dir>``
+     - Catalogue what is installed under a tree instead of scanning manifests.
+     - Reads apk, dpkg and rpm databases plus installed Python and Node artifacts. Cannot be combined with ``--repo`` or ``--sbom-input``. See :ref:`cli-filesystem`.
+   * - ``feluda --sbom-input <file>``
+     - Scan an SPDX or CycloneDX document instead of a project tree.
+     - ``-`` reads stdin, so ``syft image -o spdx-json | feluda --sbom-input -`` works. See :ref:`sbom-ingest`.
+   * - ``feluda --sbom-enriched <file>``
+     - Write the ingested SBOM back out with the licenses Feluda resolved.
+     - Requires ``--sbom-input``.
    * - ``feluda --no-local``
      - Skip local manifests and fetch data remotely.
      - Helpful when manifests are incomplete or stale.
@@ -59,6 +68,9 @@ Use this table to double-check flag behavior before scripting.
    * - ``feluda watch``
      - Re-scan continuously when dependency files change.
      - Report-only; accepts ``--path`` and ``--debounce``. See :ref:`cli-watch`.
+   * - ``feluda init``
+     - Write ``.feluda.toml`` and a pre-commit hook.
+     - Accepts ``--path``, ``--force``, ``--no-pre-commit``. See :ref:`cli-init`.
    * - ``feluda cache`` / ``feluda cache --clear``
      - Inspect or delete the GitHub license cache.
      - Default cache path: ``.feluda/cache/github_licenses.json``.
@@ -85,7 +97,7 @@ Use this table to double-check flag behavior before scripting.
      - Accepts ``--path``, ``--language``, ``--project-license``.
    * - ``feluda sbom [spdx|cyclonedx]``
      - Generate SBOM in SPDX 2.3 or CycloneDX v1.5 format.
-     - Omit format to generate both; use ``--output`` to save.
+     - Omit format to generate both; use ``--output`` to save, or ``--filesystem`` to describe an installed tree.
    * - ``feluda sbom validate <file>``
      - Validate an SBOM file against its specification.
      - Supports ``--json`` for machine-readable output.

@@ -28,6 +28,9 @@ That makes a shipped container analysable with nothing else in the pipeline: no 
 and no image handling. For the OS packages there is no network either, since their licenses are
 already in the tree.
 
+For the routes from an image reference to a tree, and why there is no ``--image`` flag, see
+:ref:`cli-containers`.
+
 ----
 
 What Is Covered
@@ -265,8 +268,8 @@ Not Yet Covered
 ---------------
 
 Installed Ruby gemspecs, jars and Go build info are not catalogued yet, and neither are the two
-older rpm backends above. Until they are, pipe syft's output through :ref:`sbom-ingest` for those
-cases:
+older rpm backends above. :ref:`cli-containers` tracks each gap against its issue. Until they are
+closed, pipe syft's output through :ref:`sbom-ingest` for those cases:
 
 .. code-block:: bash
 
