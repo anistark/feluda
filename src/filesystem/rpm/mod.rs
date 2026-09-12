@@ -10,15 +10,18 @@
 //! | `Packages.db` | ndb | SUSE and openSUSE |
 //! | `Packages` | Berkeley DB | CentOS 7, RHEL 8, Amazon Linux 2 |
 //!
-//! Only sqlite is read. It is the rpm default since 4.16 and covers every RPM distribution still in
-//! support; the other two are reported by name rather than as an empty scan, so an image this
-//! cannot read never looks like an image with nothing installed.
+//! sqlite and ndb are read. sqlite is the rpm default since 4.16 and covers every Fedora and RHEL
+//! derived distribution still in support; ndb is what SUSE builds with. Both hand back the same
+//! header blobs, so only the storage layer differs and `header.rs` serves both. Berkeley DB is
+//! detected and reported by name rather than as an empty scan, so an image this cannot read never
+//! looks like an image with nothing installed.
 //!
 //! The license side is easier than dpkg's: an rpm header carries a `License` tag, so there is no
 //! copyright file to find and nothing to match against free text.
 
 mod header;
 mod license;
+mod ndb;
 mod sqlite;
 
 use std::path::Path;
@@ -31,17 +34,45 @@ use super::{package_finding, Catalog};
 /// Where rpm keeps its database, relative to the root of the filesystem being scanned.
 pub const DATABASE_PATH: &str = "var/lib/rpm";
 
+/// Where it has moved to. Fedora 36+ and SUSE keep the database under `/usr` so that `/var` can be
+/// wiped and `/var/lib/rpm` is a symlink to it. A `docker export` preserves that link and it is
+/// relative, so the first path still resolves inside the tree; a tree copied without its symlinks,
+/// or one made by `rpm --root`, only has the second.
+const SYSIMAGE_PATH: &str = "usr/lib/sysimage/rpm";
+
 /// The table rpm stores headers in, and the column that holds them.
 const PACKAGES_TABLE: &str = "Packages";
 const BLOB_COLUMN: usize = 1;
 
-/// The backends, in the order they are looked for. sqlite first: an image upgraded in place can
-/// carry a stale Berkeley DB alongside the sqlite one rpm actually uses.
-const BACKENDS: &[(&str, &str)] = &[
-    ("rpmdb.sqlite", "sqlite"),
-    ("Packages.db", "ndb"),
-    ("Packages", "Berkeley DB"),
-];
+/// The stores rpm can leave behind, each identified by the file it keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    Sqlite,
+    Ndb,
+    BerkeleyDb,
+}
+
+impl Backend {
+    /// In the order they are looked for. sqlite first: an image upgraded in place can carry a stale
+    /// Berkeley DB alongside the sqlite one rpm actually uses, and the same goes for ndb.
+    const ALL: [Backend; 3] = [Backend::Sqlite, Backend::Ndb, Backend::BerkeleyDb];
+
+    fn file(self) -> &'static str {
+        match self {
+            Backend::Sqlite => "rpmdb.sqlite",
+            Backend::Ndb => "Packages.db",
+            Backend::BerkeleyDb => "Packages",
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Backend::Sqlite => "sqlite",
+            Backend::Ndb => "ndb",
+            Backend::BerkeleyDb => "Berkeley DB",
+        }
+    }
+}
 
 /// Read every installed package out of an RPM root filesystem.
 ///
@@ -49,36 +80,44 @@ const BACKENDS: &[(&str, &str)] = &[
 /// or Debian image. A database that is there in a backend this cannot read is an error, because
 /// silently reporting nothing would read as a clean scan of a machine full of packages.
 pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Catalog>> {
-    let directory = root.join(DATABASE_PATH);
-    let Some((file, backend)) = BACKENDS
+    let Some((file, backend)) = [DATABASE_PATH, SYSIMAGE_PATH]
         .iter()
-        .map(|(file, backend)| (directory.join(file), *backend))
+        .map(|directory| root.join(directory))
+        .flat_map(|directory| {
+            Backend::ALL
+                .iter()
+                .map(move |backend| (directory.join(backend.file()), *backend))
+        })
         .find(|(path, _)| path.is_file())
     else {
         return Ok(None);
     };
 
-    if backend != "sqlite" {
-        return Err(backend_error(format!(
-            "The rpm database at {} uses the {backend} backend, which feluda cannot read yet \
-             (only the sqlite backend is supported). Catalog this image with syft and scan the \
-             result with --sbom-input instead.",
-            file.display()
-        )));
-    }
-
-    warn_on_pending_wal(&file);
-
-    let database = sqlite::Database::open(&file)?;
-    let blobs = database.column_values(PACKAGES_TABLE, BLOB_COLUMN)?;
+    let blobs = match backend {
+        Backend::Sqlite => {
+            warn_on_pending_wal(&file);
+            sqlite::Database::open(&file)?.column_values(PACKAGES_TABLE, BLOB_COLUMN)?
+        }
+        Backend::Ndb => ndb::Database::open(&file)?.blobs()?,
+        Backend::BerkeleyDb => {
+            return Err(backend_error(format!(
+                "The rpm database at {} uses the {} backend, which feluda cannot read \
+                 (the sqlite and ndb backends are supported). Catalog this image with syft and \
+                 scan the result with --sbom-input instead.",
+                file.display(),
+                backend.name()
+            )));
+        }
+    };
     let catalog = build(&blobs, namespace);
 
     log(
         LogLevel::Info,
         &format!(
-            "Cataloged {} rpm packages from {} headers",
+            "Cataloged {} rpm packages from {} {} headers",
             catalog.packages.len(),
-            blobs.len()
+            blobs.len(),
+            backend.name()
         ),
     );
     Ok(Some(catalog))
@@ -164,14 +203,26 @@ mod tests {
         temp
     }
 
-    /// The checked in fixture, copied into a root filesystem shaped tree.
-    fn fedora_rootfs() -> tempfile::TempDir {
-        let fixture = std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/rpm/rpmdb.sqlite"
-        ))
+    /// A checked in fixture, copied into a root filesystem shaped tree.
+    fn fixture_rootfs(file: &str) -> tempfile::TempDir {
+        let fixture = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/rpm")
+                .join(file),
+        )
         .expect("fixture should exist");
-        rootfs("rpmdb.sqlite", &fixture)
+        rootfs(file, &fixture)
+    }
+
+    /// Seven sqlite headers taken from `fedora:41`.
+    fn fedora_rootfs() -> tempfile::TempDir {
+        fixture_rootfs("rpmdb.sqlite")
+    }
+
+    /// An ndb store rpm itself wrote inside `opensuse/leap:15.6`: eight packages installed with
+    /// `--justdb`, plus the two signing keys the image imports.
+    fn opensuse_rootfs() -> tempfile::TempDir {
+        fixture_rootfs("Packages.db")
     }
 
     #[test]
@@ -263,7 +314,78 @@ mod tests {
     }
 
     #[test]
-    fn test_ndb_names_its_backend() {
+    fn test_reads_the_ndb_fixture() {
+        let temp = opensuse_rootfs();
+        let catalog = catalog(temp.path(), Some("opensuse-leap"))
+            .unwrap()
+            .expect("database is present");
+
+        // Ten headers, less the two gpg-pubkey pseudo packages.
+        assert_eq!(catalog.packages.len(), 8);
+        assert!(
+            !catalog
+                .packages
+                .iter()
+                .any(|package| package.name.contains("gpg-pubkey")),
+            "gpg-pubkey should not be reported as a package"
+        );
+
+        let pam = catalog
+            .packages
+            .iter()
+            .find(|package| package.name == "opensuse-leap/pam")
+            .expect("pam missing");
+        assert_eq!(pam.version, "1.3.0-150000.6.86.1");
+        // SUSE writes SPDX with lowercase operators; only the operator is rewritten.
+        assert_eq!(pam.license.as_deref(), Some("GPL-2.0+ OR BSD-3-Clause"));
+        assert_eq!(
+            pam.purl().as_deref(),
+            Some("pkg:rpm/opensuse-leap/pam@1.3.0-150000.6.86.1")
+        );
+
+        for package in &catalog.packages {
+            assert!(package.license.is_some(), "{} has no license", package.name);
+        }
+    }
+
+    #[test]
+    fn test_ndb_headers_carry_their_file_lists() {
+        // The ownership dedupe needs the file list, and it comes out of the same header parser
+        // whichever store the blob came from.
+        let temp = opensuse_rootfs();
+        let catalog = catalog(temp.path(), Some("opensuse-leap"))
+            .unwrap()
+            .unwrap();
+        // Nothing in the fixture ships Python or Node metadata, so nothing is claimed...
+        assert!(catalog.owned.is_empty());
+        // ...but the headers were read whole, which the largest package's version shows.
+        assert!(catalog
+            .packages
+            .iter()
+            .any(|package| package.version == "15.2.0+git10201-150000.1.9.1"));
+    }
+
+    #[test]
+    fn test_the_database_is_found_under_usr_lib_sysimage() {
+        // `rpm --root` and a tree copied without its symlinks have no /var/lib/rpm at all.
+        let fixture = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/rpm/Packages.db"
+        ))
+        .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join(SYSIMAGE_PATH);
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("Packages.db"), fixture).unwrap();
+
+        let catalog = catalog(temp.path(), Some("opensuse-leap"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(catalog.packages.len(), 8);
+    }
+
+    #[test]
+    fn test_a_corrupt_ndb_store_is_an_error() {
         let temp = rootfs("Packages.db", b"RpmP not really ndb");
         let error = catalog(temp.path(), Some("opensuse")).unwrap_err();
         assert!(
