@@ -50,8 +50,8 @@ What Is Covered
      - Debian, Ubuntu and derivatives
      - ``/usr/share/doc/<package>/copyright``, since dpkg's database has no license field at all
    * - rpm
-     - Fedora, RHEL, Rocky, Alma, CentOS Stream
-     - The ``License`` tag of each package header in ``/var/lib/rpm``
+     - Fedora, RHEL, Rocky, Alma, CentOS Stream, SUSE, openSUSE
+     - The ``License`` tag of each package header in ``/var/lib/rpm`` or ``/usr/lib/sysimage/rpm``
    * - pip, and anything that installs a wheel
      - Python distributions
      - ``*.dist-info/METADATA`` and ``*.egg-info/PKG-INFO``
@@ -206,15 +206,17 @@ package stated them.
 RPM Database Backends
 ---------------------
 
-rpm keeps its packages in a binary store, and which store depends on the rpm version that built the
-image. Feluda reads the sqlite backend, which rpm has defaulted to since 4.16 and which covers every
-RPM distribution still in support.
+rpm keeps its packages in a binary store, and which store depends on the rpm that built the image.
+Feluda reads two of the three: sqlite, which rpm has defaulted to since 4.16 and which every Fedora
+and RHEL derived distribution still in support uses, and ndb, rpm's own format and the one SUSE
+builds with. Both hold the same package headers, so a SUSE image and a Fedora image come out the
+same way.
 
 .. list-table::
    :header-rows: 1
    :widths: 30 25 45
 
-   * - File in ``/var/lib/rpm``
+   * - File in the rpm directory
      - Backend
      - Status
    * - ``rpmdb.sqlite``
@@ -222,10 +224,14 @@ RPM distribution still in support.
      - Read, covering Fedora 33+, RHEL 9+ and derivatives
    * - ``Packages.db``
      - ndb
-     - Reported by name, used by SUSE and openSUSE
+     - Read, covering SUSE Linux Enterprise and openSUSE
    * - ``Packages``
      - Berkeley DB
      - Reported by name, used by CentOS 7, RHEL 8 and Amazon Linux 2
+
+The rpm directory is ``/var/lib/rpm``, or ``/usr/lib/sysimage/rpm`` on distributions that have moved
+it under ``/usr`` and left a symlink behind. Both are looked in, so a tree copied without its
+symlinks still scans.
 
 An image whose backend cannot be read is an error naming that backend, never an empty report, so an
 unreadable database can never be mistaken for a machine with nothing installed. For those images,
@@ -267,8 +273,8 @@ The same source feeds the document writers:
 Not Yet Covered
 ---------------
 
-Installed Ruby gemspecs, jars and Go build info are not catalogued yet, and neither are the two
-older rpm backends above. :ref:`cli-containers` tracks each gap against its issue. Until they are
+Installed Ruby gemspecs, jars and Go build info are not catalogued yet, and neither is the Berkeley
+DB rpm backend above. :ref:`cli-containers` tracks each gap against its issue. Until they are
 closed, pipe syft's output through :ref:`sbom-ingest` for those cases:
 
 .. code-block:: bash
