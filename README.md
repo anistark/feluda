@@ -338,7 +338,7 @@ feluda sbom spdx --filesystem ./rootfs --output rootfs.spdx.json
 **What this covers:**
 - 🏔️ **Alpine** - the apk installed database, which records each package's license directly
 - 🌀 **Debian and Ubuntu** - the dpkg database for what is installed, plus each package's `copyright` file for its license, including the machine-readable DEP-5 format
-- 🎩 **Fedora, RHEL, Rocky and Alma** - the rpm database, whose package headers record the license directly
+- 🎩 **Fedora, RHEL, Rocky, Alma, SUSE and openSUSE** - the rpm database in either its sqlite or ndb form, whose package headers record the license directly
 - 🐍 **Installed Python distributions** - `*.dist-info/METADATA` and `*.egg-info/PKG-INFO`, wherever they sit
 - 📗 **Installed Node packages** - the `package.json` inside every `node_modules` entry
 - 📦 **Anything unpacked** - `docker export` output, extracted layers, chroots, installation trees
@@ -347,7 +347,7 @@ OS packages carry the distro in their PURL (`pkg:deb/debian/libssl3@3.0.15-1`, `
 
 The application's own dependencies are usually the larger half of an image, and they arrive with no manifest behind them, so they are catalogued too. An artifact that a distro package already ships is reported once, not twice: Feluda reads each package manager's file list to see which is which. An artifact whose installed metadata states no license is resolved against its registry, which is something an OS package can never do.
 
-Gemspecs, jars and Go build info are not covered yet, and rpm's two older database backends (ndb on SUSE, Berkeley DB on CentOS 7 and RHEL 8) are reported by name rather than read; pipe syft through `--sbom-input` for those in the meantime. Pointing `--filesystem` at a tree with nothing installed in it is an error, not an empty report.
+Gemspecs, jars and Go build info are not covered yet, and rpm's Berkeley DB backend (CentOS 7, RHEL 8, Amazon Linux 2) is reported by name rather than read; pipe syft through `--sbom-input` for those in the meantime. Pointing `--filesystem` at a tree with nothing installed in it is an error, not an empty report.
 
 ### SBOM Validation
 

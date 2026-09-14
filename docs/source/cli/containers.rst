@@ -137,7 +137,7 @@ For images these routes do not fully cover, catalogue with syft and ingest the r
 
    * - Gap
      - Tracking
-   * - rpm ndb and Berkeley DB backends, so SUSE, openSUSE and CentOS 7 era images
+   * - The rpm Berkeley DB backend, so CentOS 7, RHEL 8 and Amazon Linux 2 era images
      - `#263 <https://github.com/anistark/feluda/issues/263>`_
    * - Go build info, so distroless Go images report nothing
      - `#264 <https://github.com/anistark/feluda/issues/264>`_

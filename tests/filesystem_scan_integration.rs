@@ -128,6 +128,35 @@ fn fedora_rootfs() -> tempfile::TempDir {
     temp
 }
 
+/// An openSUSE root filesystem carrying the checked in ndb package store.
+///
+/// The fixture was written by rpm itself inside an `opensuse/leap:15.6` container, and the database
+/// sits where SUSE keeps it: under `/usr/lib/sysimage/rpm`, with `/var/lib/rpm` a relative symlink
+/// to it, which is what a `docker export` of the image preserves.
+fn opensuse_rootfs() -> tempfile::TempDir {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    write(
+        temp.path(),
+        "etc/os-release",
+        "NAME=\"openSUSE Leap\"\nID=opensuse-leap\nVERSION_ID=\"15.6\"\n",
+    );
+
+    let database = temp.path().join("usr/lib/sysimage/rpm");
+    fs::create_dir_all(&database).expect("failed to create rpm directory");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rpm/Packages.db"),
+        database.join("Packages.db"),
+    )
+    .expect("failed to copy the rpm fixture");
+
+    let var_lib = temp.path().join("var/lib");
+    fs::create_dir_all(&var_lib).expect("failed to create var/lib");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("../../usr/lib/sysimage/rpm", var_lib.join("rpm"))
+        .expect("failed to link var/lib/rpm");
+    temp
+}
+
 /// A Debian root filesystem with a dpkg database and the copyright files it points at.
 fn debian_rootfs() -> tempfile::TempDir {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
@@ -544,6 +573,41 @@ fn fedora_rootfs_is_cataloged_from_the_rpm_database() {
 }
 
 #[test]
+fn opensuse_rootfs_is_cataloged_from_the_ndb_store() {
+    let temp = opensuse_rootfs();
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+
+    // Ten records, less the two gpg-pubkey pseudo packages the image's signing keys become.
+    assert_eq!(report.len(), 8);
+    assert!(!report.iter().any(|entry| entry["name"]
+        .as_str()
+        .is_some_and(|name| name.contains("gpg-pubkey"))));
+
+    let pam = find(&report, "opensuse-leap/pam");
+    assert_eq!(pam["ecosystem"], "rpm");
+    assert_eq!(pam["version"], "1.3.0-150000.6.86.1");
+    assert_eq!(pam["purl"], "pkg:rpm/opensuse-leap/pam@1.3.0-150000.6.86.1");
+    // SUSE writes SPDX ids with lowercase operators; the operator is normalized and the ids kept.
+    assert_eq!(pam["license"], "GPL-2.0+ OR BSD-3-Clause");
+    assert_eq!(pam["is_restrictive"], false);
+
+    // The deprecated `+` spellings are still SPDX and still classify as copyleft.
+    let fillup = find(&report, "opensuse-leap/fillup");
+    assert_eq!(fillup["license"], "GPL-2.0+");
+    assert_eq!(fillup["is_restrictive"], true);
+
+    assert_eq!(
+        find(&report, "opensuse-leap/libgcc_s1")["license"],
+        "GPL-3.0-or-later WITH GCC-exception-3.1"
+    );
+    assert_eq!(
+        find(&report, "opensuse-leap/boost-license1_66_0")["license"],
+        "BSL-1.0"
+    );
+}
+
+#[test]
 fn an_unsupported_rpm_backend_names_itself() {
     // A CentOS 7 image. Reporting nothing installed would read as a clean scan of a machine with
     // several hundred packages on it, which is the failure this message exists to prevent.
@@ -559,7 +623,7 @@ fn an_unsupported_rpm_backend_names_itself() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Berkeley DB") && stderr.contains("sqlite"),
+        stderr.contains("Berkeley DB") && stderr.contains("sqlite") && stderr.contains("ndb"),
         "unexpected stderr: {stderr}"
     );
 }
