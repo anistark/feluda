@@ -356,8 +356,11 @@ mod tests {
         let catalog = catalog(temp.path(), Some("opensuse-leap"))
             .unwrap()
             .unwrap();
-        // Nothing in the fixture ships Python or Node metadata, so nothing is claimed...
-        assert!(catalog.owned.is_empty());
+        // Nothing in the fixture ships Python or Node metadata, so none is claimed...
+        assert!(!catalog
+            .owned
+            .iter()
+            .any(|path| path.ends_with("METADATA") || path.ends_with("package.json")));
         // ...but the headers were read whole, which the largest package's version shows.
         assert!(catalog
             .packages

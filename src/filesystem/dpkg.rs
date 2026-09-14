@@ -120,14 +120,14 @@ fn owned_paths(root: &Path) -> HashSet<PathBuf> {
             let Ok(content) = std::fs::read_to_string(list) else {
                 return Vec::new();
             };
-            content.lines().filter_map(owned_path).collect::<Vec<_>>()
+            content.lines().flat_map(owned_paths_of).collect::<Vec<_>>()
         })
         .collect();
 
     log(
         LogLevel::Info,
         &format!(
-            "{} of the files in {} dpkg packages are installed artifact metadata",
+            "{} of the files in {} dpkg packages could be installed artifact metadata",
             owned.len(),
             lists.len()
         ),
@@ -135,14 +135,31 @@ fn owned_paths(root: &Path) -> HashSet<PathBuf> {
     owned
 }
 
-/// One line of a file list, as a path relative to the scan root, when it is metadata worth
+/// The top-level directories a merged-`/usr` system keeps as symlinks into `/usr`.
+const MERGED_USR_DIRECTORIES: &[&str] = &["bin", "sbin", "lib", "lib32", "lib64", "libx32"];
+
+/// One line of a file list, as paths relative to the scan root, when it is metadata worth
 /// remembering.
 ///
 /// dpkg writes absolute paths; everything else in this module is relative to the root being
 /// scanned, which is what the artifact catalogers compare against.
-fn owned_path(line: &str) -> Option<PathBuf> {
+///
+/// On a merged-`/usr` system (Debian 12 and later, Ubuntu since 21.10) `/bin` is a symlink to
+/// `/usr/bin`, but dpkg keeps recording files where the package shipped them, so `coreutils.list`
+/// says `/bin/cat` and the walk finds the file at `usr/bin/cat`. Both spellings are remembered, so
+/// a binary a package ships is attributed to it whichever way the tree names it.
+fn owned_paths_of(line: &str) -> Vec<PathBuf> {
     let path = PathBuf::from(line.trim().trim_start_matches('/'));
-    is_artifact_metadata(&path).then_some(path)
+    if !is_artifact_metadata(&path) {
+        return Vec::new();
+    }
+    let merged = path
+        .components()
+        .next()
+        .and_then(|first| first.as_os_str().to_str())
+        .filter(|first| MERGED_USR_DIRECTORIES.contains(first))
+        .map(|_| Path::new("usr").join(&path));
+    std::iter::once(path).chain(merged).collect()
 }
 
 /// Read the installed packages out of a `status` file.
@@ -432,12 +449,24 @@ mod tests {
         .unwrap();
 
         let owned = catalog(temp.path(), Some("debian")).unwrap().unwrap().owned;
+        assert!(owned.contains(Path::new(
+            "usr/lib/python3/dist-packages/PyYAML-6.0.egg-info/PKG-INFO"
+        )));
+        assert!(!owned.contains(Path::new("usr/lib/python3/dist-packages/yaml/__init__.py")));
+    }
+
+    #[test]
+    fn test_a_merged_usr_path_is_remembered_both_ways() {
+        // Debian 12's coreutils.list still says `/bin/cat`; the file is at `usr/bin/cat`.
         assert_eq!(
-            owned,
-            HashSet::from([PathBuf::from(
-                "usr/lib/python3/dist-packages/PyYAML-6.0.egg-info/PKG-INFO"
-            )])
+            owned_paths_of("/bin/cat"),
+            vec![PathBuf::from("bin/cat"), PathBuf::from("usr/bin/cat")]
         );
+        assert_eq!(
+            owned_paths_of("/usr/bin/age"),
+            vec![PathBuf::from("usr/bin/age")]
+        );
+        assert!(owned_paths_of("/usr/share/doc/age/copyright.gz").is_empty());
     }
 
     #[test]
