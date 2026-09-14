@@ -68,7 +68,8 @@ pipeline:
    docker rm tmp
    feluda --filesystem rootfs --fail-on-restrictive
 
-This reads apk, dpkg and rpm databases plus installed Python and Node artifacts, and for the OS
+This reads apk, dpkg and rpm databases, installed Python and Node artifacts, and the build info
+in every Go binary, so a distroless Go image reports the modules compiled into it. For the OS
 packages it needs no network at all, since their licenses are already in the tree. It feeds the
 document writers too:
 
@@ -139,8 +140,6 @@ For images these routes do not fully cover, catalogue with syft and ingest the r
      - Tracking
    * - The rpm Berkeley DB backend, so CentOS 7, RHEL 8 and Amazon Linux 2 era images
      - `#263 <https://github.com/anistark/feluda/issues/263>`_
-   * - Go build info, so distroless Go images report nothing
-     - `#264 <https://github.com/anistark/feluda/issues/264>`_
    * - Installed Ruby gemspecs and jar manifests
      - `#254 <https://github.com/anistark/feluda/issues/254>`_
    * - ``docker save`` tarballs and OCI layouts as a direct source

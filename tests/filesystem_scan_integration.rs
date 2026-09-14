@@ -399,6 +399,93 @@ fn an_artifact_an_os_package_ships_is_not_reported_twice() {
     );
 }
 
+/// A Go binary carrying build info for two modules: `tests/fixtures/go/app`, an ELF the unit tests
+/// synthesise and `go version -m` reads. A real `go build` output would be megabytes.
+fn write_go_binary(root: &Path, relative: &str) {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/go/app");
+    let path = root.join(relative);
+    fs::create_dir_all(path.parent().expect("path should have a parent"))
+        .expect("failed to create fixture directory");
+    fs::copy(fixture, path).expect("failed to copy the Go fixture");
+}
+
+#[test]
+fn a_distroless_go_image_reports_the_modules_compiled_in() {
+    // No package database, no metadata files: the binary is the only record of what is there,
+    // and before build info was read this tree was an error.
+    let temp = tempfile::tempdir().unwrap();
+    write_go_binary(temp.path(), "app");
+    write(
+        temp.path(),
+        "etc/passwd",
+        "root:x:0:0:root:/root:/sbin/nologin\n",
+    );
+    write(temp.path(), "etc/ssl/certs/ca-certificates.crt", "");
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    assert!(output.status.success(), "{output:?}");
+    let report = report(&output);
+    assert_eq!(report.len(), 2, "{report:?}");
+
+    let cobra = find(&report, "github.com/spf13/cobra");
+    assert_eq!(cobra["version"], "v1.8.1");
+    assert_eq!(cobra["ecosystem"], "golang");
+    assert_eq!(cobra["purl"], "pkg:golang/github.com/spf13/cobra@v1.8.1");
+    assert_eq!(
+        find(&report, "golang.org/x/sys")["purl"],
+        "pkg:golang/golang.org/x/sys@v0.22.0"
+    );
+}
+
+#[test]
+fn a_go_binary_an_os_package_ships_is_not_reported_twice() {
+    // Debian's own Go packages are already in the report as debs; the modules inside their
+    // binaries are not a second finding. `age` is recorded the way a merged-/usr dpkg records
+    // it, at `/bin/age`, while the file sits under `usr/bin`.
+    let temp = debian_rootfs();
+    write_go_binary(temp.path(), "usr/bin/kubectl");
+    write_go_binary(temp.path(), "usr/bin/age");
+    write(
+        temp.path(),
+        "var/lib/dpkg/info/kubectl.list",
+        "/usr\n/usr/bin\n/usr/bin/kubectl\n",
+    );
+    write(
+        temp.path(),
+        "var/lib/dpkg/info/age.list",
+        "/bin\n/bin/age\n",
+    );
+    write(
+        temp.path(),
+        "var/lib/dpkg/status",
+        &format!(
+            "{DPKG_STATUS}Package: kubectl\nStatus: install ok installed\nVersion: 1.30.0-1\n\n\
+             Package: age\nStatus: install ok installed\nVersion: 1.1.1-1\n\n"
+        ),
+    );
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+    assert_eq!(find(&report, "debian/kubectl")["ecosystem"], "deb");
+    assert_eq!(find(&report, "debian/age")["ecosystem"], "deb");
+    assert!(
+        !report.iter().any(|entry| entry["ecosystem"] == "golang"),
+        "a distro binary's modules were reported: {report:?}"
+    );
+
+    // Whereas an application copied into the image on top of the distro is reported.
+    write_go_binary(temp.path(), "app");
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let with_app = self::report(&output);
+    assert_eq!(
+        with_app
+            .iter()
+            .filter(|entry| entry["ecosystem"] == "golang")
+            .count(),
+        2
+    );
+}
+
 #[test]
 fn an_installation_tree_needs_no_package_database() {
     // `/opt/app` has no distro behind it and is still worth scanning, which is the case that

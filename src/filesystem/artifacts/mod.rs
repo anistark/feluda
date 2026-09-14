@@ -7,15 +7,18 @@
 //! former would describe the base image and call it the application.
 //!
 //! So the same tree is walked for the metadata an installer leaves next to the code it installed:
-//! Python's `dist-info` and `egg-info` directories, and the `package.json` inside every installed
-//! `node_modules` entry. Ruby gemspecs, jar manifests and Go build info are the same idea and are
-//! tracked separately.
+//! Python's `dist-info` and `egg-info` directories, the `package.json` inside every installed
+//! `node_modules` entry, and the build info the Go linker writes into every executable, which is
+//! the only record a distroless Go image has. Ruby gemspecs and jar manifests are the same idea and
+//! are tracked separately.
 //!
 //! Two things keep the result honest. Anything the OS package manager already claims ownership of
 //! is skipped, so Debian's `python3-yaml` and the PyYAML distribution it installs are one finding
 //! rather than two. And an artifact whose metadata states no license goes to its registry, which is
 //! something an OS package can never do: an installed distribution has real coordinates.
 
+mod exe;
+pub mod go;
 pub mod node;
 pub mod python;
 
@@ -50,12 +53,28 @@ pub struct Artifact {
     pub license: Option<String>,
 }
 
-/// A cataloger: recognises its own metadata files and reads one.
+/// A cataloger: recognises its own files and reads the artifacts out of one.
 struct Cataloger {
-    /// What the artifacts are called, for the log.
+    /// What the files are called, for the log.
     kind: &'static str,
+    /// Whether a path could be this cataloger's, judged by the path alone.
+    ///
+    /// The path is all an OS package's file list offers, so this is also what decides which of
+    /// those paths are worth remembering for the ownership check.
     recognises: fn(&Path) -> bool,
-    read: fn(&Path) -> Option<Artifact>,
+    /// Whether the file at a recognised path really is this cataloger's, judged by its content.
+    ///
+    /// Only the walk asks, since only the walk has a file to open. Metadata files are what their
+    /// name says; an executable is any extensionless file until its first bytes say otherwise.
+    confirms: fn(&Path) -> bool,
+    /// The artifacts described at a path. A metadata file describes one; a Go binary lists every
+    /// module compiled into it.
+    read: fn(&Path) -> Vec<Artifact>,
+}
+
+/// Anything a metadata file's name says it is, it is.
+fn by_name(_: &Path) -> bool {
+    true
 }
 
 /// The catalogers, in the order a path is offered to them.
@@ -63,20 +82,30 @@ const CATALOGERS: &[Cataloger] = &[
     Cataloger {
         kind: "Python distribution",
         recognises: python::is_metadata,
-        read: python::read,
+        confirms: by_name,
+        read: |path| python::read(path).into_iter().collect(),
     },
     Cataloger {
         kind: "Node package",
         recognises: node::is_metadata,
-        read: node::read,
+        confirms: by_name,
+        read: |path| node::read(path).into_iter().collect(),
+    },
+    Cataloger {
+        kind: "executable",
+        recognises: go::is_metadata,
+        confirms: go::is_executable,
+        read: go::read,
     },
 ];
 
-/// Whether a path is a metadata file some cataloger keys on.
+/// Whether a path could be a file some cataloger keys on.
 ///
 /// The OS catalogers filter their file lists through this while they read them, so the only paths
 /// they have to remember are the ones an artifact could be claimed from — a full root filesystem's
 /// file list runs to hundreds of thousands of entries and none of the rest are ever asked about.
+/// Judged by the path alone, which is why every extensionless file a package ships is kept: any of
+/// them could be a Go binary, and only the walk can open one to find out.
 pub fn is_artifact_metadata(path: &Path) -> bool {
     cataloger_for(path).is_some()
 }
@@ -96,12 +125,15 @@ pub fn catalog(root: &Path, owned: &HashSet<PathBuf>) -> Vec<LicenseInfo> {
     let candidates = find_metadata(root, owned);
     log(
         LogLevel::Info,
-        &format!("Found {} installed language artifacts", candidates.len()),
+        &format!(
+            "Found {} files that may describe installed language artifacts",
+            candidates.len()
+        ),
     );
 
     let artifacts: Vec<Artifact> = candidates
         .par_iter()
-        .filter_map(|(path, cataloger)| (cataloger.read)(path))
+        .flat_map_iter(|(path, cataloger)| (cataloger.read)(path))
         .collect();
 
     dedupe(artifacts)
@@ -136,6 +168,11 @@ fn find_metadata(root: &Path, owned: &HashSet<PathBuf>) -> Vec<(PathBuf, &'stati
                 LogLevel::Info,
                 &format!("Skipping {}: shipped by an OS package", path.display()),
             );
+            continue;
+        }
+
+        // Ownership first, content second: a distro's own binaries are never even opened.
+        if !(cataloger.confirms)(path) {
             continue;
         }
 
@@ -363,7 +400,89 @@ mod tests {
         assert!(is_artifact_metadata(Path::new(
             "srv/app/node_modules/lodash/package.json"
         )));
-        assert!(!is_artifact_metadata(Path::new("usr/bin/python3")));
+        // An executable can only be told by name here, so a distro's binaries are remembered:
+        // that is what lets a Go binary a package ships be suppressed by ownership.
+        assert!(is_artifact_metadata(Path::new("usr/bin/kubectl")));
+        assert!(!is_artifact_metadata(Path::new(
+            "usr/lib/x86_64-linux-gnu/libc.so.6"
+        )));
         assert!(!is_artifact_metadata(Path::new("srv/app/package.json")));
+    }
+
+    /// A synthesised ELF carrying Go build info for two modules.
+    fn go_binary() -> Vec<u8> {
+        use super::exe::tests::{elf, Synth};
+        use super::go::tests::{inline_blob, modinfo, SAMPLE_MODINFO};
+        elf(
+            &Synth {
+                data_addr: 0x500000,
+                data: inline_blob("go1.22.5", &modinfo(SAMPLE_MODINFO)),
+            },
+            true,
+        )
+    }
+
+    #[test]
+    fn test_catalogs_the_modules_compiled_into_a_go_binary() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("ko-app")).unwrap();
+        std::fs::write(temp.path().join("ko-app/app"), go_binary()).unwrap();
+        // A shell script with an executable's name is recognised by name and dropped on content.
+        write(
+            temp.path(),
+            "usr/bin/entrypoint",
+            "#!/bin/sh
+exec /ko-app/app
+",
+        );
+
+        let findings = catalog(temp.path(), &HashSet::new());
+        let mut names: Vec<(&str, &str)> = findings
+            .iter()
+            .map(|finding| (finding.name.as_str(), finding.version.as_str()))
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                ("github.com/spf13/cobra", "v1.8.1"),
+                ("golang.org/x/sys", "v0.22.0"),
+            ]
+        );
+        let cobra = &findings[0];
+        assert_eq!(cobra.ecosystem, Ecosystem::Golang);
+        assert!(cobra.license.is_none(), "build info carries no license");
+        assert_eq!(
+            findings
+                .iter()
+                .find(|finding| finding.name == "github.com/spf13/cobra")
+                .unwrap()
+                .purl()
+                .as_deref(),
+            Some("pkg:golang/github.com/spf13/cobra@v1.8.1")
+        );
+    }
+
+    #[test]
+    fn test_a_go_binary_an_os_package_ships_is_not_read() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = "usr/bin/kubectl";
+        std::fs::create_dir_all(temp.path().join("usr/bin")).unwrap();
+        std::fs::write(temp.path().join(binary), go_binary()).unwrap();
+
+        assert_eq!(catalog(temp.path(), &HashSet::new()).len(), 2);
+
+        // The distro's kubectl package lists the binary, and the package is already in the report.
+        let owned = HashSet::from([PathBuf::from(binary)]);
+        assert!(catalog(temp.path(), &owned).is_empty());
+    }
+
+    #[test]
+    fn test_two_binaries_sharing_a_module_report_it_once() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["app", "worker"] {
+            std::fs::write(temp.path().join(name), go_binary()).unwrap();
+        }
+        assert_eq!(catalog(temp.path(), &HashSet::new()).len(), 2);
     }
 }

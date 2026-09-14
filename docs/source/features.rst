@@ -113,8 +113,8 @@ it. Feluda reads that directly, with no cataloguing tool in the pipeline.
       :link-type: doc
 
       apk, dpkg and rpm databases, read where the system keeps them, plus the Python
-      distributions and Node packages installed beside them. For OS packages there is no
-      network call at all, since the licenses are already in the tree.
+      distributions, Node packages and Go binaries installed beside them. For OS packages
+      there is no network call at all, since the licenses are already in the tree.
 
    .. grid-item-card:: :iconify:`simple-icons:docker` Container images
       :class-card: glassmorphic

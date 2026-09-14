@@ -58,6 +58,10 @@ What Is Covered
    * - npm, pnpm, yarn
      - Node packages
      - The ``package.json`` inside each ``node_modules`` entry
+   * - ``go build``
+     - Go modules
+     - The build info the linker writes into every ELF, Mach-O or PE executable; the license comes
+       from pkg.go.dev, since build info carries none
 
 The tree does not have to be a full root filesystem. An extracted image layer, a chroot, a mounted
 disk, or an installation directory all work.
@@ -66,6 +70,11 @@ Every cataloger runs, so an image carrying more than one package manager's datab
 full, and so is the application installed on top of it. In most images the application's own
 dependencies are the larger half: a base image contributes on the order of ninety dpkg packages,
 and what is in ``site-packages`` or ``node_modules`` is what the image was built to run.
+
+A distroless Go image has none of that, and the binary itself is the record. The Go linker writes a
+build info blob into every executable naming each module compiled in, at the exact version, which
+is what ``go version -m`` prints. Feluda reads the same blob out of every executable it finds that
+no OS package claims, in stripped binaries too, and in both the Go 1.18+ layout and the older one.
 
 ----
 
@@ -92,6 +101,7 @@ manifest scan, so a finding means the same thing wherever it came from:
 
    pkg:pypi/requests@2.32.3
    pkg:npm/%40babel/core@7.24.0
+   pkg:golang/github.com/spf13/cobra@v1.8.1
 
 ----
 
@@ -105,7 +115,10 @@ would be reported twice, once as ``pkg:deb/debian/python3-yaml`` and once as ``p
 Feluda suppresses the second by ownership rather than by name: dpkg records every file a package
 installed in ``/var/lib/dpkg/info/<package>.list``, apk records the same in its installed database,
 and an rpm header carries its file list in its own tags. An artifact whose metadata file appears in
-one of those lists is already in the report as an OS package.
+one of those lists is already in the report as an OS package. The same check covers Go binaries a
+distro ships, so Debian's ``age`` is one deb and not a deb plus the modules inside ``/usr/bin/age``.
+On a merged-``/usr`` system dpkg still records ``/bin/age`` while the file sits under ``/usr/bin``,
+and both spellings are checked.
 
 Nothing is matched on names, because ``python3-yaml`` to ``pyyaml`` is a guess that both over- and
 under-suppresses. And a library installed in more than one place — a virtualenv beside the system
@@ -133,6 +146,9 @@ license text the wheel shipped in its metadata directory, which does say which o
 For Node: the ``license`` field, including the legacy ``{"type": ...}`` object and ``licenses``
 array; then the package's own ``LICENSE`` file, which its tarball ships. ``SEE LICENSE IN <file>``
 names no license and is treated as unstated.
+
+For Go: nothing from the binary, since build info records module paths and versions and no license
+at all. Every module goes to pkg.go.dev, the same lookup a ``go.mod`` scan uses.
 
 Anything still unresolved goes to the package's registry. This is the one thing a filesystem scan
 can do for an installed artifact that it cannot do for an OS package: a distribution in
@@ -273,8 +289,8 @@ The same source feeds the document writers:
 Not Yet Covered
 ---------------
 
-Installed Ruby gemspecs, jars and Go build info are not catalogued yet, and neither is the Berkeley
-DB rpm backend above. :ref:`cli-containers` tracks each gap against its issue. Until they are
+Installed Ruby gemspecs and jars are not catalogued yet, and neither is the Berkeley DB rpm backend
+above. :ref:`cli-containers` tracks each gap against its issue. Until they are
 closed, pipe syft's output through :ref:`sbom-ingest` for those cases:
 
 .. code-block:: bash

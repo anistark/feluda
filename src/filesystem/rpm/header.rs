@@ -301,7 +301,8 @@ mod tests {
 
     #[test]
     fn test_file_paths_reassemble_from_the_directory_table() {
-        // Only the dist-info metadata is kept; the other two files are not artifact metadata.
+        // The dist-info metadata is kept, and so is every extensionless file, since any of those
+        // could be a Go binary for all a path can tell; the shared library cannot be.
         let blob = Builder::new()
             .string(TAG_NAME, "python3-pyyaml")
             .string(TAG_VERSION, "6.0")
@@ -310,17 +311,23 @@ mod tests {
                 &[
                     "/usr/lib64/python3.13/site-packages/PyYAML-6.0.dist-info/",
                     "/usr/bin/",
+                    "/usr/lib64/",
                 ],
             )
-            .strings(TAG_BASENAMES, &["METADATA", "RECORD", "python3"])
-            .ints(TAG_DIRINDEXES, &[0, 0, 1])
+            .strings(
+                TAG_BASENAMES,
+                &["METADATA", "RECORD", "python3", "libpython3.13.so.1.0"],
+            )
+            .ints(TAG_DIRINDEXES, &[0, 0, 1, 2])
             .build();
 
         assert_eq!(
             parse(&blob).unwrap().owned,
-            vec![PathBuf::from(
-                "usr/lib64/python3.13/site-packages/PyYAML-6.0.dist-info/METADATA"
-            )]
+            vec![
+                PathBuf::from("usr/lib64/python3.13/site-packages/PyYAML-6.0.dist-info/METADATA"),
+                PathBuf::from("usr/lib64/python3.13/site-packages/PyYAML-6.0.dist-info/RECORD"),
+                PathBuf::from("usr/bin/python3"),
+            ]
         );
     }
 

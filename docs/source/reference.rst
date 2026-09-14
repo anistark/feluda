@@ -46,7 +46,7 @@ Use this table to double-check flag behavior before scripting.
      - Ideal for CI as in :ref:`integrations`.
    * - ``feluda --filesystem <dir>``
      - Catalogue what is installed under a tree instead of scanning manifests.
-     - Reads apk, dpkg and rpm databases plus installed Python and Node artifacts. Cannot be combined with ``--repo`` or ``--sbom-input``. See :ref:`cli-filesystem`.
+     - Reads apk, dpkg and rpm databases plus installed Python and Node artifacts and the build info in Go binaries. Cannot be combined with ``--repo`` or ``--sbom-input``. See :ref:`cli-filesystem`.
    * - ``feluda --sbom-input <file>``
      - Scan an SPDX or CycloneDX document instead of a project tree.
      - ``-`` reads stdin, so ``syft image -o spdx-json | feluda --sbom-input -`` works. See :ref:`sbom-ingest`.

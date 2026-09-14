@@ -15,8 +15,9 @@
 //! Two questions get asked of the tree, because a distro's package database answers only half of
 //! it. [`apk`] and [`dpkg`] report what the distribution installed; [`artifacts`] reports what
 //! landed alongside it with no manifest behind it — the distributions in `site-packages`, the
-//! packages in `node_modules`. In a container the second is usually the larger half, and it is the
-//! half that is the application rather than the base image.
+//! packages in `node_modules`, the modules a Go binary records in its build info. In a container
+//! the second is usually the larger half, and it is the half that is the application rather than
+//! the base image.
 //!
 //! Alpine and Debian are covered because their databases are text. RPM is a binary store, and
 //! [`rpm`] reads the sqlite backend every in-support RPM distribution uses; the two older backends
@@ -144,7 +145,7 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
             .join(", ");
         return Err(source_error(format!(
             "Nothing installed found under {}. Looked for: {looked_for}, and for installed \
-             Python distributions and Node packages.",
+             Python distributions, Node packages and Go binaries.",
             root.display()
         )));
     }
