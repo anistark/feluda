@@ -350,6 +350,33 @@ The application's own dependencies are usually the larger half of an image, and 
 
 Gemspecs and jars are not covered yet, and rpm's Berkeley DB backend (CentOS 7, RHEL 8, Amazon Linux 2) is reported by name rather than read; pipe syft through `--sbom-input` for those in the meantime. Pointing `--filesystem` at a tree with nothing installed in it is an error, not an empty report.
 
+### Image Archives as a Scan Source
+
+The export step is optional. Point `--image-archive` at a `docker save` tarball or an OCI image layout and Feluda squashes the layers itself, whiteouts included, then catalogues the result exactly as `--filesystem` would. No registry client, no credentials, no network.
+
+```sh
+# Gate a saved image on restrictive licenses, in one command
+docker save app:latest > app.tar
+feluda --image-archive app.tar --fail-on-restrictive
+
+# An OCI layout from skopeo, buildx or podman works the same way
+skopeo copy docker://nginx:latest oci:./nginx:latest
+feluda --image-archive ./nginx --json
+
+# Pick one image out of a multi platform archive
+feluda --image-archive app.tar --platform linux/arm64
+
+# Produce an SBOM straight from the archive
+feluda sbom spdx --image-archive app.tar --output app.spdx.json
+```
+
+**What this accepts:**
+- 🐳 **`docker save` tarballs** - also what `podman save`, `nerdctl save` and `crane pull` write
+- 📂 **OCI image layouts** - a directory or the same layout tarred up, from `skopeo copy ... oci:`, `podman save --format oci-dir` or `docker buildx build --output type=oci`
+- 🗜️ **Compressed archives** - any of the tar forms gzipped or zstd compressed, and gzip or zstd layers inside them
+
+A multi platform archive is never guessed at: without `--platform` the scan stops and lists the images it holds. A file deleted in a later layer does not appear in the findings, and an OCI layout and a `docker save` of the same image report the same thing.
+
 ### SBOM Validation
 
 Validate SBOM files to ensure they conform to the SPDX or CycloneDX specifications:

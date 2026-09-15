@@ -153,6 +153,35 @@ See :ref:`cli-filesystem` for the full behaviour.
 
 ----
 
+Scan an Image Archive
+---------------------
+
+An image does not have to be exported first. ``--image-archive`` takes a ``docker save`` tarball or
+an OCI image layout, squashes the layers itself and catalogues the result the same way:
+
+.. code-block:: bash
+
+   docker save app:latest > app.tar
+   feluda --image-archive app.tar --fail-on-restrictive
+
+**Options:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Flag
+     - Description
+   * - ``--image-archive <PATH>``
+     - A ``docker save`` tarball, an OCI image layout directory, or either gzip or zstd compressed
+   * - ``--platform <OS/ARCH>``
+     - Which image to take out of a multi platform archive, as ``linux/arm64`` or ``linux/arm/v7``
+
+See :ref:`cli-image-archive` for the full behaviour, and :ref:`cli-containers` for the routes from
+an image reference to an archive.
+
+----
+
 Scan a Workspace or Monorepo
 ----------------------------
 

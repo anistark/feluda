@@ -7,16 +7,17 @@ Scan a Container Image
 
 .. rst-class:: lead
 
-   Three routes from an image to a license verdict, and why none of them is ``--image``.
+   Four routes from an image to a license verdict, and why none of them is ``--image``.
 
 ----
 
 Overview
 --------
 
-Feluda has no flag that takes an image reference. What it has is two scan sources that between
-them cover the case completely: :ref:`sbom-ingest` reads an inventory another tool produced, and
-:ref:`cli-filesystem` catalogues a tree directly. An image becomes one or the other first.
+Feluda has no flag that takes an image reference. What it has is three scan sources that between
+them cover the case completely: :ref:`cli-image-archive` reads an image the way ``docker save``
+or an OCI layout writes it out, :ref:`cli-filesystem` catalogues an extracted tree directly, and
+:ref:`sbom-ingest` reads an inventory another tool produced. An image becomes one of those first.
 
 Which route to take depends on what you already run, not on what you are scanning.
 
@@ -27,15 +28,80 @@ Which route to take depends on what you already run, not on what you are scannin
    * - Route
      - Use when
      - What it costs
-   * - Pipe syft
-     - syft is already in the pipeline
-     - Another tool to install, and its cataloguing rather than Feluda's
-   * - Export the image
-     - Docker is available locally
-     - Disk for the extracted tree
+   * - Save the image
+     - Docker, podman or nerdctl is available locally
+     - One tarball on disk, nothing else in the pipeline
    * - Copy with skopeo
      - CI has no Docker daemon
      - Another tool to install, but no daemon and no credentials in Feluda
+   * - Export the image
+     - You already have the tree, or want to look at it
+     - Disk for the extracted tree
+   * - Pipe syft
+     - syft is already in the pipeline
+     - Another tool to install, and its cataloguing rather than Feluda's
+
+----
+
+Save and Scan the Archive
+-------------------------
+
+``docker save`` writes an image out as one tarball. Feluda reads it directly, squashing the layers
+and honouring the whiteouts itself, with no other tool in the pipeline:
+
+.. code-block:: bash
+
+   docker save nginx:latest > nginx.tar
+   feluda --image-archive nginx.tar --fail-on-restrictive
+
+The same flag takes an OCI image layout directory or an OCI archive, which is what ``podman save
+--format oci-dir``, ``skopeo copy ... oci:``, ``docker buildx build --output type=oci`` and
+``crane pull`` produce, and any of the tar forms gzipped or zstd compressed. A multi platform
+archive is not guessed at: ``--platform linux/arm64`` says which image to take, and leaving it out
+lists what there is. See :ref:`cli-image-archive`.
+
+What comes out is exactly what :ref:`cli-filesystem` reports for the extracted tree, since the
+squashed filesystem goes through the same catalogers. It feeds the document writers too:
+
+.. code-block:: bash
+
+   feluda sbom spdx --image-archive nginx.tar --output nginx.spdx.json
+
+----
+
+Without a Docker Daemon
+-----------------------
+
+CI runners often have no daemon. ``skopeo`` pulls straight from a registry into an OCI layout, and
+handles the credentials itself:
+
+.. code-block:: bash
+
+   skopeo copy docker://nginx:latest oci:./nginx:latest
+   feluda --image-archive ./nginx --fail-on-restrictive
+
+``crane pull nginx:latest nginx.tar`` does the same job in one step if you prefer it; the tarball
+it writes is a ``docker save`` archive. Either way Feluda never sees a registry credential.
+
+----
+
+Export and Scan the Tree
+------------------------
+
+``docker export`` flattens a container to a tarball, which is the tree ``--image-archive`` builds
+for itself, already on disk:
+
+.. code-block:: bash
+
+   docker create --name tmp nginx:latest
+   docker export tmp | tar -x -C rootfs
+   docker rm tmp
+   feluda --filesystem rootfs --fail-on-restrictive
+
+This is the route when the tree is already there, or when you want to look at it as well as scan
+it. It reads apk, dpkg and rpm databases, installed Python and Node artifacts, and the build info
+in every Go binary, so a distroless Go image reports the modules compiled into it. For the OS
+packages it needs no network at all, since their licenses are already in the tree.
 
 ----
 
@@ -52,49 +118,6 @@ starts.
 
 ``-`` reads from stdin, so nothing touches disk. The same path takes a vendor's SBOM, which is
 often the only inventory you get for an image you did not build. See :ref:`sbom-ingest`.
-
-----
-
-Export and Scan the Tree
-------------------------
-
-``docker export`` flattens a container to a tarball, which Feluda scans with no other tool in the
-pipeline:
-
-.. code-block:: bash
-
-   docker create --name tmp nginx:latest
-   docker export tmp | tar -x -C rootfs
-   docker rm tmp
-   feluda --filesystem rootfs --fail-on-restrictive
-
-This reads apk, dpkg and rpm databases, installed Python and Node artifacts, and the build info
-in every Go binary, so a distroless Go image reports the modules compiled into it. For the OS
-packages it needs no network at all, since their licenses are already in the tree. It feeds the
-document writers too:
-
-.. code-block:: bash
-
-   feluda sbom spdx --filesystem rootfs --output nginx.spdx.json
-
-The resulting document describes what the image ships rather than what a source tree declares.
-
-----
-
-Without a Docker Daemon
------------------------
-
-CI runners often have no daemon. ``skopeo`` pulls straight from a registry into an OCI layout, and
-handles the credentials itself:
-
-.. code-block:: bash
-
-   skopeo copy docker://nginx:latest dir:./rootfs-layers
-   # then extract the layers in manifest order and scan the result
-   feluda --filesystem rootfs
-
-``crane export`` does the same job in one step if you prefer it. Either way Feluda never sees a
-registry credential.
 
 ----
 
@@ -115,15 +138,13 @@ none of that work is about licenses:
   dropped, retries and caching.
 
 Registry authentication is the largest ongoing support surface in every scanner in this category,
-and the three routes above already cover the case. Feluda would rather own license resolution well
+and the four routes above already cover the case. Feluda would rather own license resolution well
 than own credential handling at all.
 
-What is worth building is the half below that line: reading a ``docker save`` tarball or an OCI
+The half below that line is built: ``--image-archive`` reads a ``docker save`` tarball or an OCI
 layout directly, which is layer squashing and whiteout handling over catalogers that already exist,
-with no network and no credentials. That is proposed in `issue #265
-<https://github.com/anistark/feluda/issues/265>`_ and would collapse the export step above into
-one command. A registry client stays unfiled until someone asks for it by name, with a workflow
-where materialising the image locally is genuinely not an option.
+with no network and no credentials. A registry client stays unfiled until someone asks for it by
+name, with a workflow where materialising the image locally is genuinely not an option.
 
 ----
 
@@ -142,5 +163,3 @@ For images these routes do not fully cover, catalogue with syft and ingest the r
      - `#263 <https://github.com/anistark/feluda/issues/263>`_
    * - Installed Ruby gemspecs and jar manifests
      - `#254 <https://github.com/anistark/feluda/issues/254>`_
-   * - ``docker save`` tarballs and OCI layouts as a direct source
-     - `#265 <https://github.com/anistark/feluda/issues/265>`_

@@ -44,6 +44,11 @@ src/filesystem/ — catalog what a root filesystem has installed: OS packages fr
                   rpm's sqlite or ndb header store, plus installed language artifacts
                   (site-packages, node_modules, Go binary build info)
         ↓
+   ── or, with --image-archive, the filesystem scan runs over an image ──
+src/image/ — read a docker save tarball or an OCI layout, pick the platform,
+             squash the layers (whiteouts included) into a temp dir, then hand
+             that tree to src/filesystem/ exactly as --filesystem would
+        ↓
 src/clearlydefined.rs — last resort for findings still unresolved: batch-ask
                         ClearlyDefined by package coordinate, then reclassify
         ↓
@@ -169,6 +174,11 @@ src/
 │       ├── node.rs      # package.json inside node_modules
 │       ├── go.rs        # go:buildinfo blob in compiled Go binaries
 │       └── exe.rs       # ELF/Mach-O/PE: data segment and virtual address mapping
+├── image/
+│   ├── mod.rs           # --image-archive: squash an image, then scan_tree over it
+│   ├── store.rs         # OCI layout dir or tar file as one blob store; compression sniffing
+│   ├── manifest.rs      # index.json / manifest.json, platform selection
+│   └── layers.rs        # Layer extraction, whiteouts, inside-root checks
 ├── languages/
 │   ├── mod.rs           # Language enum, LanguageParser trait, file patterns
 │   ├── rust.rs          # Rust/Cargo dependency analysis
@@ -197,11 +207,12 @@ src/
 - **Language detection via file patterns.** `src/languages/mod.rs` defines `Language::from_file_name()` which maps manifest filenames to language variants. `src/parser.rs` scans the project root for these files.
 - **Parallel analysis.** Multiple project roots are analyzed in parallel using `rayon`.
 - **Three-tier license resolution.** Local files are checked first (e.g., `node_modules/*/LICENSE`, `Cargo.toml` license field), then the ecosystem's registry or the GitHub API, then ClearlyDefined for whatever is still unresolved. The `--no-local` flag skips the first tier, `--no-clearlydefined` skips the last.
-- **Three ways in, one pipeline.** The manifest scan, `--sbom-input` and `--filesystem` all produce a `Vec<LicenseInfo>`; everything downstream (compatibility, filters, reports, exit codes) is shared. A package's identity is its `Ecosystem` + PURL (`src/purl.rs`), which is what lets findings from different ecosystems coexist in one report. Sources that build findings themselves rather than through a language analyzer finish with `licenses::classify_findings`, so restrictiveness and OSI status are decided identically whatever discovered the package.
+- **Four ways in, one pipeline.** The manifest scan, `--sbom-input`, `--filesystem` and `--image-archive` all produce a `Vec<LicenseInfo>`; everything downstream (compatibility, filters, reports, exit codes) is shared. A package's identity is its `Ecosystem` + PURL (`src/purl.rs`), which is what lets findings from different ecosystems coexist in one report. Sources that build findings themselves rather than through a language analyzer finish with `licenses::classify_findings`, so restrictiveness and OSI status are decided identically whatever discovered the package.
 - **OS packages carry their distro in the name.** A cataloged package is named `debian/libssl3`, which is what puts the namespace in its PURL (`pkg:deb/debian/libssl3`). This mirrors how maven, npm and golang names already carry their namespace. PURL qualifiers (`arch`, `distro`) are deliberately not emitted, because `parse_purl` deliberately drops them on read.
 - **Installed artifacts are deduped by file ownership, never by name.** dpkg's `/var/lib/dpkg/info/*.list`, apk's `F:`/`R:` records and rpm's `DIRNAMES`/`DIRINDEXES`/`BASENAMES` tags say which files belong to which package, so an artifact a distro package already ships is suppressed exactly. The OS catalogers filter those file lists through `filesystem::artifacts::is_artifact_metadata` as they read them, so only the handful of relevant paths are held in memory. Adding a new artifact cataloger means teaching that one function about its metadata file, and the ownership check follows for free. Recognition is two-step: `recognises` judges the path alone (all a file list offers) and `confirms` judges the content (only the walk has a file to open). Go binaries have no telling name, so `go::is_metadata` claims every extensionless or `.exe` path and `exe::is_executable` narrows it to real ELF/Mach-O/PE files by their first four bytes. That is why the owned set holds every extensionless path a package ships, and why dpkg's merged-`/usr` aliases (`/bin/x` recorded, `usr/bin/x` on disk) are remembered both ways.
 - **Go build info is read without a Go toolchain or an object-file crate.** `filesystem/artifacts/exe.rs` parses only what `debug/buildinfo` needs from ELF, Mach-O and PE: the data region and a virtual-address-to-file-offset map. `go.rs` searches that region for the `\xff Go buildinf:` header at 16-byte alignment and decodes the strings inline (Go 1.18+) or through pointers (older). Build info carries no license, so every module leaves the cataloger unresolved and goes through `resolve_missing_licenses` to pkg.go.dev, which is where the time goes on a tree holding many Go binaries. `tests/fixtures/go/app` is a synthesised ELF that `go version -m` reads; regenerate it with `FELUDA_WRITE_FIXTURES=1 cargo test` when the builder changes.
 - **The rpm database is read without a SQLite dependency.** `filesystem/rpm/sqlite.rs` is a read-only b-tree reader for the one table rpm keeps headers in. This is deliberate: linking `rusqlite` (bundled) would put a C toolchain in front of every target in `release-binaries.yml`, and the `sqlite3` CLI is not guaranteed on the host. Don't replace it with either. `filesystem/rpm/ndb.rs` reads rpm's own ndb store the same way, and both readers hand the same header blobs to `header.rs`, so a new backend is a new storage reader and nothing else. Berkeley DB is detected and reported by name. The database is looked for under `var/lib/rpm` and then `usr/lib/sysimage/rpm`, since Fedora 36+ and SUSE keep it under `/usr` with only a symlink at the old path.
+- **An image archive is a filesystem that has not been extracted yet.** `src/image/` does nothing a cataloger would recognise: `store.rs` presents an OCI layout directory or a tar file (indexed once by header walk, then read by seeking, so a multi-gigabyte image is streamed) as one blob store; `manifest.rs` reads `index.json` (OCI, nested indexes, buildx attestations dropped) or legacy `manifest.json` and picks one image, refusing to guess between several without `--platform`; `layers.rs` squashes the layers into a `TempDir` and `filesystem::scan_tree` takes it from there. Compression is sniffed from magic bytes, never trusted from media types. The extractor is hand-written rather than `tar::Entry::unpack` for two reasons: modes are never applied (a read-only lower directory would block the next layer), and every write is checked to resolve inside the root *before* any directory is created, so a lower layer's symlink to `/etc` cannot turn a later `etc/passwd` into a write on the host. Whiteouts are collected during the pass and applied against the set of paths that layer wrote, which is the spec's "hides lower layers only" rule without reading the layer twice. zstd goes through a small multi-frame wrapper because `ruzstd::StreamingDecoder` stops at the first frame. There is deliberately no registry client; `docs/source/cli/containers.rst` says why.
 - **Registry lookups have one home each.** `languages::resolve_license_for(ecosystem, name, version)` dispatches to the lookup its analyzer already uses. Add a new registry client to the language module, not to the dispatcher.
 - **ClearlyDefined is the exception, and deliberately not a language module.** It answers for every ecosystem at once, so it lives in `src/clearlydefined.rs` and runs as a pass over finished findings rather than inside an analyzer: `resolve_unknown_licenses(&mut findings, strict)` picks out what is still unresolved, maps it onto a ClearlyDefined coordinate, asks in one batch, and reclassifies what it fills in. Each scan source calls it once where its findings are final — the SBOM ingest before it writes the enriched copy, `scan_filesystem` after `classify_findings`, and `analyze_dependencies` at the end of the manifest branch. It returns the indices it changed, which is how the enriched SBOM knows what to write back. Only `licensed.declared` is read; the per-file scan results in the same document describe fixtures and vendored code inside the package.
 - **Caching.** Two files in the user cache directory (`~/Library/Caches/feluda`, `$XDG_CACHE_HOME/feluda`, `%LOCALAPPDATA%\feluda`): `github_licenses.json` for the GitHub license table (30 days) and `clearlydefined.json` for ClearlyDefined answers (7 days, misses cached too). Both go through the generic `load_cache`/`save_cache` pair in `src/cache.rs`; `feluda cache` reports both and `--clear` removes both.
@@ -238,6 +249,7 @@ Documentation is hosted on ReadTheDocs. When updating docs, place content in `do
 | **figment** | Configuration | Layered config: TOML + env vars |
 | **reqwest** | HTTP client | For GitHub API calls (blocking mode) |
 | **rayon** | Parallelism | Parallel dependency analysis |
+| **tar** / **flate2** / **ruzstd** | Image archives | `--image-archive`: tar container and layers, gzip and zstd. All pure Rust, no C toolchain |
 | **ratatui** | TUI framework | Interactive terminal UI (`--gui`) |
 | **serde** / **serde_json** / **serde_yaml** | Serialization | JSON/YAML output, config parsing |
 | **cargo_metadata** | Rust analysis | Cargo dependency resolution |
@@ -306,6 +318,7 @@ cargo run -- --path examples/python-example
 - **Unit tests** live alongside source code (standard Rust `#[cfg(test)]` modules).
 - **Integration tests** in `tests/` drive the real binary (`CARGO_BIN_EXE_feluda`) against fixtures built in temp directories. They must pass offline: fixtures are crafted so licenses resolve locally, and every harness sets `FELUDA_CLEARLYDEFINED_ENABLED=false` so the suite never depends on a third party service. Keep that env var on any new harness that runs the binary.
 - **Testing something that talks to the network** — point it at a stub server rather than the real one. `tests/clearlydefined_integration.rs` runs a `TcpListener` on localhost and sets `FELUDA_CLEARLYDEFINED_ENDPOINT`; it also gives each run its own `HOME`/`XDG_CACHE_HOME`, since a cached answer would otherwise mean the stub is never called. Live checks against the real service go behind `#[ignore]`.
+- **Image fixtures are built at test time.** `tests/image_archive_integration.rs` writes the same two layers out as an OCI layout directory, an OCI archive, a legacy `docker save` tarball and a gzipped one with the `tar` and `flate2` crates, and asserts all four report identically. Nothing binary is checked in for it.
 - **Dev dependencies** include `tempfile`, `mockall`, `http`, `temp-env`, `serial_test`.
 - Always run `cargo test` before committing.
 - The CI expects zero clippy warnings: `cargo clippy --all-targets --all-features -- -D warnings`.
@@ -369,6 +382,9 @@ syft nginx:latest -o spdx-json | feluda --sbom-input -   # ...or one piped in
 feluda --sbom-input sbom.json --sbom-enriched out.json   # Re-emit it with resolved licenses
 feluda --filesystem ./rootfs              # Catalog installed OS packages + language artifacts
 feluda sbom spdx --filesystem ./rootfs    # ...and describe them in an SBOM
+feluda --image-archive app.tar            # Same, from a docker save tarball or OCI layout
+feluda --image-archive app.tar --platform linux/arm64   # ...picking one image out of a multi platform archive
+feluda sbom spdx --image-archive app.tar  # ...and describe it in an SBOM
 
 # Output formats
 feluda --json                             # JSON output
@@ -428,6 +444,7 @@ feluda --debug                            # Enable debug logging
 | `src/sbom/mod.rs` | SBOM generation entry point |
 | `src/sbom/ingest.rs` | SBOM ingest (`--sbom-input`), the non-manifest scan source |
 | `src/filesystem/mod.rs` | Filesystem scan (`--filesystem`), the installed-tree scan source |
+| `src/image/mod.rs` | Image archive scan (`--image-archive`), squashes layers then reuses the filesystem scan |
 | `src/purl.rs` | `Ecosystem` enum, PURL building and parsing |
 | `src/clearlydefined.rs` | ClearlyDefined fallback for licenses nothing else resolved |
 | `src/cache.rs` | GitHub license table and ClearlyDefined answer caching |

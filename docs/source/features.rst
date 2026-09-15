@@ -102,7 +102,8 @@ it. Feluda reads that directly, with no cataloguing tool in the pipeline.
 
 .. code-block:: console
 
-   $ feluda --filesystem ./rootfs --fail-on-restrictive
+   $ docker save app:latest > app.tar
+   $ feluda --image-archive app.tar --fail-on-restrictive
 
 .. grid:: 1 1 3 3
    :gutter: 3

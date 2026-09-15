@@ -57,6 +57,14 @@ pub enum SbomCommand {
         #[arg(long, value_name = "PATH")]
         filesystem: Option<String>,
 
+        /// Catalog a container image from a docker save tarball or an OCI image layout instead of a project tree
+        #[arg(long, value_name = "PATH", conflicts_with = "filesystem")]
+        image_archive: Option<String>,
+
+        /// Which image to take out of a multi platform archive, as os/arch[/variant] (e.g. linux/arm64)
+        #[arg(long, value_name = "OS/ARCH", requires = "image_archive")]
+        platform: Option<String>,
+
         /// Path to write the SBOM file
         #[arg(short, long)]
         output: Option<String>,
@@ -70,6 +78,14 @@ pub enum SbomCommand {
         /// Catalog the packages and artifacts installed under a root filesystem instead of a project tree
         #[arg(long, value_name = "PATH")]
         filesystem: Option<String>,
+
+        /// Catalog a container image from a docker save tarball or an OCI image layout instead of a project tree
+        #[arg(long, value_name = "PATH", conflicts_with = "filesystem")]
+        image_archive: Option<String>,
+
+        /// Which image to take out of a multi platform archive, as os/arch[/variant] (e.g. linux/arm64)
+        #[arg(long, value_name = "OS/ARCH", requires = "image_archive")]
+        platform: Option<String>,
 
         /// Path to write the SBOM file
         #[arg(short, long)]
@@ -117,6 +133,14 @@ pub enum Commands {
         /// Catalog the packages and artifacts installed under a root filesystem instead of a project tree
         #[arg(long, value_name = "PATH")]
         filesystem: Option<String>,
+
+        /// Catalog a container image from a docker save tarball or an OCI image layout instead of a project tree
+        #[arg(long, value_name = "PATH", conflicts_with = "filesystem")]
+        image_archive: Option<String>,
+
+        /// Which image to take out of a multi platform archive, as os/arch[/variant] (e.g. linux/arm64)
+        #[arg(long, value_name = "OS/ARCH", requires = "image_archive")]
+        platform: Option<String>,
 
         /// Path to write the SBOM files
         #[arg(short, long)]
@@ -225,6 +249,24 @@ pub struct Cli {
         help_heading = HEADING_SOURCE
     )]
     pub filesystem: Option<String>,
+
+    /// Catalog a container image from a docker save tarball or an OCI image layout, with no registry
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = ["repo", "sbom_input", "filesystem"],
+        help_heading = HEADING_SOURCE
+    )]
+    pub image_archive: Option<String>,
+
+    /// Which image to take out of a multi platform archive, as os/arch[/variant] (e.g. linux/arm64)
+    #[arg(
+        long,
+        value_name = "OS/ARCH",
+        requires = "image_archive",
+        help_heading = HEADING_SOURCE
+    )]
+    pub platform: Option<String>,
 
     /// Write the ingested SBOM back out with the licenses Feluda resolved
     #[arg(long, value_name = "FILE", requires = "sbom_input", help_heading = HEADING_OUTPUT)]
@@ -814,6 +856,8 @@ mod tests {
             repo: None,
             sbom_input: None,
             filesystem: None,
+            image_archive: None,
+            platform: None,
             sbom_enriched: None,
             token: None,
             ssh_key: None,
@@ -862,6 +906,8 @@ mod tests {
             repo: None,
             sbom_input: None,
             filesystem: None,
+            image_archive: None,
+            platform: None,
             sbom_enriched: None,
             token: None,
             ssh_key: None,
@@ -917,6 +963,8 @@ mod tests {
             repo: None,
             sbom_input: None,
             filesystem: None,
+            image_archive: None,
+            platform: None,
             sbom_enriched: None,
             token: None,
             ssh_key: None,
@@ -1214,6 +1262,8 @@ mod tests {
         let sbom_cmd = Commands::Sbom {
             path: "./".to_string(),
             filesystem: None,
+            image_archive: None,
+            platform: None,
             format: None,
             output: None,
         };
@@ -1238,9 +1288,13 @@ mod tests {
         let sbom_cmd = Commands::Sbom {
             path: "/project".to_string(),
             filesystem: None,
+            image_archive: None,
+            platform: None,
             format: Some(SbomCommand::Spdx {
                 path: "/project".to_string(),
                 filesystem: None,
+                image_archive: None,
+                platform: None,
                 output: Some("sbom.json".to_string()),
             }),
             output: None,
@@ -1275,9 +1329,13 @@ mod tests {
         let sbom_cmd = Commands::Sbom {
             path: "/project".to_string(),
             filesystem: None,
+            image_archive: None,
+            platform: None,
             format: Some(SbomCommand::Cyclonedx {
                 path: "/project".to_string(),
                 filesystem: None,
+                image_archive: None,
+                platform: None,
                 output: Some("sbom.xml".to_string()),
             }),
             output: None,

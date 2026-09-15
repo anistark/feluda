@@ -47,6 +47,8 @@ Command Overview
      - Write ``.feluda.toml`` and a pre-commit hook for the project
    * - ``feluda --filesystem``
      - Catalogue the OS packages and installed artifacts under a root filesystem
+   * - ``feluda --image-archive``
+     - Catalogue a container image from a ``docker save`` tarball or an OCI layout
    * - ``feluda --sbom-input``
      - Scan an SPDX or CycloneDX document another tool produced
    * - ``feluda watch``

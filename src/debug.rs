@@ -128,6 +128,9 @@ pub enum FeludaError {
     #[error("Temporary directory error: {0}")]
     TempDir(String),
 
+    #[error("Image archive error: {0}")]
+    Image(String),
+
     #[error("TUI initialization error: {0}")]
     TuiInit(String),
 

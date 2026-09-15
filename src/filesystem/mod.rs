@@ -80,7 +80,15 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
             root.display()
         )));
     }
+    scan_tree(root, strict, &root.display().to_string())
+}
 
+/// Catalog everything installed under `root`, naming the tree `origin` in messages.
+///
+/// `scan_filesystem` is this with the path as the name. `--image-archive` squashes its layers into
+/// a temporary directory and calls this with the archive's name instead, since a message about
+/// `/tmp/.tmpAb12Cd` would tell the user nothing.
+pub fn scan_tree(root: &Path, strict: bool, origin: &str) -> FeludaResult<Vec<LicenseInfo>> {
     let namespace = distro_namespace(root);
     log(
         LogLevel::Info,
@@ -144,9 +152,8 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
             .collect::<Vec<_>>()
             .join(", ");
         return Err(source_error(format!(
-            "Nothing installed found under {}. Looked for: {looked_for}, and for installed \
-             Python distributions, Node packages and Go binaries.",
-            root.display()
+            "Nothing installed found in {origin}. Looked for: {looked_for}, and for installed \
+             Python distributions, Node packages and Go binaries."
         )));
     }
 

@@ -5,6 +5,7 @@ mod config;
 mod debug;
 mod filesystem;
 mod generate;
+mod image;
 mod init;
 mod languages;
 mod licenses;
@@ -24,6 +25,7 @@ use clap::Parser;
 use cli::{print_version_info, Cli, Commands};
 use debug::{log, log_debug, set_debug_mode, FeludaError, FeludaResult, LogLevel};
 use generate::handle_generate_command;
+use image::ImageArchive;
 use init::handle_init_command;
 use licenses::{
     detect_project_license, is_license_compatible, set_github_token, LicenseCompatibility,
@@ -50,6 +52,9 @@ struct CheckConfig {
     /// A root filesystem or installation tree to catalog installed packages and artifacts from, in place of
     /// `path`'s manifests. As with `sbom_input`, `path` still supplies the project license.
     filesystem: Option<String>,
+    /// A container image archive to squash and catalog like `filesystem`, in place of `path`'s
+    /// manifests. `path` still supplies the project license.
+    image_archive: Option<ImageArchive>,
     /// Where to write the ingested document back with Feluda's resolved licenses.
     sbom_enriched: Option<String>,
     json: bool,
@@ -150,6 +155,10 @@ fn run() -> FeludaResult<()> {
             path: analysis_path.to_string_lossy().to_string(),
             sbom_input: args.sbom_input,
             filesystem: args.filesystem,
+            image_archive: args.image_archive.map(|path| ImageArchive {
+                path,
+                platform: args.platform,
+            }),
             sbom_enriched: args.sbom_enriched,
             json: args.json,
             yaml: args.yaml,
@@ -185,14 +194,22 @@ fn run() -> FeludaResult<()> {
             Commands::Sbom {
                 path,
                 filesystem,
+                image_archive,
+                platform,
                 format,
                 output,
             } => {
+                // The image source is a pair: the archive, and which image inside it.
+                let image = |archive: Option<String>, platform: Option<String>| {
+                    archive.map(|path| ImageArchive { path, platform })
+                };
                 // Determine which format to use
                 match format {
                     Some(cli::SbomCommand::Spdx {
                         path: fmt_path,
                         filesystem: fmt_filesystem,
+                        image_archive: fmt_image_archive,
+                        platform: fmt_platform,
                         output: fmt_output,
                     }) => {
                         // Use the subcommand path/output if provided, otherwise use the parent command's
@@ -205,6 +222,8 @@ fn run() -> FeludaResult<()> {
                         handle_sbom_command(
                             final_path,
                             fmt_filesystem.or(filesystem.clone()),
+                            image(fmt_image_archive, fmt_platform)
+                                .or_else(|| image(image_archive.clone(), platform.clone())),
                             &cli::SbomFormat::Spdx,
                             final_output,
                         )
@@ -212,6 +231,8 @@ fn run() -> FeludaResult<()> {
                     Some(cli::SbomCommand::Cyclonedx {
                         path: fmt_path,
                         filesystem: fmt_filesystem,
+                        image_archive: fmt_image_archive,
+                        platform: fmt_platform,
                         output: fmt_output,
                     }) => {
                         let final_path = if fmt_path != "./" {
@@ -223,6 +244,8 @@ fn run() -> FeludaResult<()> {
                         handle_sbom_command(
                             final_path,
                             fmt_filesystem.or(filesystem.clone()),
+                            image(fmt_image_archive, fmt_platform)
+                                .or_else(|| image(image_archive.clone(), platform.clone())),
                             &cli::SbomFormat::Cyclonedx,
                             final_output,
                         )
@@ -234,7 +257,13 @@ fn run() -> FeludaResult<()> {
                     }) => handle_sbom_validate_command(sbom_file, validation_output, json),
                     None => {
                         // Default: generate both formats
-                        handle_sbom_command(path, filesystem, &cli::SbomFormat::All, output)
+                        handle_sbom_command(
+                            path,
+                            filesystem,
+                            image(image_archive, platform),
+                            &cli::SbomFormat::All,
+                            output,
+                        )
                     }
                 }
             }
@@ -284,11 +313,21 @@ fn run() -> FeludaResult<()> {
                             .to_string(),
                     ));
                 }
+                if args.image_archive.is_some() {
+                    eprintln!(
+                        "❌ Watch mode re-scans dependency files; --image-archive is not supported."
+                    );
+                    return Err(FeludaError::InvalidData(
+                        "Watch mode re-scans dependency files; --image-archive is not supported"
+                            .to_string(),
+                    ));
+                }
 
                 let config = CheckConfig {
                     path,
                     sbom_input: None,
                     filesystem: None,
+                    image_archive: None,
                     sbom_enriched: None,
                     json: args.json,
                     yaml: args.yaml,
@@ -394,6 +433,21 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
         log(
             LogLevel::Info,
             &format!("Cataloged {} packages from {root}", packages.len()),
+        );
+        return Ok((packages, project_license));
+    }
+
+    // An image is a filesystem that has not been extracted yet. Squashed to a temporary tree, it
+    // goes through the same catalogers.
+    if let Some(archive) = &config.image_archive {
+        let packages = image::scan_image(archive, config.strict)?;
+        log(
+            LogLevel::Info,
+            &format!(
+                "Cataloged {} packages from image {}",
+                packages.len(),
+                archive.path
+            ),
         );
         return Ok((packages, project_license));
     }

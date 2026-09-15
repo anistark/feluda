@@ -20,12 +20,13 @@ Feluda also reads them. An SPDX or CycloneDX document from syft, Trivy, cdxgen o
 analysed directly, which is how you cover a shipped container image rather than a source tree.
 See :ref:`sbom-ingest`.
 
-A filesystem can be catalogued directly too, with no other tool involved:
+A filesystem or an image can be catalogued directly too, with no other tool involved:
 ``feluda sbom spdx --filesystem ./rootfs`` describes what an artifact ships rather than what its
-source declares. See :ref:`cli-filesystem`.
+source declares, and ``feluda sbom spdx --image-archive app.tar`` does the same for a ``docker
+save`` tarball or an OCI layout. See :ref:`cli-filesystem` and :ref:`cli-image-archive`.
 
 For container images specifically, :ref:`cli-containers` covers the routes from an image reference
-to either of those two sources.
+to any of those sources.
 
 Generate Both Formats
 ---------------------
