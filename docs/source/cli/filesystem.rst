@@ -28,7 +28,9 @@ That makes a shipped container analysable with nothing else in the pipeline: no 
 and no image handling. For the OS packages there is no network either, since their licenses are
 already in the tree.
 
-For the routes from an image reference to a tree, and why there is no ``--image`` flag, see
+The export step is optional. :ref:`cli-image-archive` takes the ``docker save`` tarball or OCI
+layout directly and squashes the layers itself, then runs everything on this page over the result.
+For the routes from an image reference to either, and why there is no ``--image`` flag, see
 :ref:`cli-containers`.
 
 ----
@@ -302,8 +304,8 @@ closed, pipe syft's output through :ref:`sbom-ingest` for those cases:
 Combining Flags
 ---------------
 
-``--filesystem`` replaces the manifest scan and cannot be combined with ``--repo`` or
-``--sbom-input``. ``--path`` stays available and supplies the project license that compatibility is
+``--filesystem`` replaces the manifest scan and cannot be combined with ``--repo``,
+``--sbom-input`` or ``--image-archive``. ``--path`` stays available and supplies the project license that compatibility is
 checked against. ``feluda watch`` re-scans dependency files and does not accept it.
 
 Every output mode, filter and CI gate applies unchanged:

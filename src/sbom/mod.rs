@@ -6,6 +6,7 @@ pub mod validate;
 use crate::cli::SbomFormat;
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
 use crate::filesystem::scan_filesystem;
+use crate::image::{scan_image, ImageArchive};
 use crate::licenses::LicenseCompatibility;
 use crate::parser::parse_root;
 
@@ -39,25 +40,32 @@ pub fn detect_sbom_type_in(json: &JsonValue) -> Option<SbomType> {
     None
 }
 
-/// Generate an SBOM from a project tree, or from the packages installed under `filesystem`.
+/// Generate an SBOM from a project tree, from the packages installed under `filesystem`, or from
+/// the image in `image_archive`.
 ///
-/// The two sources produce the same `Vec<LicenseInfo>`, so everything below this point is written
-/// once: a document describing a root filesystem is built exactly like one describing a project.
+/// The three sources produce the same `Vec<LicenseInfo>`, so everything below this point is
+/// written once: a document describing a root filesystem or an image is built exactly like one
+/// describing a project.
 pub fn handle_sbom_command(
     path: String,
     filesystem: Option<String>,
+    image_archive: Option<ImageArchive>,
     format: &SbomFormat,
     output_file: Option<String>,
 ) -> FeludaResult<()> {
-    let source = filesystem.as_deref().unwrap_or(&path);
+    let source = filesystem
+        .as_deref()
+        .or(image_archive.as_ref().map(|archive| archive.path.as_str()))
+        .unwrap_or(&path);
     log(
         LogLevel::Info,
         &format!("Generating SBOM for path: {source}"),
     );
 
-    let analyzed_data = match &filesystem {
-        Some(root) => scan_filesystem(std::path::Path::new(root), false)?,
-        None => {
+    let analyzed_data = match (&filesystem, &image_archive) {
+        (Some(root), _) => scan_filesystem(std::path::Path::new(root), false)?,
+        (None, Some(archive)) => scan_image(archive, false)?,
+        (None, None) => {
             let mut analyzed_data = parse_root(&path, None, false, false)
                 .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?;
             crate::clearlydefined::resolve_unknown_licenses(&mut analyzed_data, false);

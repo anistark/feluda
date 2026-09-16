@@ -47,6 +47,9 @@ Use this table to double-check flag behavior before scripting.
    * - ``feluda --filesystem <dir>``
      - Catalogue what is installed under a tree instead of scanning manifests.
      - Reads apk, dpkg and rpm databases plus installed Python and Node artifacts and the build info in Go binaries. Cannot be combined with ``--repo`` or ``--sbom-input``. See :ref:`cli-filesystem`.
+   * - ``feluda --image-archive <path>``
+     - Catalogue a container image from a ``docker save`` tarball or an OCI image layout.
+     - Squashes the layers and runs the ``--filesystem`` catalogers over the result. ``--platform os/arch`` picks one image out of a multi platform archive. Cannot be combined with ``--repo``, ``--sbom-input`` or ``--filesystem``. See :ref:`cli-image-archive`.
    * - ``feluda --sbom-input <file>``
      - Scan an SPDX or CycloneDX document instead of a project tree.
      - ``-`` reads stdin, so ``syft image -o spdx-json | feluda --sbom-input -`` works. See :ref:`sbom-ingest`.
@@ -97,7 +100,7 @@ Use this table to double-check flag behavior before scripting.
      - Accepts ``--path``, ``--language``, ``--project-license``.
    * - ``feluda sbom [spdx|cyclonedx]``
      - Generate SBOM in SPDX 2.3 or CycloneDX v1.5 format.
-     - Omit format to generate both; use ``--output`` to save, or ``--filesystem`` to describe an installed tree.
+     - Omit format to generate both; use ``--output`` to save, ``--filesystem`` to describe an installed tree, or ``--image-archive`` to describe an image.
    * - ``feluda sbom validate <file>``
      - Validate an SBOM file against its specification.
      - Supports ``--json`` for machine-readable output.

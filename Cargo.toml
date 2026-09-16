@@ -58,6 +58,11 @@ semver = "1.0"
 quick-xml = { version = "0.41", features = ["serialize"] }
 notify = "8.2.0"
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
+# Image archives (--image-archive): tar for the docker save / OCI layout container and its layers,
+# flate2 and ruzstd for gzip and zstd layers. All pure Rust, so no C toolchain in front of the release builds.
+tar = "0.4"
+flate2 = "1.1"
+ruzstd = "0.9"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

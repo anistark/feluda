@@ -164,6 +164,7 @@ Have a session to share? `Open a PR <https://github.com/anistark/feluda/edit/mai
    cli/init
    cli/scan
    cli/filesystem
+   cli/image-archive
    cli/containers
    cli/clearlydefined
    cli/watch
