@@ -137,8 +137,39 @@ specific scan mode:
      - ``feluda --path ./packages/my-lib``
    * - Machine-readable output
      - ``feluda --json``
+   * - Concise summary
+     - ``feluda --gist``
+   * - Only OSI approved licenses
+     - ``feluda --osi approved``
 
 For a complete reference of all CLI flags see :doc:`/cli/scan` and :doc:`/cli/filter`.
+
+----
+
+Scanning an Image or a Root Filesystem
+--------------------------------------
+
+The skill is not limited to manifests. Ask what a built image ships, or point it at an installed
+tree, and it reaches for the same sources the CLI has:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Ask Claude / intent
+     - Underlying command
+   * - What does this image actually ship?
+     - ``feluda --image-archive app.tar`` after ``docker save app:latest > app.tar``
+   * - One image out of a multi platform archive
+     - ``feluda --image-archive app.tar --platform linux/arm64``
+   * - An extracted rootfs or install tree
+     - ``feluda --filesystem ./rootfs``
+   * - An SBOM another tool produced
+     - ``syft nginx:latest -o spdx-json | feluda --sbom-input -``
+
+A Dockerfile or Containerfile in the diff triggers the skill on its own, since a base image bump
+changes the licenses you ship without touching a single manifest. See :ref:`cli-filesystem`,
+:ref:`cli-image-archive` and :ref:`sbom-ingest` for what each source reads.
 
 ----
 

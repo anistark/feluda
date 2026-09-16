@@ -35,6 +35,15 @@ inputs:
   sbom-input:
     description: 'Analyze an existing SPDX or CycloneDX JSON document instead of the project tree'
     required: false
+  filesystem:
+    description: 'Catalog the packages installed under a root filesystem or install tree instead of the project tree'
+    required: false
+  image-archive:
+    description: 'Catalog a container image from a docker save tarball or an OCI image layout instead of the project tree'
+    required: false
+  platform:
+    description: 'Which image to take out of a multi platform archive, as os/arch[/variant] (e.g. linux/arm64)'
+    required: false
 
 outputs:
   license-check:
@@ -63,6 +72,10 @@ runs:
     - name: Run Feluda License Check
       id: feluda-scan
       shell: bash
+      env:
+        FELUDA_FILESYSTEM: ${{ inputs.filesystem }}
+        FELUDA_IMAGE_ARCHIVE: ${{ inputs.image-archive }}
+        FELUDA_PLATFORM: ${{ inputs.platform }}
       run: |
         set +e
 
@@ -91,6 +104,18 @@ runs:
 
         if [[ "${{ inputs.sbom-input }}" != "" ]]; then
           CMD="$CMD --sbom-input ${{ inputs.sbom-input }}"
+        fi
+
+        if [[ "$FELUDA_FILESYSTEM" != "" ]]; then
+          CMD="$CMD --filesystem \"$FELUDA_FILESYSTEM\""
+        fi
+
+        if [[ "$FELUDA_IMAGE_ARCHIVE" != "" ]]; then
+          CMD="$CMD --image-archive \"$FELUDA_IMAGE_ARCHIVE\""
+        fi
+
+        if [[ "$FELUDA_PLATFORM" != "" ]]; then
+          CMD="$CMD --platform \"$FELUDA_PLATFORM\""
         fi
 
         # Run Feluda

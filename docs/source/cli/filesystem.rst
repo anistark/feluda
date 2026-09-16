@@ -292,7 +292,7 @@ Not Yet Covered
 ---------------
 
 Installed Ruby gemspecs and jars are not catalogued yet, and neither is the Berkeley DB rpm backend
-above. :ref:`cli-containers` tracks each gap against its issue. Until they are
+above. :ref:`cli-containers` lists both gaps and where they show up. Until they are
 closed, pipe syft's output through :ref:`sbom-ingest` for those cases:
 
 .. code-block:: bash

@@ -6,6 +6,7 @@ A [Claude Code](https://claude.ai/code) skill that runs [feluda](https://github.
 
 - Detects when dependency manifests change (`Cargo.toml`, `package.json`, `go.mod`, `requirements.txt`, `pom.xml`, and more)
 - Runs `feluda --restrictive` to identify licenses that may cause legal or compliance issues
+- Scans what you ship, not just what you declare: a container image (`--image-archive app.tar`), an installed root filesystem (`--filesystem ./rootfs`), or an SBOM another tool produced (`--sbom-input`)
 - Surfaces results directly in your Claude Code session with clear remediation options
 - Suggests setting up `feluda init` for automatic pre-commit enforcement
 
@@ -48,7 +49,9 @@ Or ask naturally:
 
 ## Supported ecosystems
 
-Rust · Node.js · Go · Python · Java (Maven/Gradle) · .NET · Ruby · PHP · C/C++ · R
+**Languages:** Rust · Node.js · Go · Python · Java (Maven/Gradle) · .NET · Ruby · PHP · C/C++ · R
+
+**OS packages, when scanning an image or a root filesystem:** Alpine apk · Debian and Ubuntu dpkg · rpm on its sqlite and ndb backends
 
 ## Configuration
 
