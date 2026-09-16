@@ -51,24 +51,74 @@ Action Inputs
    * - Input
      - Default
      - Description
+   * - ``path``
+     - ``./``
+     - Path to the project directory to scan
    * - ``fail-on-restrictive``
-     - ``false``
+     - ``true``
      - Fail the workflow when restrictive licenses are found
    * - ``fail-on-incompatible``
      - ``false``
      - Fail the workflow when incompatible licenses are found
    * - ``update-badge``
-     - ``false``
+     - ``true``
      - Update the Feluda badge in README
+   * - ``badge-path``
+     - ``README.md``
+     - File the badge is updated in
    * - ``language``
      - (all)
      - Filter scan to a specific language ecosystem
    * - ``project-license``
      - (none)
      - Declare project license for compatibility checks
-   * - ``strict``
-     - ``false``
-     - Treat unknown licenses as incompatible
+   * - ``sbom-input``
+     - (none)
+     - Analyse an existing SPDX or CycloneDX JSON document instead of the project tree
+   * - ``filesystem``
+     - (none)
+     - Catalogue a root filesystem or install tree instead of the project tree
+   * - ``image-archive``
+     - (none)
+     - Catalogue a ``docker save`` tarball or OCI image layout instead of the project tree
+   * - ``platform``
+     - (none)
+     - Which image to take out of a multi platform archive, as ``os/arch[/variant]``
+
+``path``, ``sbom-input``, ``filesystem`` and ``image-archive`` each replace the scan source, so set
+only one of them.
+
+----
+
+Gate the Image You Ship
+-----------------------
+
+A manifest scan covers what the source declares. To gate what the built image actually ships, save
+it and hand the archive to the action. No registry credentials are involved, since the image never
+leaves the runner:
+
+.. code-block:: yaml
+
+   jobs:
+     image-scan:
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/checkout@v4
+
+         - name: Build and save the image
+           run: |
+             docker build -t app:ci .
+             docker save app:ci > app.tar
+
+         - name: Scan the image
+           uses: anistark/feluda@v1
+           with:
+             image-archive: app.tar
+             fail-on-restrictive: true
+             update-badge: false
+
+For a runner with no Docker daemon, ``skopeo copy docker://app:ci oci:./app`` writes an OCI layout
+the action reads the same way. See :ref:`cli-image-archive` and :ref:`cli-containers`.
 
 ----
 
@@ -99,6 +149,11 @@ Full workflow with compliance artifacts and SBOM generation:
              fail-on-incompatible: true
              update-badge: true
 
+         - name: Build and Save the Image
+           run: |
+             docker build -t app:ci .
+             docker save app:ci > app.tar
+
          - name: Generate Compliance Artifacts
            run: |
              echo "1" | feluda generate
@@ -107,6 +162,7 @@ Full workflow with compliance artifacts and SBOM generation:
              feluda sbom cyclonedx --output sbom.cyclonedx.json
              feluda sbom validate sbom.spdx.json --output sbom-spdx-validation.txt
              feluda sbom validate sbom.cyclonedx.json --output sbom-cyclonedx-validation.txt
+             feluda sbom spdx --image-archive app.tar --output image.spdx.json
 
          - name: Upload Compliance Artifacts
            uses: actions/upload-artifact@v4
@@ -117,6 +173,7 @@ Full workflow with compliance artifacts and SBOM generation:
                THIRD_PARTY_LICENSES.md
                sbom.spdx.json
                sbom.cyclonedx.json
+               image.spdx.json
                sbom-spdx-validation.txt
                sbom-cyclonedx-validation.txt
 

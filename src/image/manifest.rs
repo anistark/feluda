@@ -151,7 +151,7 @@ pub fn select(store: &Store, platform: Option<&str>) -> FeludaResult<Image> {
         None => None,
     };
 
-    let candidates = if store.has("index.json") {
+    let found = if store.has("index.json") {
         log(LogLevel::Info, "Reading the archive as an OCI image layout");
         oci_candidates(store)?
     } else if store.has("manifest.json") {
@@ -159,7 +159,10 @@ pub fn select(store: &Store, platform: Option<&str>) -> FeludaResult<Image> {
             LogLevel::Info,
             "Reading the archive as a docker save tarball",
         );
-        docker_candidates(store)?
+        Found {
+            images: docker_candidates(store)?,
+            absent: 0,
+        }
     } else {
         return Err(FeludaError::Image(
             "Not an image archive: found neither index.json (OCI image layout) nor manifest.json \
@@ -168,23 +171,46 @@ pub fn select(store: &Store, platform: Option<&str>) -> FeludaResult<Image> {
         ));
     };
 
-    choose(candidates, wanted)
+    choose(found.images, found.absent, wanted)
 }
 
-/// Pick one image out of what the archive holds.
-fn choose(candidates: Vec<Image>, wanted: Option<Platform>) -> FeludaResult<Image> {
-    let available = || {
-        candidates
-            .iter()
-            .map(Image::describe)
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
+/// A heading and one image per line, for an error that has to show several.
+///
+/// These lists are read to pick a `--platform` out of them, so they go one per line rather than
+/// comma separated: a multi platform index runs to sixteen entries, and a wrapped line of those is
+/// unreadable in a terminal.
+fn listing(heading: &str, items: impl Iterator<Item = String>) -> String {
+    let lines = items
+        .map(|item| format!("  • {item}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("\n\n{heading}:\n{lines}")
+}
+
+/// Pick one image out of what the archive holds. `absent` is how many manifests the index named
+/// without shipping, which is what separates "this archive has no images" from "this archive has
+/// none of the images its index advertises".
+fn choose(candidates: Vec<Image>, absent: usize, wanted: Option<Platform>) -> FeludaResult<Image> {
+    let available = || listing("Available", candidates.iter().map(Image::describe));
 
     if candidates.is_empty() {
-        return Err(FeludaError::Image(
-            "The archive lists no image manifests".to_string(),
-        ));
+        return Err(FeludaError::Image(if absent > 0 {
+            format!(
+                "The archive's index names {absent} image manifests but carries the blobs for \
+                 none of them.{}",
+                listing(
+                    "Save the image again with the platform materialised",
+                    [
+                        "docker save --platform linux/amd64 <image> > image.tar",
+                        "skopeo copy docker://<image> oci:./image",
+                    ]
+                    .into_iter()
+                    .map(String::from)
+                )
+            )
+        } else {
+            "The archive lists no image manifests".to_string()
+        }));
     }
 
     let Some(wanted) = wanted else {
@@ -192,7 +218,7 @@ fn choose(candidates: Vec<Image>, wanted: Option<Platform>) -> FeludaResult<Imag
             return Ok(candidates.into_iter().next().expect("one candidate"));
         }
         return Err(FeludaError::Image(format!(
-            "The archive holds {} images; choose one with --platform. Available: {}",
+            "The archive holds {} images. Choose one with --platform.{}",
             candidates.len(),
             available()
         )));
@@ -215,26 +241,40 @@ fn choose(candidates: Vec<Image>, wanted: Option<Platform>) -> FeludaResult<Imag
             Ok(candidates.swap_remove(*index))
         }
         [] => Err(FeludaError::Image(format!(
-            "No {wanted} image in the archive. Available: {}",
+            "No {wanted} image in the archive.{}",
             available()
         ))),
         _ => Err(FeludaError::Image(format!(
-            "--platform {wanted} matches more than one image: {}. Give the variant too, or save one image at a time.",
-            matching
-                .iter()
-                .map(|index| candidates[*index].describe())
-                .collect::<Vec<_>>()
-                .join(", ")
+            "--platform {wanted} matches more than one image. Give the variant too, or save one \
+             image at a time.{}",
+            listing(
+                "Matching",
+                matching.iter().map(|index| candidates[*index].describe())
+            )
         ))),
     }
 }
 
 /// Every image an OCI index reaches, attestations dropped.
-fn oci_candidates(store: &Store) -> FeludaResult<Vec<Image>> {
-    let mut candidates = Vec::new();
+fn oci_candidates(store: &Store) -> FeludaResult<Found> {
+    let mut found = Found::default();
     let index: Index = parse_json(&store.read("index.json")?, "index.json")?;
-    collect_oci(store, index, None, 0, &mut candidates)?;
-    Ok(candidates)
+    collect_oci(store, index, None, 0, &mut found)?;
+    Ok(found)
+}
+
+/// What an index reached: the images whose manifests the archive carries, and how many entries it
+/// named without shipping.
+///
+/// The two are separate because an index is a list of references, not a promise that the content is
+/// here. Docker's containerd image store saves the tag's whole multi platform index while pulling
+/// only the platform it runs, so a `docker save alpine:latest` on an arm64 machine names sixteen
+/// manifests and carries one. Those entries are not the archive being broken, and reading them as
+/// an error made every such archive unscannable.
+#[derive(Debug, Default)]
+struct Found {
+    images: Vec<Image>,
+    absent: usize,
 }
 
 /// Nesting deeper than an index of indexes is nothing any tool writes; stop before a cycle can.
@@ -245,7 +285,7 @@ fn collect_oci(
     index: Index,
     inherited_name: Option<&str>,
     depth: usize,
-    into: &mut Vec<Image>,
+    into: &mut Found,
 ) -> FeludaResult<()> {
     for descriptor in index.manifests {
         if descriptor
@@ -272,6 +312,14 @@ fn collect_oci(
             .or(inherited_name);
 
         let blob = blob_name(&descriptor.digest)?;
+        if !store.has(&blob) {
+            log(
+                LogLevel::Info,
+                &format!("Skipped {blob}, which the index names but the archive does not carry"),
+            );
+            into.absent += 1;
+            continue;
+        }
         let content = store.read(&blob)?;
         let json: serde_json::Value = parse_json(&content, &blob)?;
 
@@ -296,7 +344,7 @@ fn collect_oci(
             .iter()
             .map(|layer| blob_name(&layer.digest))
             .collect::<FeludaResult<Vec<_>>>()?;
-        into.push(Image {
+        into.images.push(Image {
             name: name.map(str::to_string),
             platform,
             layers,
@@ -439,7 +487,7 @@ mod tests {
 
     #[test]
     fn test_a_single_image_is_chosen_without_a_platform() {
-        let chosen = choose(vec![image(Some("app:latest"), "linux/amd64")], None).unwrap();
+        let chosen = choose(vec![image(Some("app:latest"), "linux/amd64")], 0, None).unwrap();
         assert_eq!(chosen.name.as_deref(), Some("app:latest"));
     }
 
@@ -450,6 +498,7 @@ mod tests {
                 image(Some("app:latest"), "linux/amd64"),
                 image(Some("app:latest"), "linux/arm64/v8"),
             ],
+            0,
             None,
         )
         .unwrap_err()
@@ -463,6 +512,7 @@ mod tests {
     fn test_platform_picks_among_several() {
         let chosen = choose(
             vec![image(None, "linux/amd64"), image(None, "linux/arm64/v8")],
+            0,
             Platform::parse("linux/arm64"),
         )
         .unwrap();
@@ -473,6 +523,7 @@ mod tests {
     fn test_platform_that_matches_nothing_lists_what_there_is() {
         let error = choose(
             vec![image(None, "linux/amd64")],
+            0,
             Platform::parse("linux/s390x"),
         )
         .unwrap_err()
@@ -485,6 +536,7 @@ mod tests {
     fn test_platform_that_matches_several_is_an_error() {
         let error = choose(
             vec![image(None, "linux/arm/v6"), image(None, "linux/arm/v7")],
+            0,
             Platform::parse("linux/arm"),
         )
         .unwrap_err()
@@ -494,7 +546,7 @@ mod tests {
 
     #[test]
     fn test_no_candidates_is_an_error() {
-        assert!(choose(vec![], None).is_err());
+        assert!(choose(vec![], 0, None).is_err());
     }
 
     #[test]
@@ -575,7 +627,7 @@ mod tests {
         .unwrap();
 
         let store = Store::open(root).unwrap();
-        let candidates = oci_candidates(&store).unwrap();
+        let candidates = oci_candidates(&store).unwrap().images;
         assert_eq!(candidates.len(), 2, "attestation dropped: {candidates:?}");
         assert_eq!(
             candidates[0].name.as_deref(),
@@ -607,6 +659,74 @@ mod tests {
         let chosen = select(&Store::open(root).unwrap(), None).unwrap();
         assert_eq!(chosen.platform.unwrap().to_string(), "linux/amd64");
         assert_eq!(chosen.name, None);
+    }
+
+    /// Docker's containerd image store saves the tag's whole multi platform index but ships blobs
+    /// only for the platform it pulled, so most of the index points at content that is not there.
+    /// Those entries are skipped, and the one image the archive carries is scanned without the user
+    /// having to name a platform.
+    #[test]
+    fn test_an_index_naming_manifests_the_archive_does_not_carry_scans_what_is_there() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let blobs = root.join("blobs/sha256");
+        std::fs::create_dir_all(&blobs).unwrap();
+        std::fs::write(blobs.join("c1"), r#"{"os":"linux","architecture":"arm64"}"#).unwrap();
+        std::fs::write(
+            blobs.join("b1"),
+            r#"{"config":{"digest":"sha256:c1"},"layers":[{"digest":"sha256:d1"}]}"#,
+        )
+        .unwrap();
+        // Only the arm64 manifest is present; amd64 and s390x are named but were never pulled.
+        std::fs::write(
+            blobs.join("a0"),
+            r#"{"manifests":[
+                {"digest":"sha256:b0","platform":{"os":"linux","architecture":"amd64"}},
+                {"digest":"sha256:b1","platform":{"os":"linux","architecture":"arm64","variant":"v8"}},
+                {"digest":"sha256:b9","platform":{"os":"linux","architecture":"s390x"}}
+            ]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("index.json"),
+            r#"{"manifests":[{"digest":"sha256:a0","annotations":{"io.containerd.image.name":"docker.io/library/alpine:latest"}}]}"#,
+        )
+        .unwrap();
+
+        let store = Store::open(root).unwrap();
+        let found = oci_candidates(&store).unwrap();
+        assert_eq!(found.images.len(), 1, "only what is carried: {found:?}");
+        assert_eq!(found.absent, 2);
+
+        // One image present means no --platform is needed, and asking for a missing one says so
+        // rather than failing on the blob.
+        let chosen = select(&store, None).unwrap();
+        assert_eq!(chosen.layers, vec!["blobs/sha256/d1"]);
+        let error = select(&store, Some("linux/amd64")).unwrap_err().to_string();
+        assert!(error.contains("No linux/amd64 image"), "{error}");
+        assert!(error.contains("linux/arm64/v8"), "{error}");
+    }
+
+    /// An index whose every manifest is missing is a save that materialised nothing, and the error
+    /// has to say that rather than claim the archive lists no images at all.
+    #[test]
+    fn test_an_index_carrying_none_of_its_manifests_says_so() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("blobs/sha256")).unwrap();
+        std::fs::write(
+            root.join("index.json"),
+            r#"{"manifests":[
+                {"digest":"sha256:b0","platform":{"os":"linux","architecture":"amd64"}},
+                {"digest":"sha256:b1","platform":{"os":"linux","architecture":"arm64"}}
+            ]}"#,
+        )
+        .unwrap();
+
+        let store = Store::open(root).unwrap();
+        let error = select(&store, None).unwrap_err().to_string();
+        assert!(error.contains("carries the blobs for none"), "{error}");
+        assert!(error.contains("docker save --platform"), "{error}");
     }
 
     #[test]

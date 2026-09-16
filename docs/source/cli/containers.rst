@@ -158,8 +158,18 @@ For images these routes do not fully cover, catalogue with syft and ingest the r
    :widths: 45 55
 
    * - Gap
-     - Tracking
-   * - The rpm Berkeley DB backend, so CentOS 7, RHEL 8 and Amazon Linux 2 era images
-     - `#263 <https://github.com/anistark/feluda/issues/263>`_
+     - Where it shows up
+   * - The rpm Berkeley DB backend
+     - CentOS 7, RHEL 8 and Amazon Linux 2 era images, which keep ``Packages`` rather than
+       ``rpmdb.sqlite`` or ``Packages.db``. Feluda reports the backend it found and stops, rather
+       than reporting nothing and reading as a clean scan.
    * - Installed Ruby gemspecs and jar manifests
-     - `#254 <https://github.com/anistark/feluda/issues/254>`_
+     - Images that ship a Rails application or a JVM service. The OS packages and every other
+       ecosystem in the tree are still catalogued.
+
+.. code-block:: bash
+
+   syft centos:7 -o spdx-json | feluda --sbom-input - --fail-on-restrictive
+
+Neither gap has an issue open against it yet. If one of them is in your way, please open one and
+say which image it bit you on.

@@ -140,6 +140,17 @@ Complete pipeline with validation and artifact archiving:
          }
        }
 
+       stage('Scan the Image') {
+         steps {
+           sh '''
+             docker build -t app:${BUILD_NUMBER} .
+             docker save app:${BUILD_NUMBER} > build/app.tar
+             feluda --image-archive build/app.tar --ci-format jenkins --fail-on-restrictive
+             feluda sbom spdx --image-archive build/app.tar --output build/sboms/image.spdx.json
+           '''
+         }
+       }
+
        stage('Validate SBOMs') {
          steps {
            sh '''

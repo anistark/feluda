@@ -8,8 +8,10 @@ description: >
   dependency files appear in the staged changes; (3) the user asks to "check
   licenses", "audit dependencies", "is X license safe to use", or "will this dep
   cause legal issues"; (4) the user adds a new package via cargo add, npm install,
-  pip install, go get, etc. Always run this before confirming a commit that
-  introduces new third-party dependencies.
+  pip install, go get, etc.; (5) a Dockerfile, Containerfile or compose file
+  changes base image or installs OS packages; (6) the user asks what is inside a
+  container image, a root filesystem or an SBOM they already have. Always run this
+  before confirming a commit that introduces new third-party dependencies.
 allowed-tools: Bash Glob Grep Read
 ---
 
@@ -65,6 +67,10 @@ Trigger a full feluda scan if any of these appear:
 | PHP | `composer.json`, `composer.lock` |
 | C/C++ | `vcpkg.json`, `conanfile.txt`, `CMakeLists.txt` |
 | R | `DESCRIPTION`, `renv.lock` |
+| Containers | `Dockerfile`, `Containerfile`, `docker-compose.yml` |
+| SBOM | `*.spdx.json`, `*.cdx.json`, `bom.json` |
+
+The container and SBOM rows are scanned differently from the rest: see Step 4.
 
 If the user explicitly asked for a license check, skip this step and go straight to
 Step 3 regardless of the diff.
@@ -105,7 +111,57 @@ feluda --path ./packages/my-lib --restrictive 2>&1; echo "FELUDA_EXIT:$?"
 
 ---
 
-## Step 4 — Interpret and surface the results
+## Step 4 — Scanning something other than a project tree
+
+A manifest scan covers what the project declares. What an image or an installed
+tree actually ships is a different question, and feluda answers it from the same
+binary. Use these when the diff touches a Dockerfile, or when the user asks about
+an image, a rootfs or an existing SBOM.
+
+**An installed tree or an extracted root filesystem:**
+
+```bash
+feluda --filesystem ./rootfs --restrictive 2>&1; echo "FELUDA_EXIT:$?"
+```
+
+Reads apk, dpkg and rpm databases, installed Python and Node artifacts, and the
+build info in every Go binary, so a distroless Go image still reports its modules.
+
+**A container image, with no registry and no daemon in the loop:**
+
+```bash
+docker save app:latest > app.tar
+feluda --image-archive app.tar --restrictive 2>&1; echo "FELUDA_EXIT:$?"
+```
+
+Takes a `docker save` tarball or an OCI layout, squashes the layers itself and
+catalogs the result. A multi platform archive needs a choice:
+
+```bash
+feluda --image-archive app.tar --platform linux/arm64 --restrictive
+```
+
+**An SBOM another tool produced:**
+
+```bash
+syft nginx:latest -o spdx-json | feluda --sbom-input - --restrictive
+```
+
+`-` reads stdin. This is also the fallback for the two gaps below.
+
+### Two errors to explain rather than retry
+
+| Error | What it means | What to do |
+|-------|---------------|------------|
+| The scan stops and lists the images in the archive | A multi platform archive with no `--platform` | Re-run with `--platform os/arch`, picking from the list it printed |
+| `uses the Berkeley DB backend, which feluda cannot read` | A CentOS 7, RHEL 8 or Amazon Linux 2 era rpm database | Catalog with syft and pipe through `--sbom-input`, as above |
+
+Neither is a bug to work around. Feluda stops instead of reporting nothing, so a
+machine full of packages never reads as a clean scan.
+
+---
+
+## Step 5 — Interpret and surface the results
 
 Parse the exit code from `FELUDA_EXIT:N`.
 
@@ -140,7 +196,7 @@ Extract the flagged packages from the output and present them clearly:
 
 ---
 
-## Step 5 — Pre-commit hook guidance
+## Step 6 — Pre-commit hook guidance
 
 If this is the first time a license issue has been found in this project, suggest
 setting up automatic enforcement:
@@ -168,8 +224,30 @@ feluda --fail-on-restrictive     # Exit 1 if any restrictive found (CI gate)
 feluda --json                    # Machine-readable JSON output
 feluda --verbose                 # OSI status, compatibility matrix, full details
 feluda --path ./sub/dir          # Scan a specific subdirectory
+feluda --gist                    # Concise summary instead of the full table
+feluda --osi not-approved        # Filter by OSI approval status
 feluda generate                  # Generate NOTICE / THIRD_PARTY_LICENSES file
 feluda sbom                      # Generate SPDX or CycloneDX SBOM
 feluda init                      # Set up .feluda.toml + pre-commit hook
+feluda watch                     # Re-scan whenever a dependency file changes
 feluda cache --clear             # Clear the GitHub license data cache
+```
+
+Other scan sources, all of which take the filters above:
+
+```sh
+feluda --filesystem ./rootfs             # An installed tree or extracted rootfs
+feluda --image-archive app.tar           # A docker save tarball or OCI layout
+feluda --image-archive app.tar --platform linux/arm64   # Pick one image out of a multi platform archive
+feluda --sbom-input bom.json             # An existing SPDX or CycloneDX document ('-' for stdin)
+feluda --sbom-input bom.json --sbom-enriched out.json   # Write it back out with resolved licenses
+feluda sbom spdx --image-archive app.tar --output app.spdx.json   # SBOM straight from an image
+```
+
+CI gates:
+
+```sh
+feluda --ci-format github --fail-on-restrictive    # github, jenkins or sarif
+feluda --ci-format sarif --output-file feluda.sarif
+feluda --no-clearlydefined                         # Skip the ClearlyDefined lookup
 ```

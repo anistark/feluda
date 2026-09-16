@@ -71,7 +71,11 @@ Feluda does not guess which one you meant.
 .. code-block:: console
 
    $ feluda --image-archive app.tar
-   ❌ Image archive error: The archive holds 2 images; choose one with --platform. Available: app:latest (linux/amd64), app:latest (linux/arm64/v8)
+   ❌ Image archive error: The archive holds 2 images. Choose one with --platform.
+
+   Available:
+     • app:latest (linux/amd64)
+     • app:latest (linux/arm64/v8)
 
    $ feluda --image-archive app.tar --platform linux/arm64
 
@@ -81,6 +85,23 @@ archive holding one image needs no ``--platform``; if one is given it has to mat
 
 buildx writes provenance and SBOM attestations into a multi platform index as manifests for the
 platform ``unknown/unknown``. They hold no filesystem and are never offered as a choice.
+
+An index can also name images the archive does not carry. Docker with the containerd image store
+writes the tag's whole multi platform index into ``index.json`` while shipping blobs only for the
+platform it pulled, so ``docker save alpine:latest`` on an arm64 machine names sixteen manifests and
+carries one. Feluda offers what the archive holds and ignores the rest, which is why that save needs
+no ``--platform`` at all:
+
+.. code-block:: console
+
+   $ feluda --image-archive alpine.tar --platform linux/amd64
+   ❌ Image archive error: No linux/amd64 image in the archive.
+
+   Available:
+     • docker.io/library/alpine:latest (linux/arm64/v8)
+
+If a save materialised nothing, the error says that rather than claiming the archive holds no
+images. Pull the platform you want first, or export it with ``skopeo copy``.
 
 ----
 
