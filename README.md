@@ -223,6 +223,9 @@ Turn it off with `--no-clearlydefined`, or in `.feluda.toml`:
 enabled = false
 ```
 
+An air gapped build can answer from a file instead: `definitions = "clearlydefined.json"` points
+at a JSON object keyed by coordinate, and nothing is asked over the network.
+
 ### Beyond Manifests
 
 Manifests only describe what a package manager installed. The default scan also flags code that

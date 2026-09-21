@@ -125,6 +125,52 @@ party service turn it off:
 
 ----
 
+Answering From a File
+---------------------
+
+A build with no network at all can still have the answers. ``definitions`` names a file that
+stands in for the service: when it is set, nothing is asked over the network and the answer cache
+is not consulted. The file is the whole answer.
+
+.. code-block:: toml
+
+   [clearlydefined]
+   definitions = "clearlydefined.json"
+
+.. code-block:: bash
+
+   export FELUDA_CLEARLYDEFINED_DEFINITIONS=clearlydefined.json
+
+The file is a JSON object keyed by coordinate. Each value is either what the batch endpoint returns
+for that coordinate, which is what saving a ``curl`` against it on a connected machine produces, or
+just the declared license as a string, which is what a person writes by hand. Both shapes can sit
+in one file:
+
+.. code-block:: json
+
+   {
+     "crate/cratesio/-/serde/1.0.219": {
+       "licensed": {"declared": "MIT OR Apache-2.0"}
+     },
+     "npm/npmjs/-/left-pad/1.3.0": "WTFPL"
+   }
+
+To produce one from the real service, ask it about the coordinates the scan needs:
+
+.. code-block:: bash
+
+   curl -s -X POST 'https://api.clearlydefined.io/definitions?expand=-files' \
+     -H 'Content-Type: application/json' \
+     -d '["crate/cratesio/-/serde/1.0.219", "npm/npmjs/-/left-pad/1.3.0"]' \
+     > clearlydefined.json
+
+A coordinate the file does not hold stays unresolved, as it would with a miss from the service. A
+file that cannot be read or is not that shape answers nothing and says so on stderr; it does not
+fall back to the network, since a project that configured a file did so because the network is not
+an option.
+
+----
+
 When It Fails
 -------------
 

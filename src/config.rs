@@ -109,14 +109,28 @@ impl FeludaConfig {
 /// enabled = false
 /// ```
 ///
-/// `endpoint` points the lookup somewhere else: an air-gapped mirror, a proxy, or a self-hosted
-/// instance. It is the definitions endpoint, without a query string.
+/// `endpoint` points the lookup somewhere else: a mirror, a proxy, or a self-hosted instance. It
+/// is the definitions endpoint, without a query string.
+///
+/// `definitions` replaces the service with a file, for a build that has no network at all. It is a
+/// JSON object keyed by coordinate, holding either what `POST /definitions` returns for that
+/// coordinate or just the declared license as a string. When it is set nothing is asked over the
+/// network and the answer cache is not consulted: the file is the whole answer.
+///
+/// ```toml
+/// [clearlydefined]
+/// definitions = "clearlydefined.json"
+/// ```
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ClearlyDefinedConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_clearlydefined_endpoint")]
     pub endpoint: String,
+    // One word, not `definitions_file`: the environment layer splits keys on `_`, so a two word
+    // field could never be set from `FELUDA_CLEARLYDEFINED_...`.
+    #[serde(default)]
+    pub definitions: Option<String>,
 }
 
 impl Default for ClearlyDefinedConfig {
@@ -124,6 +138,7 @@ impl Default for ClearlyDefinedConfig {
         Self {
             enabled: true,
             endpoint: default_clearlydefined_endpoint(),
+            definitions: None,
         }
     }
 }

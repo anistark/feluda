@@ -20,6 +20,7 @@
 //! reporting Unknown.
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -63,8 +64,17 @@ pub fn set_disabled(disabled: bool) {
     let _ = DISABLED.set(disabled);
 }
 
-/// The endpoint to ask, or `None` when this run must not ask at all.
-fn endpoint() -> Option<String> {
+/// Where definitions come from on this run.
+enum Source {
+    /// The batch endpoint, with the answer cache in front of it.
+    Service(String),
+    /// A file of definitions standing in for the service, for a build with no network. Nothing is
+    /// asked over the network and the cache is not consulted: the file is the whole answer.
+    File(PathBuf),
+}
+
+/// The source to ask, or `None` when this run must not ask at all.
+fn source() -> Option<Source> {
     if *DISABLED.get().unwrap_or(&false) {
         log(LogLevel::Info, "ClearlyDefined disabled by flag");
         return None;
@@ -74,7 +84,12 @@ fn endpoint() -> Option<String> {
         log(LogLevel::Info, "ClearlyDefined disabled by configuration");
         return None;
     }
-    Some(format!("{}{NO_FILES}", settings.endpoint))
+    if let Some(path) = settings.definitions.as_deref().map(str::trim) {
+        if !path.is_empty() {
+            return Some(Source::File(PathBuf::from(path)));
+        }
+    }
+    Some(Source::Service(format!("{}{NO_FILES}", settings.endpoint)))
 }
 
 /// Fill in licenses ClearlyDefined knows and feluda could not resolve.
@@ -89,7 +104,7 @@ fn endpoint() -> Option<String> {
 /// Never fails: a network error, a bad response or a coordinate the service has never seen all
 /// leave the finding exactly where it already was.
 pub fn resolve_unknown_licenses(findings: &mut [LicenseInfo], strict: bool) -> Vec<usize> {
-    let Some(endpoint) = endpoint() else {
+    let Some(source) = source() else {
         return Vec::new();
     };
 
@@ -113,7 +128,10 @@ pub fn resolve_unknown_licenses(findings: &mut [LicenseInfo], strict: bool) -> V
     );
 
     let definitions = with_spinner("🔍: ClearlyDefined", |indicator| {
-        let mut definitions = lookup(&pending, &endpoint);
+        let mut definitions = match &source {
+            Source::Service(endpoint) => lookup(&pending, endpoint),
+            Source::File(path) => lookup_in_file(&pending, path),
+        };
         definitions.retain(|_, license| license.is_some());
         indicator.update_progress(&format!("{} resolved", definitions.len()));
         definitions
@@ -203,6 +221,66 @@ fn lookup(pending: &[(usize, String)], endpoint: &str) -> HashMap<String, Option
     answers
 }
 
+/// Answer every coordinate from a file of definitions.
+///
+/// A file that cannot be read or parsed answers nothing, and says so on stderr rather than only in
+/// the debug log: a project that configured a file did so because the network is not an option,
+/// so quietly resolving nothing would look exactly like the service being down.
+fn lookup_in_file(pending: &[(usize, String)], path: &Path) -> HashMap<String, Option<String>> {
+    let definitions = match read_definitions_file(path) {
+        Ok(definitions) => definitions,
+        Err(e) => {
+            eprintln!(
+                "⚠️  ClearlyDefined definitions file {} could not be used: {e}",
+                path.display()
+            );
+            return HashMap::new();
+        }
+    };
+    log(
+        LogLevel::Info,
+        &format!(
+            "Answering from {} definition(s) in {}",
+            definitions.len(),
+            path.display()
+        ),
+    );
+
+    pending
+        .iter()
+        .map(|(_, coordinate)| {
+            let license = definitions
+                .get(coordinate)
+                .and_then(Entry::declared_license);
+            (coordinate.clone(), license)
+        })
+        .collect()
+}
+
+fn read_definitions_file(path: &Path) -> Result<HashMap<String, Entry>, String> {
+    let contents = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&contents).map_err(|e| e.to_string())
+}
+
+/// One value in a definitions file: what the service returns for the coordinate, or just the
+/// declared license. The first is what a `curl` against the batch endpoint produces, the second is
+/// what a person writes by hand.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Entry {
+    Declared(String),
+    Definition(Definition),
+}
+
+impl Entry {
+    fn declared_license(&self) -> Option<String> {
+        match self {
+            Entry::Declared(declared) => usable_license(declared),
+            Entry::Definition(definition) => declared_license(definition),
+        }
+    }
+}
+
 /// One batch, retried once on a fresh connection.
 ///
 /// The service intermittently accepts a request and never answers it, and a pooled connection it
@@ -278,7 +356,12 @@ struct Licensed {
 
 /// The declared license of a definition, or `None` when it declares nothing usable.
 fn declared_license(definition: &Definition) -> Option<String> {
-    let declared = definition.licensed.as_ref()?.declared.as_ref()?.trim();
+    usable_license(definition.licensed.as_ref()?.declared.as_ref()?)
+}
+
+/// A declared value as a license, or `None` when it is one of the ways of saying there is none.
+fn usable_license(declared: &str) -> Option<String> {
+    let declared = declared.trim();
     if declared.is_empty() || NO_ANSWER.contains(&declared.to_ascii_uppercase().as_str()) {
         return None;
     }
@@ -568,8 +651,7 @@ mod live {
         .map(|c| c.to_string())
         .collect();
 
-        let definitions = fetch_batch(&batch, &endpoint().expect("enabled by default"))
-            .expect("batch request failed");
+        let definitions = fetch_batch(&batch, &live_endpoint()).expect("batch request failed");
         for coordinate in &batch {
             let declared = definitions
                 .get(coordinate)
@@ -583,8 +665,96 @@ mod live {
     #[ignore = "needs network"]
     fn an_unknown_coordinate_answers_with_no_license() {
         let batch = vec!["npm/npmjs/-/feluda-not-a-real-package/9.9.9".to_string()];
-        let definitions = fetch_batch(&batch, &endpoint().expect("enabled by default"))
-            .expect("batch request failed");
+        let definitions = fetch_batch(&batch, &live_endpoint()).expect("batch request failed");
         assert_eq!(definitions.get(&batch[0]).and_then(declared_license), None);
+    }
+
+    fn live_endpoint() -> String {
+        match source().expect("enabled by default") {
+            Source::Service(endpoint) => endpoint,
+            Source::File(_) => panic!("live test needs the service, not a file"),
+        }
+    }
+
+    fn definitions_file(contents: &str) -> tempfile::NamedTempFile {
+        let file = tempfile::NamedTempFile::new().expect("failed to create temp file");
+        std::fs::write(file.path(), contents).expect("failed to write definitions file");
+        file
+    }
+
+    fn pending(coordinates: &[&str]) -> Vec<(usize, String)> {
+        coordinates
+            .iter()
+            .enumerate()
+            .map(|(index, coordinate)| (index, coordinate.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_definitions_file_takes_both_shapes() {
+        // What curl gets from the batch endpoint, and what a person writes by hand, side by side.
+        let file = definitions_file(
+            r#"{
+              "crate/cratesio/-/harvested/1.0.0": {
+                "described": {"releaseDate": "2026-01-01"},
+                "licensed": {"declared": "Apache-2.0"},
+                "scores": {"effective": 80}
+              },
+              "crate/cratesio/-/by-hand/2.0.0": "MIT",
+              "crate/cratesio/-/undeclared/3.0.0": {"licensed": {}},
+              "crate/cratesio/-/noassertion/4.0.0": "NOASSERTION"
+            }"#,
+        );
+        let answers = lookup_in_file(
+            &pending(&[
+                "crate/cratesio/-/harvested/1.0.0",
+                "crate/cratesio/-/by-hand/2.0.0",
+                "crate/cratesio/-/undeclared/3.0.0",
+                "crate/cratesio/-/noassertion/4.0.0",
+                "crate/cratesio/-/absent/5.0.0",
+            ]),
+            file.path(),
+        );
+
+        assert_eq!(
+            answers["crate/cratesio/-/harvested/1.0.0"].as_deref(),
+            Some("Apache-2.0")
+        );
+        assert_eq!(
+            answers["crate/cratesio/-/by-hand/2.0.0"].as_deref(),
+            Some("MIT")
+        );
+        assert_eq!(answers["crate/cratesio/-/undeclared/3.0.0"], None);
+        assert_eq!(answers["crate/cratesio/-/noassertion/4.0.0"], None);
+        assert_eq!(answers["crate/cratesio/-/absent/5.0.0"], None);
+    }
+
+    #[test]
+    fn an_unusable_definitions_file_answers_nothing() {
+        let coordinates = pending(&["crate/cratesio/-/serde/1.0.219"]);
+
+        let missing = Path::new("/nonexistent/clearlydefined.json");
+        assert!(lookup_in_file(&coordinates, missing).is_empty());
+
+        let malformed = definitions_file("not json");
+        assert!(lookup_in_file(&coordinates, malformed.path()).is_empty());
+
+        let wrong_shape = definitions_file(r#"["crate/cratesio/-/serde/1.0.219"]"#);
+        assert!(lookup_in_file(&coordinates, wrong_shape.path()).is_empty());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_configured_file_replaces_the_service() {
+        temp_env::with_vars(
+            [
+                ("FELUDA_CLEARLYDEFINED_DEFINITIONS", Some("defs.json")),
+                ("FELUDA_CLEARLYDEFINED_ENABLED", None::<&str>),
+            ],
+            || match source().expect("enabled by default") {
+                Source::File(path) => assert_eq!(path, PathBuf::from("defs.json")),
+                Source::Service(endpoint) => panic!("service {endpoint} chosen over the file"),
+            },
+        );
     }
 }

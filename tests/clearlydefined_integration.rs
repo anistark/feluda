@@ -243,3 +243,44 @@ fn the_lookup_can_be_turned_off() {
         assert!(entry(&entries, "copyleft-mystery")["license"].is_null());
     }
 }
+
+#[test]
+fn a_definitions_file_answers_instead_of_the_service() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let sbom = write_sbom(temp.path());
+    // The file holds the stub's response verbatim, which is what a curl against the real batch
+    // endpoint on a connected machine would have saved.
+    let definitions = temp.path().join("clearlydefined.json");
+    std::fs::write(&definitions, RESPONSE).expect("failed to write definitions file");
+    // A stub is still listening so that a request reaching it can be told apart from no request.
+    let stub = Stub::start(RESPONSE);
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_feluda"));
+    command
+        .args(["--sbom-input", &sbom, "--json"])
+        .env("HOME", temp.path())
+        .env("XDG_CACHE_HOME", temp.path().join("cache"))
+        .env("FELUDA_CLEARLYDEFINED_ENDPOINT", &stub.endpoint)
+        .env("FELUDA_CLEARLYDEFINED_DEFINITIONS", &definitions);
+    let output = command.output().expect("failed to run feluda binary");
+    let entries = report(&output);
+
+    assert_eq!(entry(&entries, "mystery")["license"], "Apache-2.0");
+    let restrictive = entry(&entries, "copyleft-mystery");
+    assert_eq!(restrictive["license"], "GPL-3.0");
+    assert_eq!(restrictive["is_restrictive"], true);
+
+    assert!(
+        stub.requests
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .is_err(),
+        "the service was asked although a definitions file was configured"
+    );
+    assert!(
+        !temp
+            .path()
+            .join("cache/feluda/clearlydefined.json")
+            .exists(),
+        "answers from a file must not be written to the cache"
+    );
+}
