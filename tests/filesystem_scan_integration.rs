@@ -245,6 +245,45 @@ fn debian_rootfs_resolves_licenses_from_copyright_files() {
 }
 
 #[test]
+fn debian_rootfs_resolves_unambiguous_pre_dep5_license_references() {
+    let temp = debian_rootfs();
+    let status_path = temp.path().join("var/lib/dpkg/status");
+    let status = fs::read_to_string(status_path).unwrap();
+    write(
+        temp.path(),
+        "var/lib/dpkg/status",
+        &format!(
+            "{status}\nPackage: libcrypt1\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.0\n\nPackage: base-files\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.0\n"
+        ),
+    );
+    write(
+        temp.path(),
+        "usr/share/doc/libcrypt1/copyright",
+        "This package is licensed under the GNU GPL; see /usr/share/common-licenses/GPL-2.\n",
+    );
+    write(
+        temp.path(),
+        "usr/share/doc/base-files/copyright",
+        "See /usr/share/common-licenses/GPL-2 and /usr/share/common-licenses/BSD.\n",
+    );
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+    let libcrypt = find(&report, "debian/libcrypt1");
+    assert_eq!(libcrypt["license"], "GPL-2.0-only");
+    assert_eq!(libcrypt["is_restrictive"], true);
+    assert!(find(&report, "debian/base-files")["license"].is_null());
+
+    let output = feluda(&[
+        "--filesystem",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--fail-on-restrictive",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
 fn restrictive_gate_fires_on_a_root_filesystem() {
     // The reason the whole feature exists: a container that ships GPL code fails CI.
     let temp = debian_rootfs();
