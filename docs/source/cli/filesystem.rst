@@ -262,8 +262,10 @@ Unknown Licenses
 
 A package whose license cannot be read is reported as unknown, never guessed at. Debian packages
 that predate the machine-readable copyright format sometimes state their license only in prose that
-points at ``/usr/share/common-licenses``, and Feluda will not infer a license from a reference. In a
-stock ``debian:12-slim`` image this affects a handful of the 88 installed packages; the rest resolve.
+points at ``/usr/share/common-licenses``. Feluda resolves a reference only when every referenced
+filename is recognized and all references map to the same license. Multiple different licenses or
+an unrecognized filename remain unknown. In a stock ``debian:12-slim`` image, a few pre-DEP-5
+copyright files use this form; packages with ambiguous references remain unknown.
 
 apk and rpm have no such gap, because both record the license in the package's own metadata rather
 than in a file alongside it. A stock ``fedora:41`` or ``rockylinux:9`` image resolves every installed

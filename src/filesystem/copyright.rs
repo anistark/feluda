@@ -23,7 +23,71 @@ pub fn license_from_copyright(content: &str) -> Option<String> {
     if let Some(license) = dep5_license(content) {
         return Some(license);
     }
-    detect_license_from_content(content)
+    detect_license_from_content(content).or_else(|| common_license_reference(content))
+}
+
+/// Resolve references to Debian's installed common-license texts when every reference agrees.
+fn common_license_reference(content: &str) -> Option<String> {
+    const PREFIX: &str = "/usr/share/common-licenses/";
+    let mut resolved = None;
+
+    for suffix in content.split(PREFIX).skip(1) {
+        let filename = suffix
+            .split_whitespace()
+            .next()?
+            .trim_end_matches(['.', ',', ';', ':', ')', ']', '>', '"', '\'']);
+        let license = normalize_common_license_filename(filename)?;
+
+        match &resolved {
+            Some(existing) if existing != &license => return None,
+            _ => resolved = Some(license),
+        }
+    }
+
+    resolved
+}
+
+/// Map only known common-license filenames; unknown names must not become guessed SPDX ids.
+fn normalize_common_license_filename(filename: &str) -> Option<String> {
+    let normalized_name = filename.to_ascii_lowercase();
+    let is_versioned_gnu_license = ["agpl-", "gpl-", "lgpl-", "gfdl-"]
+        .iter()
+        .any(|prefix| normalized_name.starts_with(prefix));
+    let is_known_debian_name = matches!(
+        normalized_name.as_str(),
+        "apache-2.0"
+            | "artistic"
+            | "artistic-2"
+            | "bsd"
+            | "bsd-2-clause"
+            | "bsd-3-clause"
+            | "bsd-4-clause"
+            | "cc0"
+            | "cc0-1.0"
+            | "cc-by-sa-4.0"
+            | "expat"
+            | "mit"
+            | "mit/x11"
+            | "mpl-1.1"
+            | "mpl-2.0"
+            | "x11"
+    );
+
+    if is_versioned_gnu_license {
+        return gnu_family_license(filename);
+    }
+    if !is_known_debian_name {
+        return None;
+    }
+
+    if normalized_name == "bsd" {
+        return Some("BSD-3-Clause".to_string());
+    }
+    if normalized_name == "artistic-2" {
+        return Some("Artistic-2.0".to_string());
+    }
+
+    normalize_debian_license(filename)
 }
 
 /// The license a DEP-5 document states, or `None` when the file is not DEP-5.
@@ -101,7 +165,9 @@ fn normalize_debian_license(short_name: &str) -> Option<String> {
         "bsd-2-clause" => "BSD-2-Clause",
         "bsd-3-clause" => "BSD-3-Clause",
         "bsd-4-clause" => "BSD-4-Clause",
+        "bsd" => "BSD-3-Clause",
         "artistic" => "Artistic-1.0",
+        "artistic-2" => "Artistic-2.0",
         "artistic-2.0" => "Artistic-2.0",
         "apache-2.0" => "Apache-2.0",
         "mpl-1.1" => "MPL-1.1",
@@ -356,5 +422,50 @@ License: Expat
     fn test_nothing_stated_stays_nothing() {
         assert_eq!(normalize_debian_license(""), None);
         assert_eq!(normalize_debian_license("unknown"), None);
+    }
+
+    #[test]
+    fn test_resolves_a_single_common_license_reference() {
+        let content = "Licensed under the GNU GPL. See /usr/share/common-licenses/GPL-2.";
+        assert_eq!(
+            license_from_copyright(content),
+            Some("GPL-2.0-only".to_string())
+        );
+    }
+
+    #[test]
+    fn test_common_license_references_must_all_resolve_to_the_same_license() {
+        let repeated_license =
+            "See /usr/share/common-licenses/MIT and /usr/share/common-licenses/Expat.";
+        assert_eq!(
+            license_from_copyright(repeated_license),
+            Some("MIT".to_string())
+        );
+
+        let different_licenses =
+            "See /usr/share/common-licenses/GPL-2 and /usr/share/common-licenses/BSD.";
+        assert_eq!(license_from_copyright(different_licenses), None);
+
+        let unknown_license =
+            "See /usr/share/common-licenses/MIT and /usr/share/common-licenses/LOCAL-COPY.";
+        assert_eq!(license_from_copyright(unknown_license), None);
+    }
+
+    #[test]
+    fn test_common_license_filename_aliases_use_debian_normalization() {
+        assert_eq!(
+            normalize_common_license_filename("GPL-2+"),
+            Some("GPL-2.0-or-later".to_string())
+        );
+        assert_eq!(
+            normalize_common_license_filename("BSD"),
+            Some("BSD-3-Clause".to_string())
+        );
+        assert_eq!(
+            normalize_common_license_filename("Artistic"),
+            Some("Artistic-1.0".to_string())
+        );
+        assert_eq!(normalize_common_license_filename("GPL"), None);
+        assert_eq!(normalize_common_license_filename("UNKNOWN"), None);
     }
 }
