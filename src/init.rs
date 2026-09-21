@@ -110,10 +110,12 @@ ignore = []
 
 # Licenses feluda cannot resolve on its own are looked up in ClearlyDefined, whose
 # curated definitions often name one. On by default; turn it off if package names
-# and versions must not leave this machine, or point it at your own instance.
+# and versions must not leave this machine, point it at your own instance, or hand
+# it a file of definitions to answer from instead of the network.
 # [clearlydefined]
 # enabled = false
 # endpoint = "https://clearlydefined.internal/definitions"
+# definitions = "clearlydefined.json"
 
 [dependencies]
 # Maximum depth for transitive dependency resolution (1–100).

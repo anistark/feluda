@@ -209,13 +209,16 @@ default and only ever runs for dependencies that already failed to resolve.
    enabled = true
    endpoint = "https://api.clearlydefined.io/definitions"
 
-Set ``enabled = false`` when package names and versions must not leave the machine, or point
-``endpoint`` at a mirror, a proxy, or a self-hosted instance. Both have environment equivalents:
+Set ``enabled = false`` when package names and versions must not leave the machine, point
+``endpoint`` at a mirror, a proxy, or a self-hosted instance, or set ``definitions`` to a JSON file
+of definitions that replaces the service entirely for a build with no network. All three have
+environment equivalents:
 
 .. code-block:: bash
 
    export FELUDA_CLEARLYDEFINED_ENABLED=false
    export FELUDA_CLEARLYDEFINED_ENDPOINT=https://clearlydefined.internal/definitions
+   export FELUDA_CLEARLYDEFINED_DEFINITIONS=clearlydefined.json
 
 ``--no-clearlydefined`` turns it off for a single run. See :ref:`cli-clearlydefined`.
 
