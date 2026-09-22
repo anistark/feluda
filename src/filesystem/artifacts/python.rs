@@ -364,7 +364,7 @@ mod tests {
                  1. Redistributions of source code must retain the above copyright notice.\n\
                  3. Neither the name of the copyright holder nor the names of its contributors \
                  may be used to endorse or promote products derived from this software.\n\
-                 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS \"AS IS\".\n",
+                 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\".\n",
             )
             .unwrap();
 
