@@ -1151,9 +1151,8 @@ struct LicenseFilename {
 /// `absent_markers` lets a rule keep matching by clause wording while still turning
 /// away a neighbouring license that shares that wording. The BSD rules use it: the
 /// canonical BSD texts never contain the word "BSD", so they are matched by their
-/// clauses, and `absent_markers` excludes BSD-4-Clause (its "advertising clause") and
-/// Apache-1.1 (it opens with the same "Redistribution and use" sentence), both of
-/// which would otherwise fall through the widened groups.
+/// clauses, and `absent_markers` excludes BSD-4-Clause by its advertising clause, a
+/// phrase a genuine BSD-2/BSD-3 text never carries.
 struct LicenseContentRule {
     spdx_id: &'static str,
     marker_groups: &'static [&'static [&'static str]],
@@ -1259,25 +1258,43 @@ static LICENSE_CONTENT_RULES: &[LicenseContentRule] = &[
     // Each rule keeps its original "BSD"-word group and adds a group that matches the
     // canonical text by its clauses, since a standard BSD-2/BSD-3 file need not contain
     // the word "BSD" (e.g. the opensource.org texts and the ones Pallets ships for
-    // Jinja2 and itsdangerous). `absent_markers` turns away the two licenses that share
-    // this wording: BSD-4-Clause carries "Neither the name" under its advertising
-    // clause, and Apache-1.1 opens with the same "Redistribution and use" sentence and
-    // the same "AS IS" warranty line.
+    // Jinja2 and itsdangerous).
+    //
+    // The clause group is anchored on the canonical BSD warranty line
+    // "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS", which the
+    // BSD-2 and BSD-3 texts carry verbatim and no other "Redistribution and use" license
+    // does. That single anchor keeps the whole family out: the named-holder disclaimers
+    // of ZPL-2.1 ("...BY ZOPE CORPORATION"), Sleepycat, PHP-3.01 and BSD-4-Clause, and
+    // Apache-1.1's bare "...AS IS" line, all fail it, so none of them resolve to BSD any
+    // more (previously ZPL-2.1 mis-resolved to BSD-2-Clause and the copyleft Sleepycat to
+    // BSD-3-Clause). `absent_markers` keeps out BSD-4-Clause by its advertising clause;
+    // that phrase never appears in a genuine BSD-2/BSD-3 text, so it can gate the whole
+    // rule without ever suppressing a real match. It deliberately does *not* list
+    // "Apache": the warranty-line anchor already excludes Apache-1.1, and a bare "Apache"
+    // marker would wrongly gate a plain "BSD 3-Clause" file that merely mentions Apache
+    // in a bundled-component note.
     LicenseContentRule {
         spdx_id: "BSD-3-Clause",
         marker_groups: &[
             &["BSD", "Redistribution and use", "Neither the name"],
-            &["Redistribution and use", "Neither the name"],
+            &[
+                "Redistribution and use",
+                "Neither the name",
+                "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS",
+            ],
         ],
-        absent_markers: &["All advertising materials", "Apache"],
+        absent_markers: &["All advertising materials"],
     },
     LicenseContentRule {
         spdx_id: "BSD-2-Clause",
         marker_groups: &[
             &["BSD", "Redistribution and use"],
-            &["Redistribution and use", "THIS SOFTWARE IS PROVIDED"],
+            &[
+                "Redistribution and use",
+                "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS",
+            ],
         ],
-        absent_markers: &["All advertising materials", "Apache"],
+        absent_markers: &["All advertising materials"],
     },
     // OFL must come before MIT: the OFL grant text begins with "Permission is hereby
     // granted, free of charge" (the same opening as MIT), so OFL files would otherwise
@@ -2223,6 +2240,78 @@ THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESSED OR IMPLIED WARRANTIES ARE 
         // shares the "Redistribution and use" sentence and the "AS IS" warranty line.
         assert_eq!(detect_license_from_content(CANONICAL_BSD_4_CLAUSE), None);
         assert_eq!(detect_license_from_content(CANONICAL_APACHE_1_1), None);
+    }
+
+    // The wider "Redistribution and use" family shares BSD's opening clauses but not its
+    // exact warranty line "...BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS". These two are
+    // the regressions the widened clause groups risked: ZPL-2.1 stops the warranty line
+    // at "...BY THE COPYRIGHT HOLDERS" (no "AND CONTRIBUTORS"), and the copyleft Sleepycat
+    // license even carries "Neither the name" yet names its own holder in the disclaimer.
+    // Both previously mis-resolved (ZPL-2.1 -> BSD-2-Clause, Sleepycat -> BSD-3-Clause);
+    // reporting a copyleft license as permissive would let `--fail-on-restrictive` pass.
+    const ZPL_2_1: &str = "\
+Zope Public License (ZPL) Version 2.1
+
+Copyright (c) Zope Foundation and Contributors. All Rights Reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions in source code must retain the accompanying copyright notice, this list of conditions, and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the accompanying copyright notice, this list of conditions, and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY EXPRESSED OR IMPLIED WARRANTIES ARE DISCLAIMED.";
+
+    const SLEEPYCAT: &str = "\
+The Sleepycat License
+
+Copyright (c) 1990-1999 Sleepycat Software. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+3. Redistributions in any form must be accompanied by information on how to obtain complete source code for the DB software and any accompanying software that uses the DB software.
+
+Neither the name of the University nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY SLEEPYCAT SOFTWARE ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.";
+
+    #[test]
+    fn test_redistribution_family_is_not_mistaken_for_bsd() {
+        // The clause groups are anchored on the canonical BSD warranty line, so these
+        // resolve to None rather than a BSD SPDX id.
+        assert!(ZPL_2_1.contains("Redistribution and use"));
+        assert!(!ZPL_2_1
+            .contains("THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS"));
+        assert_eq!(detect_license_from_content(ZPL_2_1), None);
+
+        // Sleepycat is the important one: it carries "Neither the name", so only the
+        // warranty-line anchor keeps this copyleft license out of BSD-3-Clause.
+        assert!(SLEEPYCAT.contains("Redistribution and use"));
+        assert!(SLEEPYCAT.contains("Neither the name"));
+        assert!(!SLEEPYCAT
+            .contains("THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS"));
+        assert_eq!(detect_license_from_content(SLEEPYCAT), None);
+    }
+
+    #[test]
+    fn test_bsd_with_bundled_apache_note_still_resolves() {
+        // A plain BSD-3 text that mentions Apache in a bundled-component note must still
+        // resolve to BSD-3-Clause: "Apache" is deliberately not an absent marker (it would
+        // gate the "BSD"-word group too). The warranty-line anchor already excludes the
+        // Apache-1.1 license itself.
+        let with_apache_note = format!(
+            "BSD 3-Clause License\n\n{CANONICAL_BSD_3_CLAUSE}\n\n\
+             This project bundles foo, which is licensed under the Apache License 2.0.",
+        );
+        assert!(with_apache_note.contains("Apache"));
+        assert_eq!(
+            detect_license_from_content(&with_apache_note),
+            Some("BSD-3-Clause".to_string())
+        );
     }
 
     #[test]
