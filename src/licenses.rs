@@ -1143,21 +1143,40 @@ struct LicenseFilename {
 
 /// Content-based detection rule.
 ///
-/// The rule fires when **any** marker group matches, where a group matches when
-/// **all** of its strings appear in the file content (OR-of-ANDs), **and** none of
-/// `absent_markers` appear.  List more-specific rules (more markers) before
+/// The rule fires when **any** of its marker groups matches; see [`MarkerGroup`] for
+/// when a single group matches. List more-specific rules (more markers) before
 /// less-specific ones so the first match wins.
-///
-/// `absent_markers` lets a rule keep matching by clause wording while still turning
-/// away a neighbouring license that shares that wording. The BSD rules use it: the
-/// canonical BSD texts never contain the word "BSD", so they are matched by their
-/// clauses, and `absent_markers` excludes BSD-4-Clause by its advertising clause, a
-/// phrase a genuine BSD-2/BSD-3 text never carries.
 struct LicenseContentRule {
     spdx_id: &'static str,
-    marker_groups: &'static [&'static [&'static str]],
-    /// Markers that must be **absent** for the rule to fire. Empty for most rules.
-    absent_markers: &'static [&'static str],
+    marker_groups: &'static [MarkerGroup],
+}
+
+/// One alternative way a [`LicenseContentRule`] can match.
+///
+/// A group matches when **all** of its `markers` appear in the file content **and**
+/// none of its `absent` markers do. Guarding on `absent` per group (rather than per
+/// rule) matters for the BSD rules: they carry both a group keyed on the literal word
+/// "BSD" and a fallback group that matches the canonical BSD text by its clause wording
+/// (the opensource.org / Pallets texts never say "BSD"). Only the clause-wording group
+/// needs to turn away BSD-4-Clause, whose advertising clause it would otherwise share;
+/// putting "All advertising materials" in that one group's `absent` leaves the
+/// "BSD"-word group free to keep matching a real BSD file that merely quotes a 4-clause
+/// advertising block in a bundled-component note.
+struct MarkerGroup {
+    /// Markers that must **all** be present for the group to match.
+    markers: &'static [&'static str],
+    /// Markers that must be **absent** for the group to match. Empty for most groups.
+    absent: &'static [&'static str],
+}
+
+impl MarkerGroup {
+    /// A group that matches whenever all of `markers` are present, with nothing to exclude.
+    const fn all(markers: &'static [&'static str]) -> Self {
+        MarkerGroup {
+            markers,
+            absent: &[],
+        }
+    }
 }
 
 /// Canonical set of license filenames to probe, in priority order.
@@ -1220,81 +1239,99 @@ static LICENSE_CONTENT_RULES: &[LicenseContentRule] = &[
     // so they would otherwise match the GPL rules first.
     LicenseContentRule {
         spdx_id: "AGPL-3.0",
-        marker_groups: &[&["GNU AFFERO GENERAL PUBLIC LICENSE", "Version 3"]],
-        absent_markers: &[],
+        marker_groups: &[MarkerGroup::all(&[
+            "GNU AFFERO GENERAL PUBLIC LICENSE",
+            "Version 3",
+        ])],
     },
     LicenseContentRule {
         spdx_id: "LGPL-3.0",
-        marker_groups: &[&["GNU LESSER GENERAL PUBLIC LICENSE", "Version 3"]],
-        absent_markers: &[],
+        marker_groups: &[MarkerGroup::all(&[
+            "GNU LESSER GENERAL PUBLIC LICENSE",
+            "Version 3",
+        ])],
     },
     LicenseContentRule {
         spdx_id: "LGPL-2.1",
-        marker_groups: &[&["GNU LESSER GENERAL PUBLIC LICENSE", "Version 2.1"]],
-        absent_markers: &[],
+        marker_groups: &[MarkerGroup::all(&[
+            "GNU LESSER GENERAL PUBLIC LICENSE",
+            "Version 2.1",
+        ])],
     },
     LicenseContentRule {
         spdx_id: "GPL-3.0",
-        marker_groups: &[&["GNU GENERAL PUBLIC LICENSE", "Version 3"]],
-        absent_markers: &[],
+        marker_groups: &[MarkerGroup::all(&[
+            "GNU GENERAL PUBLIC LICENSE",
+            "Version 3",
+        ])],
     },
     LicenseContentRule {
         spdx_id: "GPL-2.0",
-        marker_groups: &[&["GNU GENERAL PUBLIC LICENSE", "Version 2"]],
-        absent_markers: &[],
+        marker_groups: &[MarkerGroup::all(&[
+            "GNU GENERAL PUBLIC LICENSE",
+            "Version 2",
+        ])],
     },
     LicenseContentRule {
         spdx_id: "Apache-2.0",
-        marker_groups: &[&["Apache License", "Version 2.0"]],
-        absent_markers: &[],
+        marker_groups: &[MarkerGroup::all(&["Apache License", "Version 2.0"])],
     },
     LicenseContentRule {
         spdx_id: "MPL-2.0",
-        marker_groups: &[&["Mozilla Public License", "Version 2.0"]],
-        absent_markers: &[],
+        marker_groups: &[MarkerGroup::all(&["Mozilla Public License", "Version 2.0"])],
     },
     // BSD-3 must come before BSD-2: "Neither the name" distinguishes them.
     //
-    // Each rule keeps its original "BSD"-word group and adds a group that matches the
-    // canonical text by its clauses, since a standard BSD-2/BSD-3 file need not contain
-    // the word "BSD" (e.g. the opensource.org texts and the ones Pallets ships for
-    // Jinja2 and itsdangerous).
+    // Each rule has a group keyed on the literal word "BSD" and a fallback group that
+    // matches the canonical text by its clause wording, since a standard BSD-2/BSD-3 file
+    // need not contain the word "BSD" (e.g. the opensource.org texts and the ones Pallets
+    // ships for Jinja2 and itsdangerous).
     //
-    // The clause group is anchored on the canonical BSD warranty line
+    // The clause-wording group is anchored on the canonical BSD warranty line
     // "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS", which the
-    // BSD-2 and BSD-3 texts carry verbatim and no other "Redistribution and use" license
-    // does. That single anchor keeps the whole family out: the named-holder disclaimers
-    // of ZPL-2.1 ("...BY ZOPE CORPORATION"), Sleepycat, PHP-3.01 and BSD-4-Clause, and
-    // Apache-1.1's bare "...AS IS" line, all fail it, so none of them resolve to BSD any
-    // more (previously ZPL-2.1 mis-resolved to BSD-2-Clause and the copyleft Sleepycat to
-    // BSD-3-Clause). `absent_markers` keeps out BSD-4-Clause by its advertising clause;
-    // that phrase never appears in a genuine BSD-2/BSD-3 text, so it can gate the whole
-    // rule without ever suppressing a real match. It deliberately does *not* list
-    // "Apache": the warranty-line anchor already excludes Apache-1.1, and a bare "Apache"
-    // marker would wrongly gate a plain "BSD 3-Clause" file that merely mentions Apache
-    // in a bundled-component note.
+    // BSD-2 and BSD-3 templates carry verbatim. That anchor keeps the wider
+    // "Redistribution and use" family out: the named-holder disclaimers of ZPL-2.1,
+    // Sleepycat, PHP-3.01 and BSD-4-Clause, and Apache-1.1's bare "...AS IS" line, all
+    // fail it (previously ZPL-2.1 mis-resolved to BSD-2-Clause and the copyleft Sleepycat
+    // to BSD-3-Clause). The anchor is a template match, not a proof of family membership:
+    // a few close relatives such as BSD-2-Clause-Patent reproduce the same warranty line,
+    // so they still resolve to the plain BSD id — acceptable here since all are permissive,
+    // though the SPDX id is then the base one rather than the exact variant.
+    //
+    // "All advertising materials" is an `absent` marker on the clause-wording group only,
+    // to exclude BSD-4-Clause, whose advertising clause that group would otherwise share.
+    // It must NOT gate the whole rule: a genuine BSD file can quote a 4-clause advertising
+    // block in a bundled-component note or a concatenated `copyright`/vendored LICENSE
+    // file, and such a file still matches via the "BSD"-word group. "Apache" is left off
+    // for the same reason the anchor makes it unnecessary — Apache-1.1 already fails the
+    // warranty line, and a bare "Apache" marker would gate real BSD files that merely name
+    // Apache in a note.
     LicenseContentRule {
         spdx_id: "BSD-3-Clause",
         marker_groups: &[
-            &["BSD", "Redistribution and use", "Neither the name"],
-            &[
-                "Redistribution and use",
-                "Neither the name",
-                "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS",
-            ],
+            MarkerGroup::all(&["BSD", "Redistribution and use", "Neither the name"]),
+            MarkerGroup {
+                markers: &[
+                    "Redistribution and use",
+                    "Neither the name",
+                    "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS",
+                ],
+                absent: &["All advertising materials"],
+            },
         ],
-        absent_markers: &["All advertising materials"],
     },
     LicenseContentRule {
         spdx_id: "BSD-2-Clause",
         marker_groups: &[
-            &["BSD", "Redistribution and use"],
-            &[
-                "Redistribution and use",
-                "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS",
-            ],
+            MarkerGroup::all(&["BSD", "Redistribution and use"]),
+            MarkerGroup {
+                markers: &[
+                    "Redistribution and use",
+                    "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS",
+                ],
+                absent: &["All advertising materials"],
+            },
         ],
-        absent_markers: &["All advertising materials"],
     },
     // OFL must come before MIT: the OFL grant text begins with "Permission is hereby
     // granted, free of charge" (the same opening as MIT), so OFL files would otherwise
@@ -1302,53 +1339,47 @@ static LICENSE_CONTENT_RULES: &[LicenseContentRule] = &[
     LicenseContentRule {
         spdx_id: "OFL-1.1",
         marker_groups: &[
-            &["SIL OPEN FONT LICENSE"],
-            &["This Font Software is licensed under the SIL Open Font License"],
+            MarkerGroup::all(&["SIL OPEN FONT LICENSE"]),
+            MarkerGroup::all(&["This Font Software is licensed under the SIL Open Font License"]),
         ],
-        absent_markers: &[],
     },
     LicenseContentRule {
         spdx_id: "MIT",
         marker_groups: &[
-            &["MIT License"],
+            MarkerGroup::all(&["MIT License"]),
             // "associated documentation files" is MIT-specific phrasing — it
             // disambiguates from OFL/ISC/etc. which share the permission preamble.
-            &[
+            MarkerGroup::all(&[
                 "Permission is hereby granted, free of charge",
                 "associated documentation files",
-            ],
+            ]),
         ],
-        absent_markers: &[],
     },
     LicenseContentRule {
         spdx_id: "ISC",
-        marker_groups: &[&["ISC License"]],
-        absent_markers: &[],
+        marker_groups: &[MarkerGroup::all(&["ISC License"])],
     },
     // Unlicense text is distinctive and shares no preamble with the licenses above,
     // so ordering relative to them does not matter.
     LicenseContentRule {
         spdx_id: "Unlicense",
         marker_groups: &[
-            &["This is free and unencumbered software released into the public domain"],
-            &["unlicense.org"],
+            MarkerGroup::all(&[
+                "This is free and unencumbered software released into the public domain",
+            ]),
+            MarkerGroup::all(&["unlicense.org"]),
         ],
-        absent_markers: &[],
     },
 ];
 
-/// Return the SPDX ID for the first content rule that matches `content`, or `None`.
+/// Return the SPDX ID for the first content rule with a matching group, or `None`.
 fn match_license_content(content: &str) -> Option<&'static str> {
     for rule in LICENSE_CONTENT_RULES {
-        if rule
-            .absent_markers
-            .iter()
-            .any(|marker| content.contains(marker))
-        {
-            continue;
-        }
         for group in rule.marker_groups {
-            if group.iter().all(|marker| content.contains(marker)) {
+            if group.absent.iter().any(|marker| content.contains(marker)) {
+                continue;
+            }
+            if group.markers.iter().all(|marker| content.contains(marker)) {
                 return Some(rule.spdx_id);
             }
         }
@@ -2300,9 +2331,8 @@ THIS SOFTWARE IS PROVIDED BY SLEEPYCAT SOFTWARE ``AS IS'' AND ANY EXPRESS OR IMP
     #[test]
     fn test_bsd_with_bundled_apache_note_still_resolves() {
         // A plain BSD-3 text that mentions Apache in a bundled-component note must still
-        // resolve to BSD-3-Clause: "Apache" is deliberately not an absent marker (it would
-        // gate the "BSD"-word group too). The warranty-line anchor already excludes the
-        // Apache-1.1 license itself.
+        // resolve to BSD-3-Clause: "Apache" is deliberately not an absent marker anywhere,
+        // and the warranty-line anchor already excludes the Apache-1.1 license itself.
         let with_apache_note = format!(
             "BSD 3-Clause License\n\n{CANONICAL_BSD_3_CLAUSE}\n\n\
              This project bundles foo, which is licensed under the Apache License 2.0.",
@@ -2312,6 +2342,51 @@ THIS SOFTWARE IS PROVIDED BY SLEEPYCAT SOFTWARE ``AS IS'' AND ANY EXPRESS OR IMP
             detect_license_from_content(&with_apache_note),
             Some("BSD-3-Clause".to_string())
         );
+    }
+
+    #[test]
+    fn test_bsd_quoting_a_4_clause_advertising_block_still_resolves() {
+        // A genuine BSD-3 file that also quotes a 4-clause BSD advertising clause — e.g. in
+        // a bundled-component note, or a concatenated Debian `copyright`/vendored LICENSE
+        // file that aggregates several upstream blocks — must still resolve to BSD-3-Clause.
+        // "All advertising materials" guards only the clause-wording fallback group (to keep
+        // BSD-4-Clause out); it must not gate the "BSD"-word group, which still matches here.
+        let with_advertising_block = format!(
+            "BSD 3-Clause License\n\n{CANONICAL_BSD_3_CLAUSE}\n\n\
+             This product also bundles bar, distributed under the following terms:\n\n\
+             3. All advertising materials mentioning features or use of this software must \
+             display the following acknowledgement: This product includes software developed \
+             by the organization.",
+        );
+        assert!(with_advertising_block.contains("BSD"));
+        assert!(with_advertising_block.contains("All advertising materials"));
+        assert_eq!(
+            detect_license_from_content(&with_advertising_block),
+            Some("BSD-3-Clause".to_string())
+        );
+
+        // The same holds for BSD-2 (no "Neither the name" clause).
+        let bsd2_with_advertising_block = format!(
+            "BSD 2-Clause License\n\n{CANONICAL_BSD_2_CLAUSE}\n\n\
+             Bundled dependency baz:\n\n\
+             3. All advertising materials mentioning features or use of this software must \
+             display the following acknowledgement.",
+        );
+        assert!(bsd2_with_advertising_block.contains("All advertising materials"));
+        assert_eq!(
+            detect_license_from_content(&bsd2_with_advertising_block),
+            Some("BSD-2-Clause".to_string())
+        );
+    }
+
+    #[test]
+    fn test_bsd_4_clause_still_excluded_when_word_bsd_is_absent() {
+        // The per-group guard must not have re-opened the BSD-4-Clause hole: a canonical
+        // BSD-4 text that never says "BSD" still fails the "BSD"-word group and is turned
+        // away from the clause-wording group by "All advertising materials".
+        assert!(!CANONICAL_BSD_4_CLAUSE.contains("BSD"));
+        assert!(CANONICAL_BSD_4_CLAUSE.contains("All advertising materials"));
+        assert_eq!(detect_license_from_content(CANONICAL_BSD_4_CLAUSE), None);
     }
 
     #[test]
