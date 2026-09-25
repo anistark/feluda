@@ -122,14 +122,12 @@ fn parse_maven_pom(pom_path: &str) -> Vec<JavaDependency> {
 
 /// Decode a text event and resolve any entities it still contains.
 ///
-/// quick-xml 0.41 dropped `BytesText::unescape`, so decoding and unescaping are
-/// now two separate steps. Malformed content yields an empty string, matching
-/// the previous `unescape().unwrap_or_default()` behaviour.
+/// Since quick-xml 0.42 event content is already `&str` (the reader rejects
+/// input that is not UTF-8), so only unescaping remains. Malformed content
+/// yields an empty string, matching the previous `unescape().unwrap_or_default()`
+/// behaviour.
 fn decode_text(e: &BytesText) -> String {
-    e.decode()
-        .ok()
-        .and_then(|decoded| unescape(&decoded).ok().map(|s| s.into_owned()))
-        .unwrap_or_default()
+    unescape(e).map(|s| s.into_owned()).unwrap_or_default()
 }
 
 /// Resolve a standalone entity reference event into the text it denotes.
@@ -139,9 +137,9 @@ fn decode_text(e: &BytesText) -> String {
 /// the delimiters. Rebuilding the reference and unescaping it handles named and
 /// numeric forms with one code path. Unknown entities resolve to nothing.
 fn decode_entity_ref(e: &BytesRef) -> String {
-    e.decode()
-        .ok()
-        .and_then(|name| unescape(&format!("&{name};")).ok().map(|s| s.into_owned()))
+    let name: &str = e;
+    unescape(&format!("&{name};"))
+        .map(|s| s.into_owned())
         .unwrap_or_default()
 }
 
@@ -159,7 +157,7 @@ fn extract_pom_properties(content: &str) -> HashMap<String, String> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let name = e.name().as_ref().to_string();
                 if name == "properties" {
                     in_properties = true;
                 } else if in_properties {
@@ -178,7 +176,7 @@ fn extract_pom_properties(content: &str) -> HashMap<String, String> {
                 }
             }
             Ok(Event::End(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let name = e.name().as_ref().to_string();
                 if name == "properties" {
                     in_properties = false;
                 }
@@ -221,7 +219,7 @@ fn extract_pom_coordinates(content: &str) -> PomCoordinates {
     loop {
         match reader.read_event() {
             Ok(Event::Start(ref e)) => {
-                path.push(String::from_utf8_lossy(e.name().as_ref()).to_string());
+                path.push(e.name().as_ref().to_string());
                 buf.clear();
             }
             Ok(Event::Text(e)) => {

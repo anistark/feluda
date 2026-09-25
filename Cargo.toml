@@ -53,9 +53,9 @@ git2 = { version = "0.21", default-features = false, features = [
     "vendored-openssl",
 ] }
 tempfile = "3.27"
-dirs = "6.0"
+dirs = "7.0"
 semver = "1.0"
-quick-xml = { version = "0.41", features = ["serialize"] }
+quick-xml = "0.42"
 notify = "8.2.0"
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
 # Image archives (--image-archive): tar for the docker save / OCI layout container and its layers,
