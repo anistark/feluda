@@ -21,7 +21,7 @@
 
 ### What Feluda Does
 
-Feluda scans a project's dependency files, resolves each dependency's license (from local files or the GitHub API), and produces a report. It supports **eight language ecosystems**, multiple output formats, SBOM generation, and CI/CD integration.
+Feluda scans a project's dependency files, resolves each dependency's license (from local files or the GitHub API), and produces a report. It supports **ten language ecosystems**, multiple output formats, SBOM generation, and CI/CD integration.
 
 ### The Analysis Pipeline
 
@@ -66,12 +66,14 @@ src/reporter.rs — format output (text/JSON/YAML/CI/gist)
 |----------|-------------------|---------------|------------------------|
 | **Rust** | `Cargo.toml` | `src/languages/rust.rs` | `Cargo.toml` license field |
 | **Node.js** | `package.json` | `src/languages/node.rs` | `node_modules/*/LICENSE` files |
-| **Go** | `go.mod` | `src/languages/go.rs` | — |
+| **Go** | `go.mod`, `go.work` | `src/languages/go.rs` | — |
 | **Python** | `requirements.txt`, `Pipfile.lock`, `pip_freeze.txt`, `pyproject.toml` | `src/languages/python.rs` | — |
 | **C** | `configure.ac`, `configure.in`, `Makefile` | `src/languages/c.rs` | — |
-| **C++** | `vcpkg.json`, `conanfile.txt`, `CMakeLists.txt`, `MODULE.bazel` | `src/languages/cpp.rs` | — |
+| **C++** | `vcpkg.json`, `conanfile.txt`, `conanfile.py`, `CMakeLists.txt`, `MODULE.bazel` | `src/languages/cpp.rs` | — |
 | **R** | `DESCRIPTION`, `renv.lock` | `src/languages/r.rs` | — |
 | **.NET** | `.csproj`, `.fsproj`, `.vbproj`, `.slnx` | `src/languages/dotnet.rs` | — |
+| **Java** | `pom.xml`, `build.gradle`, `build.gradle.kts` | `src/languages/java.rs` | License file inside the cached jar in `MAVEN_REPO_LOCAL` or `~/.m2/repository` |
+| **Ruby** | `Gemfile.lock`, `Gemfile` | `src/languages/ruby.rs` | License file in installed gems (`gem env gempath`, `GEM_HOME`) |
 
 ### Critical Rules
 
@@ -145,6 +147,10 @@ src/
 ├── debug.rs             # FeludaError enum, FeludaResult, debug logging
 ├── config.rs            # .feluda.toml + env var config (figment)
 ├── parser.rs            # Project discovery, language detection, parse coordination
+├── manifest.rs          # Which files count as manifests/lockfiles, shared by scanner and watch
+├── init.rs              # `feluda init`: write .feluda.toml and .pre-commit-config.yaml
+├── watch.rs             # `feluda watch`: re-scan when a dependency file changes
+├── spdx.rs              # SPDX expression parsing and evaluation (OR / AND / WITH)
 ├── licenses.rs          # License analysis, compatibility, OSI status, GitHub API
 ├── source_scan.rs       # Own-source license header findings (default scan)
 ├── vendor_scan.rs       # Vendored/unmanaged dependency findings (default scan)
@@ -184,10 +190,12 @@ src/
 │   ├── rust.rs          # Rust/Cargo dependency analysis
 │   ├── node.rs          # Node.js/npm/pnpm/yarn/bun dependency analysis
 │   ├── go.rs            # Go module dependency analysis
+│   ├── java.rs          # Java Maven/Gradle dependency analysis (POMs read with quick-xml)
 │   ├── python.rs        # Python dependency analysis
 │   ├── c.rs             # C dependency analysis
 │   ├── cpp.rs           # C++ dependency analysis
 │   ├── r.rs             # R dependency analysis
+│   ├── ruby.rs          # Ruby Bundler dependency analysis
 │   └── dotnet.rs        # .NET dependency analysis
 └── sbom/
     ├── mod.rs           # SBOM command handler, format detection, shared types
@@ -253,6 +261,8 @@ Documentation is hosted on ReadTheDocs. When updating docs, place content in `do
 | **ratatui** | TUI framework | Interactive terminal UI (`--gui`) |
 | **serde** / **serde_json** / **serde_yaml** | Serialization | JSON/YAML output, config parsing |
 | **cargo_metadata** | Rust analysis | Cargo dependency resolution |
+| **quick-xml** | Java analysis | Pull reader for `pom.xml`. 0.42+ content is `&str` and non UTF-8 input is an error |
+| **notify** | Watch mode | Filesystem events for `feluda watch` |
 | **Sphinx** | Documentation | RST-based, deployed to ReadTheDocs |
 | **clippy** | Linting | Enforced: `-D warnings` (zero warnings policy) |
 | **cargo fmt** | Formatting | Standard rustfmt |
@@ -414,6 +424,9 @@ feluda sbom cyclonedx --output sbom.json  # Generate CycloneDX SBOM
 feluda sbom validate sbom.json            # Validate SBOM file
 feluda cache                              # Show cache status
 feluda cache --clear                      # Clear cache
+feluda init                               # Write .feluda.toml and .pre-commit-config.yaml
+feluda watch                              # Re-scan whenever a dependency file changes
+feluda --restrictive --json watch         # Scan flags go before the subcommand
 
 # Options
 feluda --github-token <token>             # Authenticated API requests
@@ -544,6 +557,8 @@ The `examples/` directory contains test projects for each supported language:
 - `cpp-example/` — C++ project
 - `r-example/` — R project
 - `dotnet-example/` — .NET project
+- `java-example/` — Java project
+- `ruby-example/` — Ruby project
 - `ci/` — CI integration examples (GitHub Actions, Jenkins)
 
 Use these for testing. Run `just test-examples` to validate against all of them.

@@ -302,7 +302,7 @@ pub fn parse_root_with_config(
         );
         println!(
             "❌ No supported project files found.\n\
-            Feluda supports: C, C++, .NET, Java/Maven/Gradle, Rust, Node.js, Go, Python, R"
+            Feluda supports: C, C++, .NET, Java/Maven/Gradle, Rust, Node.js, Go, Python, R, Ruby"
         );
         return Ok(Vec::new());
     }
