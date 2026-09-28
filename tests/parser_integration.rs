@@ -570,11 +570,10 @@ fn pnpm_project_does_not_emit_duplicate_license_rows() {
     let root = temp.path();
     fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
     // The SAME package (@babel/core) is declared in both sections of
-    // pnpm-lock.yaml. Pre-fix, parse_pnpm_lockfile_enhanced kept the
-    // YAML-mandated quotes around the `@`-prefixed key in `dependencies:`,
-    // yielding `'@babel/core'` — a distinct name from the unquoted
-    // `@babel/core` produced by the `packages:` section / virtual store. The
-    // result was a phantom duplicate license row, exactly issue #98.
+    // pnpm-lock.yaml. The old line based lockfile parser kept the YAML quotes
+    // around the `@`-prefixed key in `dependencies:`, yielding `'@babel/core'`,
+    // a distinct name from the unquoted `@babel/core` in `packages:`. The
+    // result was a phantom duplicate license row (#98).
     fs::write(
         root.join("package.json"),
         r#"{"name":"fixture","version":"1.0.0","license":"MIT",
@@ -615,11 +614,108 @@ fn pnpm_project_does_not_emit_duplicate_license_rows() {
     assert_eq!(core_rows[0]["license"], "MIT");
 
     // And no row should ever have a name beginning with a single quote
-    // (the signature of the parse_pnpm_lockfile_enhanced quote bug).
+    // (the signature of the old quote bug).
     assert!(
         entries
             .iter()
             .all(|e| !e["name"].as_str().unwrap_or("").starts_with('\'')),
-        "found a quoted-name row (parse_pnpm_lockfile_enhanced quote bug): {entries:#?}"
+        "found a quoted-name row (quote bug): {entries:#?}"
     );
+}
+
+#[test]
+fn pnpm_project_reports_each_installed_version_once() {
+    // #98: the report matches what pnpm installed. Two versions of one package are two rows, each
+    // with its own license, and a store directory the lockfile does not list is not a dependency.
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    fs::write(
+        root.join("package.json"),
+        r#"{"name":"fixture","version":"1.0.0","license":"MIT",
+           "dependencies":{"@scope/lib":"1.0.0","ms":"2.0.0"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("pnpm-lock.yaml"),
+        "\
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      '@scope/lib':
+        specifier: 1.0.0
+        version: 1.0.0
+      ms:
+        specifier: 2.0.0
+        version: 2.0.0
+
+packages:
+  '@scope/lib@1.0.0':
+    resolution: {integrity: sha512-deadbeef}
+  ms@2.0.0:
+    resolution: {integrity: sha512-deadbeef}
+  ms@2.1.2:
+    resolution: {integrity: sha512-deadbeef}
+
+snapshots:
+  '@scope/lib@1.0.0':
+    dependencies:
+      ms: 2.1.2
+  ms@2.0.0: {}
+  ms@2.1.2: {}
+",
+    )
+    .unwrap();
+
+    for (dir, name, version, license) in [
+        ("@scope+lib@1.0.0", "@scope/lib", "1.0.0", "Apache-2.0"),
+        ("ms@2.0.0", "ms", "2.0.0", "MIT"),
+        ("ms@2.1.2", "ms", "2.1.2", "ISC"),
+        ("left-behind@9.9.9", "left-behind", "9.9.9", "GPL-3.0"),
+    ] {
+        let package = root
+            .join("node_modules/.pnpm")
+            .join(dir)
+            .join("node_modules")
+            .join(name);
+        fs::create_dir_all(&package).unwrap();
+        fs::write(
+            package.join("package.json"),
+            format!(r#"{{"name":"{name}","version":"{version}","license":"{license}"}}"#),
+        )
+        .unwrap();
+    }
+    // The hoisted copy is 2.0.0; it must not answer for 2.1.2.
+    let hoisted = root.join("node_modules/ms");
+    fs::create_dir_all(&hoisted).unwrap();
+    fs::write(
+        hoisted.join("package.json"),
+        r#"{"name":"ms","version":"2.0.0","license":"MIT"}"#,
+    )
+    .unwrap();
+
+    let entries = scan_json(root, &["--no-vendor-scan"], &[]);
+    let mut rows: Vec<(String, String, String)> = entries
+        .iter()
+        .map(|e| {
+            (
+                e["name"].as_str().unwrap_or_default().to_string(),
+                e["version"].as_str().unwrap_or_default().to_string(),
+                e["license"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    rows.sort();
+
+    let expected: Vec<(String, String, String)> = [
+        ("@scope/lib", "1.0.0", "Apache-2.0"),
+        ("ms", "2.0.0", "MIT"),
+        ("ms", "2.1.2", "ISC"),
+    ]
+    .iter()
+    .map(|(n, v, l)| (n.to_string(), v.to_string(), l.to_string()))
+    .collect();
+    assert_eq!(rows, expected, "full report: {entries:#?}");
 }

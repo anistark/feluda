@@ -347,6 +347,14 @@ pub struct Cli {
     /// Skip the ClearlyDefined lookup for licenses Feluda could not resolve
     #[arg(long, help_heading = HEADING_DETECTION)]
     pub no_clearlydefined: bool,
+
+    /// Save resolved licenses into the ClearlyDefined definitions file for offline scans
+    #[arg(
+        long,
+        conflicts_with = "no_clearlydefined",
+        help_heading = HEADING_DETECTION
+    )]
+    pub update_definitions: bool,
 }
 
 impl Cli {
@@ -881,6 +889,7 @@ mod tests {
             no_local: false,
             no_vendor_scan: false,
             no_clearlydefined: false,
+            update_definitions: false,
         };
 
         assert_eq!(cli.path, "./");
@@ -931,6 +940,7 @@ mod tests {
             no_local: false,
             no_vendor_scan: false,
             no_clearlydefined: false,
+            update_definitions: false,
         };
 
         let cmd = cli.get_command_args();
@@ -988,6 +998,7 @@ mod tests {
             no_local: false,
             no_vendor_scan: false,
             no_clearlydefined: false,
+            update_definitions: false,
         };
 
         let cmd = cli.get_command_args();
