@@ -155,7 +155,41 @@ in one file:
      "npm/npmjs/-/left-pad/1.3.0": "WTFPL"
    }
 
-To produce one from the real service, ask it about the coordinates the scan needs:
+The easiest way to produce one is to let a connected scan write it. With ``definitions``
+configured, ``--update-definitions`` answers from the file first, asks the service about whatever
+the file does not answer, and writes the result back:
+
+.. code-block:: bash
+
+   # On a machine with network access
+   feluda --update-definitions
+   git add clearlydefined.json .feluda.toml
+
+   # In the air gapped build, with the same .feluda.toml
+   feluda
+
+Every dependency the scan can name a coordinate for is recorded, not only the ones ClearlyDefined
+answered. A build with no network loses the package registries too, so a license a registry
+supplied on the connected machine would otherwise be unknown in the air gapped one. What goes into
+the file is the bare license string:
+
+.. code-block:: json
+
+   {
+     "crate/cratesio/-/serde/1.0.219": "MIT OR Apache-2.0",
+     "npm/npmjs/-/mystery/2.0.0": "NOASSERTION"
+   }
+
+``NOASSERTION`` marks a package the service had no answer for. It reads back as no answer, and it
+is there so a person can replace it with the right license by hand. An entry that already names a
+license is never overwritten, so a hand correction survives every later update; only missing
+entries and ``NOASSERTION`` placeholders are filled in. A file that exists but cannot be parsed is
+left untouched and reported on stderr.
+
+The flag is an error without a ``definitions`` path to write to, or with ClearlyDefined turned off.
+
+The file can also be produced by hand from the service, by asking it about the coordinates the scan
+needs:
 
 .. code-block:: bash
 

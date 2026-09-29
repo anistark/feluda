@@ -447,6 +447,30 @@ mod tests {
     }
 
     #[test]
+    fn test_long_expression_survives_into_cyclonedx() {
+        // #257: CycloneDX converts from the SPDX document, so a length cap there reached here as
+        // a license named NOASSERTION.
+        let expression = "MIT AND Apache-2.0 AND BSD-3-Clause AND ISC AND Zlib AND MPL-2.0 AND GPL-2.0-or-later AND LGPL-2.1-or-later AND CC0-1.0";
+        let mut spdx_doc = SpdxDocument::new("test-project");
+        spdx_doc.add_package(
+            SpdxPackage::new("longlic", &spdx_doc.document_namespace)
+                .with_version("1.0.0")
+                .with_license(expression),
+        );
+
+        let bom = convert_spdx_to_cyclonedx(&spdx_doc);
+
+        match &bom.components[0].licenses[..] {
+            [CycloneDxLicenseChoice::Expression {
+                expression: written,
+            }] => {
+                assert_eq!(written, expression)
+            }
+            other => panic!("expected the expression, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_component_carries_the_package_purl() {
         let mut spdx_doc = SpdxDocument::new("test-project");
         spdx_doc.add_package(

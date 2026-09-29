@@ -109,6 +109,7 @@ fn run() -> FeludaResult<()> {
     set_github_token(args.github_token.clone());
 
     clearlydefined::set_disabled(args.no_clearlydefined);
+    clearlydefined::set_update_definitions(args.update_definitions)?;
 
     // Handle repository cloning if --repo is provided
     let (analysis_path, _temp_dir) = match &args.repo.clone() {

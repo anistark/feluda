@@ -157,9 +157,10 @@ pub fn convert_to_spdx_license_expression(license: &str) -> String {
         return "NOASSERTION".to_string();
     }
 
-    // Check structural constraints
-    if result.len() > 100
-        || !is_valid_spdx_license_format(&result)
+    // Check structural constraints. There is deliberately no length bound: neither SPDX nor
+    // CycloneDX sets one, and an expression is long precisely when a package aggregates many
+    // licensed components, which is when it matters most (#257).
+    if !is_valid_spdx_license_format(&result)
         || result.is_empty()
         || result.trim() != result
         || result.contains("  ")
@@ -814,12 +815,12 @@ fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
     // - Or the literal string "NOASSERTION"
     // - Or the literal string "NONE" (rarely used)
     //
-    // Must be ASCII-only and not exceed 200 characters
+    // Must be ASCII-only. Length is not limited, for the reason given in
+    // `convert_to_spdx_license_expression`.
     let validate_license = |license_opt: &mut Option<String>, _field_name: &str| -> bool {
         if let Some(ref mut license) = license_opt {
             if license.trim().is_empty()
                 || spdx_charset::contains_forbidden_chars(license)
-                || license.len() > 200
                 || !license.is_ascii()
                 || !is_valid_spdx_license_format(license)
             {
@@ -1120,13 +1121,6 @@ mod tests {
             "NOASSERTION"
         );
 
-        // Test very long license strings
-        let long_license = "A".repeat(250);
-        assert_eq!(
-            convert_to_spdx_license_expression(&long_license),
-            "NOASSERTION"
-        );
-
         // Test normal cases (ensure environment variable is not set)
         std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
         assert_eq!(convert_to_spdx_license_expression("MIT"), "MIT");
@@ -1411,13 +1405,6 @@ mod tests {
         );
         assert_eq!(
             convert_to_spdx_license_expression("MIT®registered"),
-            "NOASSERTION"
-        );
-
-        // Test shorter length limit
-        let long_license = "A".repeat(101);
-        assert_eq!(
-            convert_to_spdx_license_expression(&long_license),
             "NOASSERTION"
         );
 
@@ -1718,5 +1705,44 @@ mod tests {
         assert!(spdx_charset::contains_problematic_chars("test|pipe"));
         assert!(spdx_charset::contains_problematic_chars("test[bracket]"));
         assert!(!spdx_charset::contains_problematic_chars("test-string"));
+    }
+
+    /// The expression #257 was filed with: 119 characters, every part of it well formed.
+    const LONG_EXPRESSION: &str = "MIT AND Apache-2.0 AND BSD-3-Clause AND ISC AND Zlib AND MPL-2.0 AND GPL-2.0-or-later AND LGPL-2.1-or-later AND CC0-1.0";
+
+    #[test]
+    fn test_long_expressions_are_kept() {
+        assert!(LONG_EXPRESSION.len() > 100);
+        assert_eq!(
+            convert_to_spdx_license_expression(LONG_EXPRESSION),
+            LONG_EXPRESSION
+        );
+
+        // Far past both of the limits that used to apply, the way a distro package that bundles
+        // many components reads.
+        let aggregate = std::iter::repeat_n("(GPL-3.0-or-later WITH GCC-exception-3.1)", 20)
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        assert!(aggregate.len() > 700);
+        assert_eq!(convert_to_spdx_license_expression(&aggregate), aggregate);
+    }
+
+    #[test]
+    fn test_long_expressions_survive_package_validation() {
+        let mut package =
+            SpdxPackage::new("longlic", "https://example.com").with_license(LONG_EXPRESSION);
+        validate_and_sanitize_spdx_package(&mut package);
+        assert_eq!(package.license_declared.as_deref(), Some(LONG_EXPRESSION));
+        assert_eq!(package.license_concluded.as_deref(), Some(LONG_EXPRESSION));
+    }
+
+    #[test]
+    fn test_long_expressions_are_still_checked_for_shape() {
+        // Dropping the length bound must not let anything else through with it.
+        let malformed = format!("{LONG_EXPRESSION} && GPL-3.0");
+        assert_eq!(
+            convert_to_spdx_license_expression(&malformed),
+            "NOASSERTION"
+        );
     }
 }

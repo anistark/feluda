@@ -89,10 +89,10 @@ Feluda currently supports projects written in these ecosystems:
      - ``requirements.txt``, ``Pipfile``, ``pyproject.toml``
      - pip, pipenv, poetry; uv workspaces supported
    * - JavaScript / TypeScript
-     - ``package.json``, ``package-lock.json``
+     - ``package.json``, ``package-lock.json``, ``pnpm-lock.yaml``
      - npm, pnpm, yarn, bun; npm/yarn/pnpm workspaces supported
    * - Node.js
-     - ``package.json``, ``package-lock.json``
+     - ``package.json``, ``package-lock.json``, ``pnpm-lock.yaml``
      - npm, pnpm, yarn, bun; npm/yarn/pnpm workspaces supported
    * - C
      - ``conanfile.txt``, ``conanfile.py``

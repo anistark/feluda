@@ -220,7 +220,8 @@ environment equivalents:
    export FELUDA_CLEARLYDEFINED_ENDPOINT=https://clearlydefined.internal/definitions
    export FELUDA_CLEARLYDEFINED_DEFINITIONS=clearlydefined.json
 
-``--no-clearlydefined`` turns it off for a single run. See :ref:`cli-clearlydefined`.
+``--no-clearlydefined`` turns it off for a single run, and ``--update-definitions`` writes the
+``definitions`` file from a connected scan. See :ref:`cli-clearlydefined`.
 
 ----
 

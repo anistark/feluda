@@ -193,6 +193,9 @@ feluda --no-vendor-scan
 # Skip the ClearlyDefined lookup for licenses Feluda could not resolve
 feluda --no-clearlydefined
 
+# Record what this scan resolved into the configured ClearlyDefined definitions file
+feluda --update-definitions
+
 # Filter by OSI approval status
 feluda --osi approved        # Show only OSI approved licenses
 feluda --osi not-approved   # Show only non-OSI approved licenses
@@ -224,7 +227,9 @@ enabled = false
 ```
 
 An air gapped build can answer from a file instead: `definitions = "clearlydefined.json"` points
-at a JSON object keyed by coordinate, and nothing is asked over the network.
+at a JSON object keyed by coordinate, and nothing is asked over the network. Run
+`feluda --update-definitions` on a connected machine to write that file from a real scan, then
+commit it.
 
 ### Beyond Manifests
 
