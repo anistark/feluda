@@ -567,10 +567,12 @@ fn usable_license(declared: &str) -> Option<String> {
 
 /// The ClearlyDefined coordinate for a finding: `type/provider/namespace/name/revision`.
 ///
-/// `None` for anything the service does not index. OS packages are out because a deb revision
-/// carries an architecture suffix (feluda records it as the `arch` qualifier, but does not map it
-/// onto a coordinate yet) and rpm and apk are not harvested at all;
-/// CRAN and Conan are not supported; and a `generic` finding is a path, not a package.
+/// `None` for anything the service does not index or cannot usefully answer. rpm and apk are not
+/// harvested at all. Debian is harvested (`deb/debian/-/<name>/<version>_<arch>`, epoch dropped)
+/// but almost never with a declared license: on `debian:12-slim` it declared one for 10 of 88
+/// packages, half of those partly `NOASSERTION`, and none of the ones the copyright files leave
+/// unresolved. Its per-file `discovered` licenses are not a conclusion. CRAN and Conan are not
+/// supported; and a `generic` finding is a path, not a package.
 fn coordinates(info: &LicenseInfo) -> Option<String> {
     let (kind, provider) = match info.ecosystem {
         Ecosystem::Cargo => ("crate", "cratesio"),
