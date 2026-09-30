@@ -42,6 +42,9 @@ use crate::purl::{Ecosystem, Qualifiers};
 /// images that ship the file only under `/usr/lib`.
 const OS_RELEASE_PATHS: &[&str] = &["etc/os-release", "usr/lib/os-release"];
 
+/// Where Debian records its point release (`12.15`), which `os-release` rounds to `12`.
+const DEBIAN_VERSION_PATH: &str = "etc/debian_version";
+
 /// What one package manager's database says about a filesystem.
 #[derive(Debug, Default)]
 pub struct Catalog {
@@ -91,7 +94,10 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
 pub fn scan_tree(root: &Path, strict: bool, origin: &str) -> FeludaResult<Vec<LicenseInfo>> {
     let os_release = read_os_release(root);
     let namespace = os_release.as_deref().and_then(parse_os_release_id);
-    let release = os_release.as_deref().and_then(distro_release);
+    let debian_version = std::fs::read_to_string(root.join(DEBIAN_VERSION_PATH)).ok();
+    let release = os_release
+        .as_deref()
+        .and_then(|content| distro_release(content, debian_version.as_deref()));
     log(
         LogLevel::Info,
         &format!(
@@ -278,16 +284,35 @@ fn parse_os_release_id(content: &str) -> Option<String> {
     os_release_field(content, "ID").map(|id| id.to_ascii_lowercase())
 }
 
-/// The `distro` qualifier: the distro and its release, `debian-12` or `alpine-3.20.3`.
+/// The `distro` qualifier: the distro and its release, `debian-12.15` or `alpine-3.20.3`.
 ///
-/// `VERSION_ID` is the release number. Rolling and testing releases (Debian sid, Arch) have none,
-/// and fall back to the codename when there is one; with neither there is nothing to add beyond
-/// the namespace.
-fn distro_release(content: &str) -> Option<String> {
+/// Built the way syft builds it, so the two tools' PURLs agree: `ID` joined to `VERSION_ID`, or to
+/// `BUILD_ID` for a release that has no version (Arch), or `ID` alone when there is neither. Debian's
+/// `os-release` says only `12`, so its point release comes from `/etc/debian_version` when that
+/// file holds a number; on testing and sid it holds a codename (`trixie/sid`) and is ignored.
+fn distro_release(content: &str, debian_version: Option<&str>) -> Option<String> {
     let id = parse_os_release_id(content)?;
-    let release = os_release_field(content, "VERSION_ID")
-        .or_else(|| os_release_field(content, "VERSION_CODENAME"))?;
-    Some(format!("{id}-{release}"))
+    let point_release = debian_version
+        .filter(|_| id == "debian")
+        .map(str::trim)
+        .filter(|version| is_numeric_release(version))
+        .map(str::to_string);
+    let release = point_release
+        .or_else(|| os_release_field(content, "VERSION_ID"))
+        .or_else(|| os_release_field(content, "BUILD_ID"));
+    Some(match release {
+        Some(release) => format!("{id}-{release}"),
+        None => id,
+    })
+}
+
+/// Whether `/etc/debian_version` holds a release number (`12` or `12.15`) rather than a codename.
+fn is_numeric_release(version: &str) -> bool {
+    let mut parts = version.split('.');
+    let major = parts.next().unwrap_or_default();
+    let minor = parts.next();
+    let numeric = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    numeric(major) && minor.is_none_or(numeric) && parts.next().is_none()
 }
 
 /// One `KEY=value` field of an `os-release` file, unquoted, or `None` when it is absent or empty.
@@ -353,27 +378,54 @@ mod tests {
 
     #[test]
     fn test_distro_release_qualifier() {
+        let debian = "ID=debian\nVERSION_ID=\"12\"\nVERSION_CODENAME=bookworm\n";
+        assert_eq!(distro_release(debian, None).as_deref(), Some("debian-12"));
         assert_eq!(
-            distro_release("ID=debian\nVERSION_ID=\"12\"\nVERSION_CODENAME=bookworm\n").as_deref(),
-            Some("debian-12")
-        );
-        assert_eq!(
-            distro_release("ID=alpine\nVERSION_ID=3.20.3\n").as_deref(),
+            distro_release("ID=alpine\nVERSION_ID=3.20.3\n", None).as_deref(),
             Some("alpine-3.20.3")
-        );
-        // Debian testing has a codename and no release number.
-        assert_eq!(
-            distro_release("ID=debian\nVERSION_CODENAME=trixie\n").as_deref(),
-            Some("debian-trixie")
         );
         // `VERSION=` and `VERSION_ID=` share a prefix, which must not confuse the lookup.
         assert_eq!(
-            distro_release("ID=fedora\nVERSION=\"41 (Container Image)\"\nVERSION_ID=41\n")
-                .as_deref(),
+            distro_release(
+                "ID=fedora\nVERSION=\"41 (Container Image)\"\nVERSION_ID=41\n",
+                None
+            )
+            .as_deref(),
             Some("fedora-41")
         );
-        assert_eq!(distro_release("ID=arch\n"), None);
-        assert_eq!(distro_release("VERSION_ID=12\n"), None);
+        // A rolling release has a build id instead of a version.
+        assert_eq!(
+            distro_release("ID=arch\nBUILD_ID=rolling\n", None).as_deref(),
+            Some("arch-rolling")
+        );
+        // With neither, the distro is named alone, and a codename is not used.
+        assert_eq!(
+            distro_release("ID=debian\nVERSION_CODENAME=trixie\n", None).as_deref(),
+            Some("debian")
+        );
+        assert_eq!(distro_release("VERSION_ID=12\n", None), None);
+    }
+
+    #[test]
+    fn test_debian_point_release_comes_from_debian_version() {
+        let debian = "ID=debian\nVERSION_ID=\"12\"\n";
+        assert_eq!(
+            distro_release(debian, Some("12.15\n")).as_deref(),
+            Some("debian-12.15")
+        );
+        // Testing and sid write a codename there, which says less than os-release does.
+        assert_eq!(
+            distro_release(debian, Some("trixie/sid\n")).as_deref(),
+            Some("debian-12")
+        );
+        // Ubuntu ships the file too, holding the Debian release it is based on.
+        assert_eq!(
+            distro_release("ID=ubuntu\nVERSION_ID=\"24.04\"\n", Some("trixie/sid\n")).as_deref(),
+            Some("ubuntu-24.04")
+        );
+        assert!(is_numeric_release("12"));
+        assert!(!is_numeric_release("12.15.1"));
+        assert!(!is_numeric_release("12."));
     }
 
     #[test]
@@ -477,6 +529,7 @@ mod tests {
             "etc/os-release",
             "ID=debian\nVERSION_ID=\"12\"\nVERSION_CODENAME=bookworm\n",
         );
+        write(temp.path(), DEBIAN_VERSION_PATH, "12.15\n");
         write(
             temp.path(),
             dpkg::DATABASE_PATH,
@@ -497,7 +550,7 @@ mod tests {
         };
         assert_eq!(
             purl("debian/bash").as_deref(),
-            Some("pkg:deb/debian/bash@5.2.15-2?arch=amd64&distro=debian-12")
+            Some("pkg:deb/debian/bash@5.2.15-2?arch=amd64&distro=debian-12.15")
         );
         // A wheel is the same wheel whichever distro it was installed on.
         assert_eq!(

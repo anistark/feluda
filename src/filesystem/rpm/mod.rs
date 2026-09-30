@@ -109,7 +109,8 @@ pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Cata
             )));
         }
     };
-    let catalog = build(&blobs, namespace);
+    let vendor = namespace.map(vendor);
+    let catalog = build(&blobs, vendor.as_deref());
 
     log(
         LogLevel::Info,
@@ -121,6 +122,19 @@ pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Cata
         ),
     );
     Ok(Some(catalog))
+}
+
+/// The PURL namespace for an rpm distro: its vendor, which is not always its `os-release` ID.
+///
+/// RHEL says `rhel` and openSUSE says `opensuse-leap` or `opensuse-tumbleweed`, but syft names
+/// their packages `pkg:rpm/redhat/...` and `pkg:rpm/opensuse/...`. Following it keeps the two tools'
+/// PURLs matching; the release is still spelled out in full in the `distro` qualifier.
+fn vendor(id: &str) -> String {
+    match id {
+        "rhel" | "hummingbird" => "redhat".to_string(),
+        id if id.starts_with("opensuse") => "opensuse".to_string(),
+        id => id.to_string(),
+    }
 }
 
 /// Turn header blobs into findings, and collect the artifact metadata they claim.
@@ -227,6 +241,15 @@ mod tests {
     /// `--justdb`, plus the two signing keys the image imports.
     fn opensuse_rootfs() -> tempfile::TempDir {
         fixture_rootfs("Packages.db")
+    }
+
+    #[test]
+    fn test_vendor_namespace() {
+        assert_eq!(vendor("rhel"), "redhat");
+        assert_eq!(vendor("opensuse-leap"), "opensuse");
+        assert_eq!(vendor("opensuse-tumbleweed"), "opensuse");
+        assert_eq!(vendor("fedora"), "fedora");
+        assert_eq!(vendor("rocky"), "rocky");
     }
 
     #[test]
@@ -339,7 +362,7 @@ mod tests {
         let pam = catalog
             .packages
             .iter()
-            .find(|package| package.name == "opensuse-leap/pam")
+            .find(|package| package.name == "opensuse/pam")
             .expect("pam missing");
         assert_eq!(pam.version, "1.3.0-150000.6.86.1");
         // SUSE writes SPDX with lowercase operators; only the operator is rewritten.
@@ -347,7 +370,7 @@ mod tests {
         assert_eq!(
             pam.purl().as_deref(),
             Some(
-                "pkg:rpm/opensuse-leap/pam@1.3.0-150000.6.86.1?arch=aarch64&upstream=pam-1.3.0-150000.6.86.1.src.rpm"
+                "pkg:rpm/opensuse/pam@1.3.0-150000.6.86.1?arch=aarch64&upstream=pam-1.3.0-150000.6.86.1.src.rpm"
             )
         );
 

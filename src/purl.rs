@@ -212,14 +212,21 @@ impl Ecosystem {
             Ecosystem::Pypi => Some((None, encode_component(&normalize_pypi_name(name)))),
             // An OS package's namespace is the distro that ships it, which is part of its identity:
             // `pkg:deb/debian/libssl3` and `pkg:deb/ubuntu/libssl3` are different packages. The
-            // cataloger puts it in front of the name, so the split mirrors npm's.
+            // cataloger puts it in front of the name, so the split mirrors npm's. The namespace is
+            // always lowercased; the name is too for deb and apk, but an rpm name is case
+            // sensitive (`openSUSE-build-key`) and the spec keeps it as written.
             Ecosystem::Deb | Ecosystem::Rpm | Ecosystem::Apk => {
-                let lowered = name.to_lowercase();
-                match lowered.split_once('/') {
-                    Some((distro, package)) if !distro.is_empty() && !package.is_empty() => {
-                        Some((Some(encode_component(distro)), encode_component(package)))
-                    }
-                    _ => Some((None, encode_component(&lowered))),
+                let name = if self == Ecosystem::Rpm {
+                    name.to_string()
+                } else {
+                    name.to_lowercase()
+                };
+                match name.split_once('/') {
+                    Some((distro, package)) if !distro.is_empty() && !package.is_empty() => Some((
+                        Some(encode_component(&distro.to_lowercase())),
+                        encode_component(package),
+                    )),
+                    _ => Some((None, encode_component(&name))),
                 }
             }
             // Everything else is a flat, case-preserving name. Generic names are often paths, and
@@ -603,6 +610,27 @@ mod tests {
             Ecosystem::Apk.purl("musl", "1.2.5-r0").unwrap(),
             "pkg:apk/musl@1.2.5-r0"
         );
+    }
+
+    #[test]
+    fn test_rpm_names_keep_their_case() {
+        // The purl spec lowercases deb and apk names, but an rpm name is case sensitive.
+        assert_eq!(
+            Ecosystem::Rpm
+                .purl("OpenSUSE/openSUSE-build-key", "1.0-lp156.8.2")
+                .unwrap(),
+            "pkg:rpm/opensuse/openSUSE-build-key@1.0-lp156.8.2"
+        );
+        assert_eq!(
+            Ecosystem::Deb.purl("debian/LibFoo", "1.0").unwrap(),
+            "pkg:deb/debian/libfoo@1.0"
+        );
+        assert_eq!(
+            Ecosystem::Apk.purl("alpine/LibFoo", "1.0").unwrap(),
+            "pkg:apk/alpine/libfoo@1.0"
+        );
+        let parsed = parse_purl("pkg:rpm/opensuse/openSUSE-build-key@1.0").unwrap();
+        assert_eq!(parsed.name, "opensuse/openSUSE-build-key");
     }
 
     #[test]

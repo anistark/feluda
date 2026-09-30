@@ -681,25 +681,25 @@ fn opensuse_rootfs_is_cataloged_from_the_ndb_store() {
         .as_str()
         .is_some_and(|name| name.contains("gpg-pubkey"))));
 
-    let pam = find(&report, "opensuse-leap/pam");
+    let pam = find(&report, "opensuse/pam");
     assert_eq!(pam["ecosystem"], "rpm");
     assert_eq!(pam["version"], "1.3.0-150000.6.86.1");
-    assert_eq!(pam["purl"], "pkg:rpm/opensuse-leap/pam@1.3.0-150000.6.86.1?arch=aarch64&distro=opensuse-leap-15.6&upstream=pam-1.3.0-150000.6.86.1.src.rpm");
+    assert_eq!(pam["purl"], "pkg:rpm/opensuse/pam@1.3.0-150000.6.86.1?arch=aarch64&distro=opensuse-leap-15.6&upstream=pam-1.3.0-150000.6.86.1.src.rpm");
     // SUSE writes SPDX ids with lowercase operators; the operator is normalized and the ids kept.
     assert_eq!(pam["license"], "GPL-2.0+ OR BSD-3-Clause");
     assert_eq!(pam["is_restrictive"], false);
 
     // The deprecated `+` spellings are still SPDX and still classify as copyleft.
-    let fillup = find(&report, "opensuse-leap/fillup");
+    let fillup = find(&report, "opensuse/fillup");
     assert_eq!(fillup["license"], "GPL-2.0+");
     assert_eq!(fillup["is_restrictive"], true);
 
     assert_eq!(
-        find(&report, "opensuse-leap/libgcc_s1")["license"],
+        find(&report, "opensuse/libgcc_s1")["license"],
         "GPL-3.0-or-later WITH GCC-exception-3.1"
     );
     assert_eq!(
-        find(&report, "opensuse-leap/boost-license1_66_0")["license"],
+        find(&report, "opensuse/boost-license1_66_0")["license"],
         "BSL-1.0"
     );
 }
