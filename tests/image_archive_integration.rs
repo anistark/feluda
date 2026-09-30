@@ -419,7 +419,10 @@ fn sbom_is_generated_from_an_image_archive() {
         .filter_map(|reference| reference["referenceLocator"].as_str())
         .map(str::to_string)
         .collect();
-    assert!(purls.contains("pkg:apk/alpine/musl@1.2.5-r0"), "{purls:?}");
+    assert!(
+        purls.contains("pkg:apk/alpine/musl@1.2.5-r0?arch=x86_64&distro=alpine-3.20.3"),
+        "{purls:?}"
+    );
     assert!(purls.contains("pkg:npm/leftpad@0.0.1"), "{purls:?}");
     assert!(
         !purls.iter().any(|purl| purl.contains("pkg:pypi/removed")),

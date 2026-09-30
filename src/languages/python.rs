@@ -268,6 +268,7 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                                 },
                                 ecosystem: Ecosystem::Pypi,
                                 sub_project,
+                                qualifiers: Default::default(),
                             });
                         }
                     }
@@ -358,6 +359,7 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                         },
                         ecosystem: Ecosystem::Pypi,
                         sub_project: None,
+                        qualifiers: Default::default(),
                     });
                 }
 

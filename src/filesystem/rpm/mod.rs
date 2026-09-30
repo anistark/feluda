@@ -29,7 +29,7 @@ use std::path::Path;
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
 use crate::purl::Ecosystem;
 
-use super::{package_finding, Catalog};
+use super::{package_finding, qualifiers, Catalog};
 
 /// Where rpm keeps its database, relative to the root of the filesystem being scanned.
 pub const DATABASE_PATH: &str = "var/lib/rpm";
@@ -147,6 +147,10 @@ fn build(blobs: &[Vec<u8>], namespace: Option<&str>) -> Catalog {
                 .as_deref()
                 .and_then(license::normalize)
                 .as_deref(),
+            qualifiers(&[
+                ("arch", header.arch.as_deref()),
+                ("upstream", header.source_rpm.as_deref()),
+            ]),
         ));
     }
 
@@ -251,7 +255,9 @@ mod tests {
         assert_eq!(bzip2.ecosystem, Ecosystem::Rpm);
         assert_eq!(
             bzip2.purl().as_deref(),
-            Some("pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41")
+            Some(
+                "pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41?arch=x86_64&upstream=bzip2-1.0.8-19.fc41.src.rpm"
+            )
         );
     }
 
@@ -340,7 +346,9 @@ mod tests {
         assert_eq!(pam.license.as_deref(), Some("GPL-2.0+ OR BSD-3-Clause"));
         assert_eq!(
             pam.purl().as_deref(),
-            Some("pkg:rpm/opensuse-leap/pam@1.3.0-150000.6.86.1")
+            Some(
+                "pkg:rpm/opensuse-leap/pam@1.3.0-150000.6.86.1?arch=aarch64&upstream=pam-1.3.0-150000.6.86.1.src.rpm"
+            )
         );
 
         for package in &catalog.packages {

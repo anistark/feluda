@@ -102,6 +102,7 @@ pub fn analyze_go_licenses(go_mod_path: &str, config: &FeludaConfig) -> Vec<Lice
             },
             ecosystem: Ecosystem::Golang,
             sub_project: None,
+            qualifiers: Default::default(),
         });
     }
 

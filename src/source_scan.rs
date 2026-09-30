@@ -225,6 +225,7 @@ pub fn scan_own_source_headers(
                 osi_status,
                 ecosystem: Ecosystem::Generic,
                 sub_project: None,
+                qualifiers: Default::default(),
             }
         })
         .collect()

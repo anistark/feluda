@@ -568,7 +568,8 @@ fn usable_license(declared: &str) -> Option<String> {
 /// The ClearlyDefined coordinate for a finding: `type/provider/namespace/name/revision`.
 ///
 /// `None` for anything the service does not index. OS packages are out because a deb revision
-/// carries an architecture suffix feluda does not record and rpm and apk are not harvested at all;
+/// carries an architecture suffix (feluda records it as the `arch` qualifier, but does not map it
+/// onto a coordinate yet) and rpm and apk are not harvested at all;
 /// CRAN and Conan are not supported; and a `generic` finding is a path, not a package.
 fn coordinates(info: &LicenseInfo) -> Option<String> {
     let (kind, provider) = match info.ecosystem {
@@ -673,6 +674,7 @@ mod tests {
             osi_status: OsiStatus::Unknown,
             ecosystem,
             sub_project: None,
+            qualifiers: Default::default(),
         }
     }
 

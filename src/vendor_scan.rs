@@ -413,6 +413,7 @@ pub fn scan_vendored_packages(
                 osi_status,
                 ecosystem: Ecosystem::Generic,
                 sub_project: None,
+                qualifiers: Default::default(),
             }
         })
         .collect()
@@ -451,6 +452,7 @@ person obtaining a copy of this software and associated documentation files.\n";
             osi_status: OsiStatus::Approved,
             ecosystem,
             sub_project: None,
+            qualifiers: Default::default(),
         }
     }
 

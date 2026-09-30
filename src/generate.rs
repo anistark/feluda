@@ -1595,6 +1595,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "tokio".to_string(),
@@ -1605,6 +1606,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
         ]
     }
@@ -1844,6 +1846,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1854,6 +1857,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "package3".to_string(),
@@ -1864,6 +1868,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
         ];
 
@@ -1912,6 +1917,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Unknown,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         let content = generate_notice_content(&test_data);
@@ -1953,6 +1959,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         generate_notice_file(&license_data, path);
@@ -1986,6 +1993,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         generate_notice_file(&license_data, path);
@@ -2011,6 +2019,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         generate_third_party_licenses_file(&license_data, path);

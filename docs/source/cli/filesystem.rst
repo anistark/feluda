@@ -87,14 +87,43 @@ Packages carry the distribution in their PURL, taken from the tree's own ``/etc/
 
 .. code-block:: text
 
-   pkg:deb/debian/libssl3@3.0.15-1
-   pkg:apk/alpine/musl@1.2.5-r0
-   pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41
+   pkg:deb/debian/libssl3@3.0.15-1?arch=amd64&distro=debian-12&upstream=openssl
+   pkg:apk/alpine/musl@1.2.5-r0?arch=x86_64&distro=alpine-3.20.3
+   pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41?arch=x86_64&distro=fedora-41&upstream=bzip2-1.0.8-19.fc41.src.rpm
 
 The distribution is part of a package's identity, not decoration: a Debian ``libssl3`` and an
 Ubuntu one are different packages, and consumers matching Feluda's SBOM against another tool's need
 to see which is which. A tree with no ``os-release`` file simply has no namespace, which is still a
 valid PURL.
+
+The part after ``?`` holds the PURL's qualifiers, which describe which build of the package is
+installed. They are the ones syft writes, and they let a vulnerability scanner reading the SBOM
+tell Debian 12's ``libssl3`` from Debian 11's:
+
+``arch``
+   The processor architecture the package was built for, as the package manager records it:
+   ``amd64``, ``arm64`` or ``all`` for dpkg, ``x86_64`` or ``aarch64`` for apk and rpm.
+
+``distro``
+   The distribution and its release, from ``ID`` and ``VERSION_ID`` in ``os-release``. A rolling
+   release without a ``VERSION_ID`` uses its ``VERSION_CODENAME`` instead, and one with neither
+   gets no ``distro`` qualifier.
+
+``upstream``
+   The source package the binary was built from, when that is a different package: the
+   ``Source`` field for dpkg, ``o:`` for apk, and the source rpm for rpm.
+
+``epoch``
+   rpm only. An rpm version with an epoch, which rpm prints as ``1:3.2.2-9.fc41``, keeps the epoch
+   out of the PURL version and records it here, as the purl spec for rpm requires. The version in
+   the report is still the one rpm prints.
+
+Qualifiers are written out but never compared. A license belongs to the package rather than to a
+build of it, so a package installed for two architectures is one finding (carrying the first
+architecture), and SPDX identifiers are derived from the PURL without its qualifiers, so they stay
+the same as in documents Feluda wrote before qualifiers were added. The one exception is an rpm
+package with an epoch, whose PURL version no longer carries it. Installed language artifacts
+get no qualifiers: a wheel is the same wheel whichever distro it sits on.
 
 Installed language artifacts carry the PURL of their own ecosystem, exactly as they would from a
 manifest scan, so a finding means the same thing wherever it came from:

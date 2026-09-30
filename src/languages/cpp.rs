@@ -121,6 +121,7 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
                 },
                 ecosystem,
                 sub_project: None,
+                qualifiers: Default::default(),
             }
         })
         .collect()

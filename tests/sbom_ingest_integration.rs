@@ -211,13 +211,17 @@ fn spdx_from_stdin_gates_on_restrictive_licenses() {
     assert_eq!(report.len(), 3);
 
     // The declared license stands in when nothing was concluded, and OS packages classify like
-    // any other dependency. The distro namespace the document carried stays part of the name.
+    // any other dependency. The distro namespace the document carried stays part of the name,
+    // and its qualifiers come back out in the PURL.
     let readline = find(&report, "debian/readline");
     assert_eq!(readline["license"], "GPL-3.0-or-later");
     assert_eq!(readline["is_restrictive"], true);
     assert_eq!(readline["ecosystem"], "deb");
     assert_eq!(readline["version"], "8.2-1.3");
-    assert_eq!(readline["purl"], "pkg:deb/debian/readline@8.2-1.3");
+    assert_eq!(
+        readline["purl"],
+        "pkg:deb/debian/readline@8.2-1.3?arch=amd64&distro=debian-12"
+    );
 
     let zlib = find(&report, "debian/zlib1g");
     assert_eq!(zlib["license"], "Zlib");
