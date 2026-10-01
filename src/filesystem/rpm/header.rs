@@ -20,6 +20,8 @@ const TAG_VERSION: u32 = 1001;
 const TAG_RELEASE: u32 = 1002;
 const TAG_EPOCH: u32 = 1003;
 const TAG_LICENSE: u32 = 1014;
+const TAG_ARCH: u32 = 1022;
+const TAG_SOURCERPM: u32 = 1044;
 const TAG_DIRINDEXES: u32 = 1116;
 const TAG_BASENAMES: u32 = 1117;
 const TAG_DIRNAMES: u32 = 1118;
@@ -43,6 +45,10 @@ pub struct Header {
     /// how rpm itself writes a version that has one.
     pub version: String,
     pub license: Option<String>,
+    /// The architecture it was built for: `x86_64`, `aarch64`, or `noarch`.
+    pub arch: Option<String>,
+    /// The source rpm it was built from, `openssl-3.2.2-9.fc41.src.rpm`.
+    pub source_rpm: Option<String>,
     /// The installed artifact metadata this package owns, relative to the scan root.
     ///
     /// Filtered to what the artifact catalogers key on as the header is read, so a package that
@@ -88,6 +94,8 @@ pub fn parse(blob: &[u8]) -> Option<Header> {
         name,
         version: full_version(&version, &release, epoch(data, entries.get(&TAG_EPOCH))),
         license: string(data, entries.get(&TAG_LICENSE)),
+        arch: string(data, entries.get(&TAG_ARCH)),
+        source_rpm: string(data, entries.get(&TAG_SOURCERPM)),
         owned: owned_paths(data, &entries),
     })
 }
@@ -259,6 +267,26 @@ mod tests {
         assert_eq!(header.name, "bash");
         assert_eq!(header.version, "5.2.32-1.fc41");
         assert_eq!(header.license.as_deref(), Some("GPL-3.0-or-later"));
+        assert_eq!(header.arch, None);
+        assert_eq!(header.source_rpm, None);
+    }
+
+    #[test]
+    fn test_reads_arch_and_source_rpm() {
+        let blob = Builder::new()
+            .string(TAG_NAME, "openssl-libs")
+            .string(TAG_VERSION, "3.2.2")
+            .string(TAG_RELEASE, "9.fc41")
+            .string(TAG_ARCH, "aarch64")
+            .string(TAG_SOURCERPM, "openssl-3.2.2-9.fc41.src.rpm")
+            .build();
+
+        let header = parse(&blob).expect("header should parse");
+        assert_eq!(header.arch.as_deref(), Some("aarch64"));
+        assert_eq!(
+            header.source_rpm.as_deref(),
+            Some("openssl-3.2.2-9.fc41.src.rpm")
+        );
     }
 
     #[test]

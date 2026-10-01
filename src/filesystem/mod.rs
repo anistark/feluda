@@ -36,11 +36,14 @@ use std::path::{Path, PathBuf};
 use crate::cli::with_spinner;
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
 use crate::licenses::{classify_findings, LicenseCompatibility, LicenseInfo, OsiStatus};
-use crate::purl::Ecosystem;
+use crate::purl::{Ecosystem, Qualifiers};
 
 /// Where a distribution records its identity, in preference order. The second is the fallback for
 /// images that ship the file only under `/usr/lib`.
 const OS_RELEASE_PATHS: &[&str] = &["etc/os-release", "usr/lib/os-release"];
+
+/// Where Debian records its point release (`12.15`), which `os-release` rounds to `12`.
+const DEBIAN_VERSION_PATH: &str = "etc/debian_version";
 
 /// What one package manager's database says about a filesystem.
 #[derive(Debug, Default)]
@@ -89,7 +92,12 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
 /// a temporary directory and calls this with the archive's name instead, since a message about
 /// `/tmp/.tmpAb12Cd` would tell the user nothing.
 pub fn scan_tree(root: &Path, strict: bool, origin: &str) -> FeludaResult<Vec<LicenseInfo>> {
-    let namespace = distro_namespace(root);
+    let os_release = read_os_release(root);
+    let namespace = os_release.as_deref().and_then(parse_os_release_id);
+    let debian_version = std::fs::read_to_string(root.join(DEBIAN_VERSION_PATH)).ok();
+    let release = os_release
+        .as_deref()
+        .and_then(|content| distro_release(content, debian_version.as_deref()));
     log(
         LogLevel::Info,
         &format!(
@@ -117,8 +125,17 @@ pub fn scan_tree(root: &Path, strict: bool, origin: &str) -> FeludaResult<Vec<Li
             found
         })?;
 
-        if let Some(catalog) = found {
+        if let Some(mut catalog) = found {
             cataloged.push((*manager).to_string());
+            // Every package the distro's own manager installed belongs to this release of it.
+            // Language artifacts do not get it: a wheel is the same wheel on any distro.
+            if let Some(release) = &release {
+                for package in &mut catalog.packages {
+                    package
+                        .qualifiers
+                        .insert("distro".to_string(), release.clone());
+                }
+            }
             findings.extend(catalog.packages);
             owned.extend(catalog.owned);
         } else {
@@ -191,12 +208,16 @@ fn read_database(path: &Path) -> FeludaResult<Option<String>> {
 /// The distro namespace goes in front of the name, which is what puts it in the PURL:
 /// `pkg:deb/debian/libssl3`. A Debian `libssl3` and an Ubuntu one are different packages, and a
 /// consumer matching feluda's SBOM against anyone else's needs to see that.
+///
+/// `qualifiers` are what the package manager recorded about this build (`arch`, `upstream`). They
+/// end up in the PURL and nowhere else.
 fn package_finding(
     ecosystem: Ecosystem,
     namespace: Option<&str>,
     name: &str,
     version: &str,
     license: Option<&str>,
+    qualifiers: Qualifiers,
 ) -> LicenseInfo {
     let name = match namespace {
         Some(namespace) => format!("{namespace}/{name}"),
@@ -216,37 +237,91 @@ fn package_finding(
         osi_status: OsiStatus::Unknown,
         ecosystem,
         sub_project: None,
+        qualifiers,
     }
 }
 
-/// The distribution's own name for itself, from `os-release`.
+/// Build the qualifiers a package manager recorded, leaving out the ones it had no value for.
+fn qualifiers(pairs: &[(&str, Option<&str>)]) -> Qualifiers {
+    pairs
+        .iter()
+        .filter_map(|(key, value)| {
+            let value = (*value)?.trim();
+            (!value.is_empty()).then(|| (key.to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+/// The tree's `os-release` file, which is where the distribution records what it is.
 ///
-/// This is the PURL namespace: `debian`, `ubuntu`, `alpine`. A tree without an `os-release` file
-/// (an installation directory rather than a full root filesystem) simply has no namespace, which
-/// still leaves a valid PURL.
-fn distro_namespace(root: &Path) -> Option<String> {
-    for candidate in OS_RELEASE_PATHS {
-        let Ok(content) = std::fs::read_to_string(root.join(candidate)) else {
-            continue;
-        };
-        if let Some(id) = parse_os_release_id(&content) {
-            return Some(id);
-        }
+/// A tree without one (an installation directory rather than a full root filesystem) simply has no
+/// distro, which still leaves valid PURLs.
+fn read_os_release(root: &Path) -> Option<String> {
+    let content = OS_RELEASE_PATHS
+        .iter()
+        .find_map(|candidate| std::fs::read_to_string(root.join(candidate)).ok());
+    if content.is_none() {
+        log(
+            LogLevel::Warn,
+            "No os-release found; OS packages will carry no distro namespace",
+        );
     }
-    log(
-        LogLevel::Warn,
-        "No os-release found; OS packages will carry no distro namespace",
-    );
-    None
+    content
+}
+
+/// The distribution's own name for itself, from `os-release`, when it has one.
+///
+/// This is the PURL namespace: `debian`, `ubuntu`, `alpine`.
+#[cfg(test)]
+fn distro_namespace(root: &Path) -> Option<String> {
+    read_os_release(root)
+        .as_deref()
+        .and_then(parse_os_release_id)
 }
 
 /// Read `ID=` out of an `os-release` file.
 fn parse_os_release_id(content: &str) -> Option<String> {
+    os_release_field(content, "ID").map(|id| id.to_ascii_lowercase())
+}
+
+/// The `distro` qualifier: the distro and its release, `debian-12.15` or `alpine-3.20.3`.
+///
+/// Built the way syft builds it, so the two tools' PURLs agree: `ID` joined to `VERSION_ID`, or to
+/// `BUILD_ID` for a release that has no version (Arch), or `ID` alone when there is neither. Debian's
+/// `os-release` says only `12`, so its point release comes from `/etc/debian_version` when that
+/// file holds a number; on testing and sid it holds a codename (`trixie/sid`) and is ignored.
+fn distro_release(content: &str, debian_version: Option<&str>) -> Option<String> {
+    let id = parse_os_release_id(content)?;
+    let point_release = debian_version
+        .filter(|_| id == "debian")
+        .map(str::trim)
+        .filter(|version| is_numeric_release(version))
+        .map(str::to_string);
+    let release = point_release
+        .or_else(|| os_release_field(content, "VERSION_ID"))
+        .or_else(|| os_release_field(content, "BUILD_ID"));
+    Some(match release {
+        Some(release) => format!("{id}-{release}"),
+        None => id,
+    })
+}
+
+/// Whether `/etc/debian_version` holds a release number (`12` or `12.15`) rather than a codename.
+fn is_numeric_release(version: &str) -> bool {
+    let mut parts = version.split('.');
+    let major = parts.next().unwrap_or_default();
+    let minor = parts.next();
+    let numeric = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    numeric(major) && minor.is_none_or(numeric) && parts.next().is_none()
+}
+
+/// One `KEY=value` field of an `os-release` file, unquoted, or `None` when it is absent or empty.
+fn os_release_field(content: &str, key: &str) -> Option<String> {
     content
         .lines()
-        .filter_map(|line| line.trim().strip_prefix("ID="))
-        .map(|id| id.trim().trim_matches(['"', '\'']).to_ascii_lowercase())
-        .find(|id| !id.is_empty())
+        .filter_map(|line| line.trim().strip_prefix(key)?.strip_prefix('='))
+        .map(|value| value.trim().trim_matches(['"', '\'']).to_string())
+        .find(|value| !value.is_empty())
 }
 
 /// Report a bad source and turn it into an error.
@@ -299,6 +374,58 @@ mod tests {
             Some("ubuntu")
         );
         assert_eq!(parse_os_release_id("VERSION_ID=\"12\"\n"), None);
+    }
+
+    #[test]
+    fn test_distro_release_qualifier() {
+        let debian = "ID=debian\nVERSION_ID=\"12\"\nVERSION_CODENAME=bookworm\n";
+        assert_eq!(distro_release(debian, None).as_deref(), Some("debian-12"));
+        assert_eq!(
+            distro_release("ID=alpine\nVERSION_ID=3.20.3\n", None).as_deref(),
+            Some("alpine-3.20.3")
+        );
+        // `VERSION=` and `VERSION_ID=` share a prefix, which must not confuse the lookup.
+        assert_eq!(
+            distro_release(
+                "ID=fedora\nVERSION=\"41 (Container Image)\"\nVERSION_ID=41\n",
+                None
+            )
+            .as_deref(),
+            Some("fedora-41")
+        );
+        // A rolling release has a build id instead of a version.
+        assert_eq!(
+            distro_release("ID=arch\nBUILD_ID=rolling\n", None).as_deref(),
+            Some("arch-rolling")
+        );
+        // With neither, the distro is named alone, and a codename is not used.
+        assert_eq!(
+            distro_release("ID=debian\nVERSION_CODENAME=trixie\n", None).as_deref(),
+            Some("debian")
+        );
+        assert_eq!(distro_release("VERSION_ID=12\n", None), None);
+    }
+
+    #[test]
+    fn test_debian_point_release_comes_from_debian_version() {
+        let debian = "ID=debian\nVERSION_ID=\"12\"\n";
+        assert_eq!(
+            distro_release(debian, Some("12.15\n")).as_deref(),
+            Some("debian-12.15")
+        );
+        // Testing and sid write a codename there, which says less than os-release does.
+        assert_eq!(
+            distro_release(debian, Some("trixie/sid\n")).as_deref(),
+            Some("debian-12")
+        );
+        // Ubuntu ships the file too, holding the Debian release it is based on.
+        assert_eq!(
+            distro_release("ID=ubuntu\nVERSION_ID=\"24.04\"\n", Some("trixie/sid\n")).as_deref(),
+            Some("ubuntu-24.04")
+        );
+        assert!(is_numeric_release("12"));
+        assert!(!is_numeric_release("12.15.1"));
+        assert!(!is_numeric_release("12."));
     }
 
     #[test]
@@ -395,6 +522,44 @@ mod tests {
     }
 
     #[test]
+    fn test_os_packages_carry_the_distro_release_and_artifacts_do_not() {
+        let temp = tempfile::tempdir().unwrap();
+        write(
+            temp.path(),
+            "etc/os-release",
+            "ID=debian\nVERSION_ID=\"12\"\nVERSION_CODENAME=bookworm\n",
+        );
+        write(temp.path(), DEBIAN_VERSION_PATH, "12.15\n");
+        write(
+            temp.path(),
+            dpkg::DATABASE_PATH,
+            "Package: bash\nStatus: install ok installed\nArchitecture: amd64\nVersion: 5.2.15-2\n",
+        );
+        write(
+            temp.path(),
+            "usr/local/lib/python3.11/site-packages/requests-2.32.3.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: requests\nVersion: 2.32.3\nLicense: Apache-2.0\n",
+        );
+
+        let findings = scan_filesystem(temp.path(), false).unwrap();
+        let purl = |name: &str| {
+            findings
+                .iter()
+                .find(|finding| finding.name == name)
+                .and_then(LicenseInfo::purl)
+        };
+        assert_eq!(
+            purl("debian/bash").as_deref(),
+            Some("pkg:deb/debian/bash@5.2.15-2?arch=amd64&distro=debian-12.15")
+        );
+        // A wheel is the same wheel whichever distro it was installed on.
+        assert_eq!(
+            purl("requests").as_deref(),
+            Some("pkg:pypi/requests@2.32.3")
+        );
+    }
+
+    #[test]
     fn test_a_path_that_is_not_a_directory_is_an_error() {
         let temp = tempfile::tempdir().unwrap();
         write(temp.path(), "rootfs.tar", "not a directory");
@@ -414,6 +579,7 @@ mod tests {
             "musl",
             "1.2.5-r0",
             Some(" "),
+            Qualifiers::new(),
         );
         assert_eq!(finding.license, None);
         assert_eq!(finding.name, "alpine/musl");

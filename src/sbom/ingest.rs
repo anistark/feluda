@@ -195,7 +195,7 @@ fn component_info(
     version: &str,
     license: Option<String>,
 ) -> LicenseInfo {
-    let (ecosystem, name, version) = match purl.and_then(parse_purl) {
+    let (ecosystem, name, version, qualifiers) = match purl.and_then(parse_purl) {
         Some(parsed) => {
             // A versionless PURL still leaves the document's own version field to fall back on.
             let version = if parsed.version.is_empty() {
@@ -203,9 +203,16 @@ fn component_info(
             } else {
                 parsed.version
             };
-            (parsed.ecosystem, parsed.name, version)
+            // Kept so an SBOM generated from this one says `arch` and `distro` wherever the input
+            // did.
+            (parsed.ecosystem, parsed.name, version, parsed.qualifiers)
         }
-        None => (Ecosystem::Generic, name.to_string(), version.to_string()),
+        None => (
+            Ecosystem::Generic,
+            name.to_string(),
+            version.to_string(),
+            Default::default(),
+        ),
     };
 
     LicenseInfo {
@@ -218,6 +225,7 @@ fn component_info(
         osi_status: OsiStatus::Unknown,
         ecosystem,
         sub_project: None,
+        qualifiers,
     }
 }
 
@@ -649,13 +657,14 @@ mod tests {
         assert_eq!(origins.len(), 3);
 
         // The PURL, not the package name, decides the ecosystem. An OS package keeps the distro
-        // namespace the document gave it, so the PURL it round-trips to is the one that arrived.
+        // namespace and the qualifiers the document gave it, so the PURL it round-trips to is the
+        // one that arrived.
         assert_eq!(components[0].ecosystem, Ecosystem::Deb);
         assert_eq!(components[0].name, "debian/libssl3");
         assert_eq!(components[0].version, "3.0.15-1");
         assert_eq!(
             components[0].purl().as_deref(),
-            Some("pkg:deb/debian/libssl3@3.0.15-1")
+            Some("pkg:deb/debian/libssl3@3.0.15-1?arch=amd64&distro=debian-12")
         );
         // NOASSERTION on the conclusion falls through to the declaration.
         assert_eq!(components[0].license.as_deref(), Some("OpenSSL"));

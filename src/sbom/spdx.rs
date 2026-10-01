@@ -503,6 +503,9 @@ impl SpdxPackage {
     /// name and version would otherwise hash to the same `SPDXRef-`, collapsing two distinct
     /// packages into one element and producing a document with duplicate identifiers.
     ///
+    /// The identifier is hashed from the PURL without its qualifiers. They describe which build
+    /// this is (`arch`, `distro`), and recording more about a package should not rename it.
+    ///
     /// Call after [`Self::with_version`], which derives an identifier of its own.
     pub fn with_purl(mut self, purl: impl Into<String>) -> Self {
         use std::collections::hash_map::DefaultHasher;
@@ -510,7 +513,7 @@ impl SpdxPackage {
 
         let purl = purl.into();
         let mut hasher = DefaultHasher::new();
-        purl.hash(&mut hasher);
+        crate::purl::without_qualifiers(&purl).hash(&mut hasher);
         let hash = hasher.finish();
         self.spdx_id = format!("SPDXRef-Package-pkg{hash:016x}");
 
@@ -1662,6 +1665,26 @@ mod tests {
         // Without the PURL both would hash from name and version alone and collide, leaving a
         // document with two elements sharing one SPDXID.
         assert_ne!(npm.spdx_id, deb.spdx_id);
+    }
+
+    #[test]
+    #[serial]
+    fn test_qualifiers_are_recorded_but_do_not_change_the_spdx_id() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+
+        let namespace = "https://example.com/test";
+        let plain = SpdxPackage::new("libssl3", namespace)
+            .with_version("3.0.15-1")
+            .with_purl("pkg:deb/debian/libssl3@3.0.15-1");
+        let qualified = SpdxPackage::new("libssl3", namespace)
+            .with_version("3.0.15-1")
+            .with_purl("pkg:deb/debian/libssl3@3.0.15-1?arch=amd64&distro=debian-12");
+
+        assert_eq!(plain.spdx_id, qualified.spdx_id);
+        assert_eq!(
+            qualified.external_refs[0].reference_locator,
+            "pkg:deb/debian/libssl3@3.0.15-1?arch=amd64&distro=debian-12"
+        );
     }
 
     #[test]

@@ -87,6 +87,7 @@ pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
                 osi_status: crate::licenses::get_osi_status(&license),
                 ecosystem: Ecosystem::Maven,
                 sub_project: None,
+                qualifiers: Default::default(),
             }
         })
         .collect()

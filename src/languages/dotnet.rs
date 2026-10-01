@@ -108,6 +108,7 @@ pub fn analyze_dotnet_licenses(project_path: &str, config: &FeludaConfig) -> Vec
             },
             ecosystem: Ecosystem::Nuget,
             sub_project: None,
+            qualifiers: Default::default(),
         });
     }
 

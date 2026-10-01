@@ -12,7 +12,7 @@ use crate::licenses::LicenseInfo;
 use crate::purl::Ecosystem;
 
 use super::artifacts::is_artifact_metadata;
-use super::{package_finding, read_database, Catalog};
+use super::{package_finding, qualifiers, read_database, Catalog};
 
 /// Where apk records what is installed, relative to the root of the filesystem being scanned.
 pub const DATABASE_PATH: &str = "lib/apk/db/installed";
@@ -61,6 +61,8 @@ fn parse_installed(content: &str, namespace: Option<&str>) -> Catalog {
             "P" => record.name = Some(value.to_string()),
             "V" => record.version = Some(value.to_string()),
             "L" => record.license = Some(value.to_string()),
+            "A" => record.arch = Some(value.to_string()),
+            "o" => record.origin = Some(value.to_string()),
             // A directory, given relative to the root with no leading slash.
             "F" => directory = Some(PathBuf::from(value)),
             // A file inside the directory the last `F:` named.
@@ -89,6 +91,10 @@ struct Record {
     name: Option<String>,
     version: Option<String>,
     license: Option<String>,
+    /// The architecture it was built for, `x86_64` or `aarch64`.
+    arch: Option<String>,
+    /// The source package it was built from, which is usually its own name.
+    origin: Option<String>,
 }
 
 impl Record {
@@ -96,12 +102,15 @@ impl Record {
     fn take(&mut self, namespace: Option<&str>) -> Option<LicenseInfo> {
         let record = std::mem::take(self);
         let name = record.name?;
+        // Only an origin that differs says anything: `musl` built from `musl` is the common case.
+        let upstream = record.origin.as_deref().filter(|origin| *origin != name);
         Some(package_finding(
             Ecosystem::Apk,
             namespace,
             &name,
             record.version.as_deref().unwrap_or_default(),
             record.license.as_deref(),
+            qualifiers(&[("arch", record.arch.as_deref()), ("upstream", upstream)]),
         ))
     }
 }
@@ -143,11 +152,28 @@ mod tests {
         assert_eq!(packages[0].ecosystem, Ecosystem::Apk);
         assert_eq!(
             packages[0].purl().as_deref(),
-            Some("pkg:apk/alpine/musl@1.2.5-r0")
+            Some("pkg:apk/alpine/musl@1.2.5-r0?arch=x86_64")
         );
 
         assert_eq!(packages[1].name, "alpine/busybox");
         assert_eq!(packages[1].license.as_deref(), Some("GPL-2.0-only"));
+    }
+
+    #[test]
+    fn test_arch_and_a_differing_origin_become_qualifiers() {
+        let packages = parse(
+            "P:libcrypto3\nV:3.3.2-r0\nA:aarch64\no:openssl\n\nP:musl\nV:1.2.5-r0\nA:x86_64\no:musl\n",
+            Some("alpine"),
+        );
+        assert_eq!(
+            packages[0].purl().as_deref(),
+            Some("pkg:apk/alpine/libcrypto3@3.3.2-r0?arch=aarch64&upstream=openssl")
+        );
+        // Built from a source package of its own name, so there is no upstream to point at.
+        assert_eq!(
+            packages[1].purl().as_deref(),
+            Some("pkg:apk/alpine/musl@1.2.5-r0?arch=x86_64")
+        );
     }
 
     #[test]

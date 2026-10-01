@@ -1269,6 +1269,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "crate2".to_string(),
@@ -1279,6 +1280,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "crate3".to_string(),
@@ -1289,6 +1291,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "crate4".to_string(),
@@ -1299,6 +1302,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Unknown,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
         ]
     }
@@ -1314,6 +1318,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "crate2".to_string(),
@@ -1324,6 +1329,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
         ]
     }
@@ -1620,6 +1626,7 @@ mod tests {
             osi_status: OsiStatus::Unknown,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         };
 
         let tally = tally_licenses(&[
@@ -1705,6 +1712,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "package2".to_string(),
@@ -1715,6 +1723,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
         ];
 
@@ -1748,6 +1757,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "bad_package".to_string(),
@@ -1758,6 +1768,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
         ];
 
@@ -1791,6 +1802,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "restrictive_package".to_string(),
@@ -1801,6 +1813,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
         ];
 
@@ -1833,6 +1846,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         let config = ReportConfig::new(
@@ -1855,6 +1869,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         let config = ReportConfig::new(
@@ -1877,6 +1892,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         let config = ReportConfig::new(
@@ -1908,6 +1924,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         let config = ReportConfig::new(
@@ -1981,6 +1998,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
         let temp_dir = setup();
         let output_path = temp_dir.path().join("clean.sarif");
@@ -2081,6 +2099,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         output_github_format(
@@ -2101,6 +2120,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
 
         output_jenkins_format(
@@ -2122,6 +2142,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "restrictive2".to_string(),
@@ -2132,6 +2153,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             },
         ];
 
@@ -2191,6 +2213,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         }];
         print_workspace_breakdown(&data);
     }
@@ -2209,6 +2232,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: Some("api, worker".into()),
+                qualifiers: Default::default(),
             },
             LicenseInfo {
                 name: "api-only".into(),
@@ -2219,6 +2243,7 @@ mod tests {
                 osi_status: crate::licenses::OsiStatus::Approved,
                 ecosystem: Ecosystem::Cargo,
                 sub_project: Some("api".into()),
+                qualifiers: Default::default(),
             },
         ];
         print_workspace_breakdown(&data);
@@ -2237,6 +2262,7 @@ mod tests {
             osi_status: crate::licenses::OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: Some("api".into()),
+            qualifiers: Default::default(),
         }];
         print_verbose_table(&data, false, Some("MIT"));
     }

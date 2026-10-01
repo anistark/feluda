@@ -361,6 +361,7 @@ pub fn analyze_js_licenses_with_config(
                 osi_status: crate::licenses::get_osi_status(&license),
                 ecosystem: Ecosystem::Npm,
                 sub_project,
+                qualifiers: Default::default(),
             }
         })
         .collect()
