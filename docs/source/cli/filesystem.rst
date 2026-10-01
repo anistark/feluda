@@ -297,10 +297,23 @@ catalogue with syft and pass the result through :ref:`sbom-ingest`.
 Unknown Licenses
 ----------------
 
-A package whose license cannot be read is reported as unknown, never guessed at. Debian packages
-that predate the machine-readable copyright format sometimes state their license only in prose that
-points at ``/usr/share/common-licenses``, and Feluda will not infer a license from a reference. In a
-stock ``debian:12-slim`` image this affects a handful of the 88 installed packages; the rest resolve.
+A package whose license cannot be read is reported as unknown, never guessed at. Debian copyright
+files are read in this order: the machine-readable DEP-5 ``License`` field, then the license text
+itself, then, for files that predate DEP-5, the standard GNU grant sentence ("under the terms of the
+GNU General Public License as published by the Free Software Foundation; either version 2 of the
+License, or (at your option) any later version"). The grant is what names the version: the
+``/usr/share/common-licenses/GPL`` path these files point at is the unversioned text, so Feluda never
+reads a license from the path.
+
+A grant is only trusted when it is the whole story. Every grant in the file has to name the same
+license, and a GNU license given without a version, or a second license such as the GNU Free
+Documentation License for the manual, leaves the package unknown. A paragraph about the Debian
+packaging itself ("The Debian specific changes are ... GPL version 2") gives way to the grant for the
+software, the same way a DEP-5 ``Files: *`` stanza wins over ``Files: debian/*``.
+
+In a stock ``debian:12-slim`` image 85 of the 88 installed packages resolve. The three that stay
+unknown (``libselinux1``, ``libtasn1-6`` and ``libcrypt1``) license different parts of the package
+differently in one file, which is not a single license Feluda could report.
 
 apk and rpm have no such gap, because both record the license in the package's own metadata rather
 than in a file alongside it. A stock ``fedora:41`` or ``rockylinux:9`` image resolves every installed
