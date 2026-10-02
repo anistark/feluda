@@ -8,11 +8,18 @@
 //! 1. the DEP-5 `License` field of the `Files: *` stanza, which is the package's own statement;
 //! 2. the first `License` short name anywhere in a DEP-5 file, for packages that never state a
 //!    catch-all stanza;
-//! 3. text matching, the same path the vendor scan takes on a plain `LICENSE` file.
+//! 3. text matching, the same path the vendor scan takes on a plain `LICENSE` file;
+//! 4. the GNU grant sentences of a free text file ("under the terms of the GNU General Public
+//!    License ... either version 2 ... or any later version"), when every one of them names the
+//!    same license.
 //!
 //! Anything else leaves the license unset. An OS package with an unreadable copyright file is
 //! reported as unknown, never guessed: a wrong license in a compliance report is worse than an
 //! absent one.
+
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::licenses::detect_license_from_content;
 
@@ -23,7 +30,129 @@ pub fn license_from_copyright(content: &str) -> Option<String> {
     if let Some(license) = dep5_license(content) {
         return Some(license);
     }
-    detect_license_from_content(content)
+    detect_license_from_content(content).or_else(|| grant_license(content))
+}
+
+/// "terms of the GNU ... License", and the rest of its sentence. `under` is left out of the match
+/// because real files misspell it (`underthe`), and the sentence ends at a full stop that is not
+/// inside a version number.
+static GNU_GRANT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"terms of the gnu ((?:[a-z]+ )*?)(?:general public )?license(.*?)(?:\.(?:\s|$)|$)")
+        .expect("valid regex")
+});
+
+/// The version a grant names: `version 2`, `version 2.1`.
+static GRANT_VERSION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"version (\d+(?:\.\d+)?)").expect("valid regex"));
+
+/// A paragraph about the Debian packaging rather than the software: the prose counterpart of a
+/// DEP-5 `Files: debian/*` stanza.
+static PACKAGING: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"debian[- ]specific changes|debian packaging|the packaging (?:is|was)")
+        .expect("valid regex")
+});
+
+/// One grant sentence: the license it names, or `None` when it names a GNU license this cannot
+/// pin to one SPDX id (no version, or a license outside the GPL family).
+struct Grant {
+    license: Option<String>,
+    packaging: bool,
+}
+
+/// The license a pre-DEP-5 copyright file grants, when it is unambiguous.
+///
+/// Files written before DEP-5 state their license in the FSF's standard sentence, and point at
+/// `/usr/share/common-licenses/GPL` for the text. That path is no help, since `GPL` there is the
+/// unversioned text; the sentence is what names the version. So every grant sentence in the file is
+/// read, and a license is reported only when all of them agree. Anything else, including a GNU
+/// license with no version or a second license for the documentation, leaves the package unknown.
+///
+/// The one exception is a disagreement that comes only from a paragraph about the Debian packaging
+/// itself ("The Debian specific changes are ... GPL version 2"). The DEP-5 path already prefers
+/// `Files: *` over `Files: debian/*`, and this is the same rule for prose.
+fn grant_license(content: &str) -> Option<String> {
+    let grants: Vec<Grant> = paragraphs(content)
+        .iter()
+        .flat_map(|paragraph| {
+            let packaging = PACKAGING.is_match(paragraph);
+            GNU_GRANT
+                .captures_iter(paragraph)
+                .map(move |grant| Grant {
+                    license: grant_spdx(&grant[1], &grant[2]),
+                    packaging,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    agreed(grants.iter()).or_else(|| {
+        let upstream: Vec<&Grant> = grants.iter().filter(|grant| !grant.packaging).collect();
+        (upstream.len() < grants.len())
+            .then(|| agreed(upstream.into_iter()))
+            .flatten()
+    })
+}
+
+/// The one license every grant names, or `None` when there are none, they differ, or one could not
+/// be read.
+fn agreed<'a>(mut grants: impl Iterator<Item = &'a Grant>) -> Option<String> {
+    let first = grants.next()?.license.clone()?;
+    grants
+        .all(|grant| grant.license.as_deref() == Some(first.as_str()))
+        .then_some(first)
+}
+
+/// Map one grant onto an SPDX id. `qualifier` is what came between "GNU" and "License"
+/// (`lesser `, `library `, `affero `, `free documentation `), `rest` the remainder of the sentence.
+fn grant_spdx(qualifier: &str, rest: &str) -> Option<String> {
+    let family = match qualifier.trim() {
+        "" => "gpl",
+        "lesser" | "library" => "lgpl",
+        "affero" => "agpl",
+        // The documentation license and anything else are not something this pins down.
+        _ => return None,
+    };
+    let version = &GRANT_VERSION.captures(rest)?[1];
+    let known = match family {
+        "gpl" => ["1", "2", "3"].contains(&version),
+        "lgpl" => ["2", "2.1", "3"].contains(&version),
+        _ => version == "3",
+    };
+    if !known {
+        return None;
+    }
+    let or_later = rest.contains("any later version") || rest.contains("or later");
+    gnu_family_license(&format!(
+        "{family}-{version}{}",
+        if or_later { "+" } else { "" }
+    ))
+}
+
+/// The file's paragraphs, each lowercased onto one line with comment markers and runs of
+/// whitespace removed, so a grant wrapped across ` * ` lines reads as one sentence.
+fn paragraphs(content: &str) -> Vec<String> {
+    let mut paragraphs = Vec::new();
+    let mut current = String::new();
+    for line in content.lines() {
+        let line = line.trim().trim_start_matches(['*', '#', '/']).trim();
+        if line.is_empty() {
+            if !current.is_empty() {
+                paragraphs.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(&line.to_lowercase());
+    }
+    if !current.is_empty() {
+        paragraphs.push(current);
+    }
+    paragraphs
+        .into_iter()
+        .map(|paragraph| paragraph.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect()
 }
 
 /// The license a DEP-5 document states, or `None` when the file is not DEP-5.
@@ -287,6 +416,146 @@ License: Expat
         assert_eq!(
             license_from_copyright("Copyright 2020 Someone. All rights reserved."),
             None
+        );
+    }
+
+    /// `base-files` in Debian 12: no DEP-5 header, and the only pointer to the license text is the
+    /// unversioned `common-licenses/GPL`. The grant sentence names the version.
+    const BASE_FILES: &str = "This is the Debian prepackaged version of the Debian Base System
+Miscellaneous files.
+
+The GNU Public Licenses in /usr/share/common-licenses were taken from
+ftp.gnu.org and are copyrighted by the Free Software Foundation, Inc.
+
+The Artistic License in /usr/share/common-licenses is the one coming
+from Perl and its SPDX name is \"Artistic License 1.0 (Perl)\".
+
+Copyright (C) 1995-2011 Software in the Public Interest.
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+On Debian systems, the complete text of the GNU General
+Public License can be found in `/usr/share/common-licenses/GPL'.
+";
+
+    /// `libsemanage2` in Debian 12: the library grant, then a paragraph licensing the Debian
+    /// packaging differently.
+    const LIBSEMANAGE: &str = "Copyright (C) 2004-2007 Tresys Technology, LLC
+
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+
+The Debian specific changes are \u{a9} 2005-2009, Manoj Srivastava
+<srivasta@debian.org>, and distributed under the terms of the GNU
+General Public License, version 2.
+
+On Debian GNU/Linux systems, the complete text of the GNU General
+Public License can be found in `/usr/share/common-licenses/GPL'.
+";
+
+    #[test]
+    fn test_a_single_grant_names_the_license() {
+        assert_eq!(
+            license_from_copyright(BASE_FILES).as_deref(),
+            Some("GPL-2.0-or-later")
+        );
+        // `debian-archive-keyring` words the version clause without "of the License".
+        let keyring = "Debian support files for debian-archive-keyring are free software; you
+can redistribute them and/or modify them under the terms of the GNU
+General Public License as published by the Free Software Foundation;
+either version 2, or (at your option) any later version.
+";
+        assert_eq!(
+            license_from_copyright(keyring).as_deref(),
+            Some("GPL-2.0-or-later")
+        );
+    }
+
+    #[test]
+    fn test_a_grant_without_any_later_version_is_only_that_version() {
+        let content = "Distributed underthe terms of the GNU General Public License,\nversion 2.\n";
+        assert_eq!(
+            license_from_copyright(content).as_deref(),
+            Some("GPL-2.0-only")
+        );
+    }
+
+    #[test]
+    fn test_the_debian_packaging_paragraph_gives_way_to_the_software() {
+        assert_eq!(
+            license_from_copyright(LIBSEMANAGE).as_deref(),
+            Some("LGPL-2.1-or-later")
+        );
+    }
+
+    #[test]
+    fn test_grants_that_disagree_leave_the_license_unknown() {
+        // `libselinux1`: the library is public domain, with one GPL-2 file and one LGPL file.
+        let libselinux = "This library (libselinux) is public domain software.
+
+The file is Copyright: 2004 Red Hat, Inc. and is distributed underthe terms of the GNU
+General Public License, version 2.
+
+utils/ia64-inline-syscall.h. The GNU C Library is distributed under
+the terms of the GNU Lesser General Public License as published by the
+Free Software Foundation; either version 2.1 of the License, or (at
+your option) any later version.
+";
+        assert_eq!(license_from_copyright(libselinux), None);
+
+        // `libtasn1-6`: an LGPL library, GPL tools and an FDL manual, in comment blocks.
+        let libtasn1 = " * The LIBTASN1 library is free software; you can redistribute it
+ * and/or modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+";
+        assert_eq!(license_from_copyright(libtasn1), None);
+    }
+
+    #[test]
+    fn test_a_second_unreadable_grant_leaves_the_license_unknown() {
+        // The documentation is under the FDL, which is not one of the licenses this pins down, and
+        // reporting the code's license alone would hide it.
+        let content = "This program is free software under the terms of the GNU General Public
+License as published by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+The documentation is distributed under the terms of the GNU Free
+Documentation License, Version 1.3 or any later version.
+";
+        assert_eq!(license_from_copyright(content), None);
+    }
+
+    #[test]
+    fn test_a_grant_without_a_version_is_not_guessed() {
+        let content =
+            "Everything in the package is distributed under the terms of the GNU General \
+             Public License. On Debian systems see /usr/share/common-licenses/GPL.\n";
+        assert_eq!(license_from_copyright(content), None);
+        // Nor is a version that GNU never published.
+        let content = "Under the terms of the GNU General Public License, version 4.\n";
+        assert_eq!(license_from_copyright(content), None);
+    }
+
+    #[test]
+    fn test_a_packaging_grant_alone_is_still_a_grant() {
+        // With nothing else to go on, the packaging paragraph's grant is the only statement there
+        // is, and the tie break never discards the last remaining grant.
+        let content = "The Debian packaging is distributed under the terms of the GNU General \
+             Public License, version 2, or (at your option) any later version.\n";
+        assert_eq!(
+            license_from_copyright(content).as_deref(),
+            Some("GPL-2.0-or-later")
         );
     }
 
