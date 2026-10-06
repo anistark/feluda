@@ -283,11 +283,22 @@ feluda sbom cyclonedx --output sbom.json
 
 # Generate all formats with custom output
 feluda sbom --output sbom-output
+
+# Write an older spec version for a consumer that needs one
+feluda sbom cyclonedx --spec-version 1.4
 ```
 
 **Supported SBOM Formats:**
-- **SPDX 2.3** - Software Package Data Exchange format (JSON)
-- **CycloneDX** - CycloneDX v1.5 format (JSON)
+- **SPDX** - Software Package Data Exchange format (JSON), 2.3 by default or 2.2
+- **CycloneDX** - CycloneDX format (JSON), 1.6 by default or 1.4, 1.5, 1.7
+
+Pick a version with `--spec-version` on `sbom spdx` / `sbom cyclonedx`, with `--spdx-version` / `--cyclonedx-version` on `feluda sbom`, or pin it for a project:
+
+```toml
+[sbom]
+spdx = "2.2"
+cyclonedx = "1.4"
+```
 
 **What's Included in SBOM:**
 - Package names and versions

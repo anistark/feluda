@@ -1,4 +1,4 @@
-:description: Generate CycloneDX v1.5 format SBOMs with Feluda.
+:description: Generate CycloneDX 1.4 to 1.7 format SBOMs with Feluda.
 
 .. _sbom-cyclonedx:
 
@@ -14,7 +14,7 @@ CycloneDX
 Overview
 --------
 
-CycloneDX is a lightweight SBOM standard designed for use in application security contexts and supply chain component analysis. Feluda generates CycloneDX v1.5 compliant documents.
+CycloneDX is a lightweight SBOM standard designed for use in application security contexts and supply chain component analysis. Feluda generates CycloneDX 1.6 compliant documents by default, and 1.4, 1.5 or 1.7 on request.
 
 ----
 
@@ -27,7 +27,13 @@ Create a CycloneDX document for your project.
 
    feluda sbom cyclonedx
 
-Feluda creates a CycloneDX v1.5 JSON structure with components, licenses, and hashes as available.
+Feluda creates a CycloneDX 1.6 JSON structure with components, licenses, and hashes as available.
+
+Pick another version with ``--spec-version``:
+
+.. code-block:: bash
+
+   feluda sbom cyclonedx --spec-version 1.4
 
 ----
 
@@ -52,6 +58,8 @@ Feluda writes the CycloneDX document alongside your build artifacts.
      - Description
    * - ``--output <PATH>``
      - Save CycloneDX document to the specified file
+   * - ``--spec-version <VERSION>``
+     - CycloneDX version to write: ``1.4``, ``1.5``, ``1.6`` (default) or ``1.7``. See :ref:`sbom-versions`
 
 ----
 
@@ -76,8 +84,15 @@ from, so components stay identifiable across ecosystems:
      "name": "@babel/core",
      "version": "7.24.0",
      "purl": "pkg:npm/%40babel/core@7.24.0",
-     "licenses": [{"license": {"id": "MIT"}}]
+     "licenses": [{"license": {"id": "MIT", "acknowledgement": "declared"}}]
    }
+
+``acknowledgement`` is written from 1.6 on; 1.4 and 1.5 have no such field.
+
+A license is written as ``id`` only when it is on the SPDX license list, spelled the list's way,
+since that is all the CycloneDX schema accepts there. Anything else, such as ``SEE LICENSE IN
+LICENSE.txt`` or a registry's own title, is written as ``name``. ``feluda sbom validate`` warns
+about an ``id`` that is not on the list.
 
 ----
 
@@ -88,15 +103,20 @@ Example Output Structure
 
    {
      "bomFormat": "CycloneDX",
-     "specVersion": "1.5",
+     "specVersion": "1.6",
      "serialNumber": "urn:uuid:...",
      "version": 1,
      "metadata": {
        "timestamp": "2025-01-27T12:00:00Z",
-       "tools": [{"name": "feluda", "version": "1.15.0"}]
+       "tools": {
+         "components": [{"type": "application", "name": "feluda", "version": "1.17.0"}]
+       }
      },
      "components": []
    }
+
+With ``--spec-version 1.4``, ``tools`` is the older plain list:
+``[{"name": "feluda", "version": "1.17.0"}]``.
 
 ----
 
