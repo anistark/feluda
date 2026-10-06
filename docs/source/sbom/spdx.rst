@@ -74,7 +74,8 @@ name and version across ecosystems stay distinct elements in the document.
 
 SPDX license fields only accept ids from the SPDX license list, expressions over them, and
 ``LicenseRef-`` ids the document defines. A license outside the list, such as ``SEE LICENSE IN
-LICENSE.txt``, is written as ``LicenseRef-feluda-SEE-LICENSE-IN-LICENSE.txt`` and defined once in
+LICENSE.txt`` or a registry title like ``The Apache Software License, Version 2.0``, is written as
+a ``LicenseRef-feluda-*`` id, for example ``LicenseRef-feluda-SEE-LICENSE-IN-LICENSE.txt``, and defined once in
 ``hasExtractedLicensingInfos`` with the text the package stated. Inside an expression only the
 unlisted license becomes a reference, so ``Custom-1.0 OR MIT`` stays a choice:
 ``LicenseRef-feluda-Custom-1.0 OR MIT``.

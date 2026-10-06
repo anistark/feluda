@@ -334,3 +334,30 @@ fn a_free_form_license_is_an_spdx_license_ref() {
         assert_validates_as_current(&output);
     }
 }
+
+#[test]
+fn a_license_title_with_commas_survives_into_both_formats() {
+    // Maven Central's titles have commas, which no SPDX expression allows. The title is still
+    // the license, so it must not come out as NOASSERTION.
+    let title = "The Apache Software License, Version 2.0";
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    node_project(&temp.path().join("app"), title);
+
+    let spdx_output = temp.path().join("app.spdx.json");
+    let spdx = generate_in(temp.path(), &["sbom", "spdx"], &spdx_output);
+    let license_ref = "LicenseRef-feluda-The-Apache-Software-License-Version-2.0";
+    assert_eq!(spdx["packages"][0]["licenseDeclared"], license_ref);
+    assert_eq!(
+        spdx["hasExtractedLicensingInfos"][0]["extractedText"],
+        title
+    );
+    assert_validates_as_current(&spdx_output);
+
+    let cdx_output = temp.path().join("app.cdx.json");
+    let cdx = generate_in(temp.path(), &["sbom", "cyclonedx"], &cdx_output);
+    assert_eq!(
+        cdx["components"][0]["licenses"][0]["license"]["name"],
+        title
+    );
+    assert_validates_as_current(&cdx_output);
+}

@@ -91,7 +91,9 @@ from, so components stay identifiable across ecosystems:
 
 A license is written as ``id`` only when it is on the SPDX license list, spelled the list's way,
 since that is all the CycloneDX schema accepts there. Anything else, such as ``SEE LICENSE IN
-LICENSE.txt`` or a registry's own title, is written as ``name``. ``feluda sbom validate`` warns
+LICENSE.txt`` or a registry's own title like ``The Apache Software License, Version 2.0``, is
+written as ``name``. Only text that contains quotes, backslashes, control characters or markup is
+dropped to ``NOASSERTION``. ``feluda sbom validate`` warns
 about an ``id`` that is not on the list.
 
 ----

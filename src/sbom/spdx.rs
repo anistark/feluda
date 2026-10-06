@@ -86,6 +86,68 @@ fn is_valid_spdx_license_format(license: &str) -> bool {
     !license.contains("..") && !license.contains("--") && !license.trim().is_empty()
 }
 
+/// Whether a license field's text says there is no usable license: empty, a placeholder some
+/// manifests carry (`null`, `n/a`), or a statement that it is not open (`UNLICENSED`).
+fn states_no_license(trimmed: &str) -> bool {
+    trimmed.is_empty()
+        || [
+            "null",
+            "undefined",
+            "none",
+            "unlicensed",
+            "proprietary",
+            "NOASSERTION",
+        ]
+        .iter()
+        .any(|word| trimmed.eq_ignore_ascii_case(word))
+        || trimmed == "-"
+        || trimmed == "n/a"
+}
+
+/// A license as the package stated it, kept when it is not an SPDX expression but is still plain
+/// text naming a license.
+///
+/// Registries hand back titles, and Maven Central's are full of commas: "The Apache Software
+/// License, Version 2.0". [`convert_to_spdx_license_expression`] rightly refuses those as
+/// expressions, but the title is still the license, and the writers can state it properly: SPDX
+/// as a `LicenseRef-` it defines, CycloneDX as a license `name`. Only plain text qualifies: ASCII
+/// letters, digits, spaces and the punctuation titles use. Quotes, backslashes, control
+/// characters, template and markup characters still give `None`, as do the words that say there
+/// is no license, and nothing is kept when `FELUDA_FORCE_NOASSERTION_LICENSES` is set.
+fn stated_license_title(license: &str) -> Option<String> {
+    let forced = std::env::var("FELUDA_FORCE_NOASSERTION_LICENSES")
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let title = license.trim();
+    let plain = title.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                ' ' | '.'
+                    | ','
+                    | ':'
+                    | ';'
+                    | '('
+                    | ')'
+                    | '['
+                    | ']'
+                    | '/'
+                    | '\''
+                    | '+'
+                    | '-'
+                    | '_'
+                    | '&'
+            )
+    });
+
+    (!forced
+        && plain
+        && !states_no_license(title)
+        && title.chars().any(|c| c.is_ascii_alphabetic())
+        && !title.contains("  "))
+    .then(|| title.to_string())
+}
+
 pub fn convert_to_spdx_license_expression(license: &str) -> String {
     // Check for force NOASSERTION environment variable
     let force_noassertion = std::env::var("FELUDA_FORCE_NOASSERTION_LICENSES")
@@ -101,16 +163,7 @@ pub fn convert_to_spdx_license_expression(license: &str) -> String {
     }
 
     let trimmed = license.trim();
-    if trimmed.is_empty()
-        || trimmed.eq_ignore_ascii_case("null")
-        || trimmed.eq_ignore_ascii_case("undefined")
-        || trimmed.eq_ignore_ascii_case("none")
-        || trimmed == "-"
-        || trimmed == "n/a"
-        || trimmed.eq_ignore_ascii_case("unlicensed")
-        || trimmed.eq_ignore_ascii_case("proprietary")
-        || !trimmed.is_ascii()
-    {
+    if states_no_license(trimmed) || !trimmed.is_ascii() {
         return "NOASSERTION".to_string();
     }
 
@@ -709,6 +762,10 @@ impl SpdxPackage {
 
         let final_license = if spdx_license.trim().is_empty() {
             "NOASSERTION".to_string()
+        } else if spdx_license == "NOASSERTION" {
+            // Not an expression, but possibly still the license's name, which the writers can
+            // state without inventing an expression for it.
+            stated_license_title(&license).unwrap_or(spdx_license)
         } else {
             spdx_license
         };
@@ -996,7 +1053,8 @@ fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
             if license.trim().is_empty()
                 || spdx_charset::contains_forbidden_chars(license)
                 || !license.is_ascii()
-                || !is_valid_spdx_license_format(license)
+                || !(is_valid_spdx_license_format(license)
+                    || stated_license_title(license).is_some())
             {
                 *license = "NOASSERTION".to_string();
                 return true;
@@ -2159,5 +2217,84 @@ mod tests {
         let created = json["creationInfo"]["created"].clone();
         let read = spdx_timestamp::deserialize(created).unwrap();
         assert_eq!(read.timestamp(), doc.creation_info.created.timestamp());
+    }
+
+    #[test]
+    #[serial]
+    fn test_license_titles_are_kept_as_stated() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+        let stated = |license: &str| {
+            SpdxPackage::new("pkg", "https://example.com/test")
+                .with_version("1.0.0")
+                .with_license(license)
+                .license_declared
+                .unwrap()
+        };
+
+        // Real titles from Maven Central and PyPI.
+        for title in [
+            "The Apache Software License, Version 2.0",
+            "GNU Lesser General Public License, version 2.1",
+            "Eclipse Public License - v 1.0",
+            "CDDL + GPLv2 with classpath exception",
+            "The MIT License (MIT)",
+            "Public Domain, per Creative Commons CC0",
+            "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        ] {
+            assert_eq!(stated(title), title);
+        }
+
+        // Expressions are still converted, not kept as titles.
+        assert_eq!(stated("MIT/Apache-2.0"), "MIT OR Apache-2.0");
+        // No license is still no license.
+        for empty in [
+            "",
+            "null",
+            "n/a",
+            "UNLICENSED",
+            "proprietary",
+            "-",
+            "NOASSERTION",
+        ] {
+            assert_eq!(stated(empty), "NOASSERTION", "{empty:?}");
+        }
+        // Text that is not plain stays out.
+        for unsafe_text in [
+            "MIT\"with-quotes",
+            "Apache\\with-backslash",
+            "MIT\nnewline",
+            "${LICENSE}",
+            "MIT{}",
+            "<b>MIT</b>",
+            "MIT`backtick",
+            "Licence publique générale",
+            "...",
+        ] {
+            assert_eq!(stated(unsafe_text), "NOASSERTION", "{unsafe_text:?}");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_license_titles_are_written_as_refs_and_forced_mode_still_wins() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+        let doc = document_with_licenses(&["The Apache Software License, Version 2.0"]);
+        let written = prepare_spdx_document(&doc, SpdxVersion::V2_3);
+        assert_eq!(
+            written.packages[0].license_declared.as_deref(),
+            Some("LicenseRef-feluda-The-Apache-Software-License-Version-2.0")
+        );
+        assert_eq!(
+            written.has_extracted_licensing_infos[0].extracted_text,
+            "The Apache Software License, Version 2.0"
+        );
+
+        std::env::set_var("FELUDA_FORCE_NOASSERTION_LICENSES", "true");
+        let forced = document_with_licenses(&["The Apache Software License, Version 2.0"]);
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+        assert_eq!(
+            forced.packages[0].license_declared.as_deref(),
+            Some("NOASSERTION")
+        );
     }
 }
