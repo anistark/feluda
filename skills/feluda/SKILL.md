@@ -239,7 +239,7 @@ Other scan sources, all of which take the filters above:
 feluda --filesystem ./rootfs             # An installed tree or extracted rootfs
 feluda --image-archive app.tar           # A docker save tarball or OCI layout
 feluda --image-archive app.tar --platform linux/arm64   # Pick one image out of a multi platform archive
-feluda --sbom-input bom.json             # An existing SPDX or CycloneDX document ('-' for stdin)
+feluda --sbom-input bom.json             # An existing SPDX (JSON, tag:value, 3.0) or CycloneDX (JSON, XML) document ('-' for stdin)
 feluda --sbom-input bom.json --sbom-enriched out.json   # Write it back out with resolved licenses
 feluda sbom spdx --image-archive app.tar --output app.spdx.json   # SBOM straight from an image
 ```

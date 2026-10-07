@@ -237,7 +237,7 @@ project when a consumer expects them:
    spdx = "2.2"
    cyclonedx = "1.4"
 
-SPDX takes ``2.2`` or ``2.3``; CycloneDX takes ``1.4``, ``1.5``, ``1.6`` or ``1.7``. The environment
+SPDX takes ``2.2``, ``2.3`` or ``3.0``; CycloneDX takes ``1.4``, ``1.5``, ``1.6`` or ``1.7``. The environment
 equivalents are ``FELUDA_SBOM_SPDX`` and ``FELUDA_SBOM_CYCLONEDX``, and a ``--spec-version`` flag on
 the command line beats both. See :ref:`sbom-versions`.
 

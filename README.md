@@ -286,11 +286,16 @@ feluda sbom --output sbom-output
 
 # Write an older spec version for a consumer that needs one
 feluda sbom cyclonedx --spec-version 1.4
+
+# Write SPDX 3.0, SPDX 2.x as tag:value, or CycloneDX as XML
+feluda sbom spdx --spec-version 3.0 --output sbom.spdx.json
+feluda sbom spdx --format tag-value --output sbom.spdx
+feluda sbom cyclonedx --format xml --output sbom
 ```
 
 **Supported SBOM Formats:**
-- **SPDX** - Software Package Data Exchange format (JSON), 2.3 by default or 2.2
-- **CycloneDX** - CycloneDX format (JSON), 1.6 by default or 1.4, 1.5, 1.7
+- **SPDX** - Software Package Data Exchange format, 2.3 by default or 2.2 (JSON or tag:value), or 3.0 (JSON-LD)
+- **CycloneDX** - CycloneDX format (JSON or XML), 1.6 by default or 1.4, 1.5, 1.7
 
 Pick a version with `--spec-version` on `sbom spdx` / `sbom cyclonedx`, with `--spdx-version` / `--cyclonedx-version` on `feluda sbom`, or pin it for a project:
 
@@ -315,7 +320,7 @@ cyclonedx = "1.4"
 
 ### SBOM as a Scan Source
 
-Feluda can analyse an SBOM someone else produced instead of a project tree. Point `--sbom-input` at an SPDX or CycloneDX JSON document, or pipe one in with `-`, and the whole pipeline applies to it: license resolution, restrictiveness, compatibility, and every CI gate.
+Feluda can analyse an SBOM someone else produced instead of a project tree. Point `--sbom-input` at an SPDX document (JSON, tag:value or 3.0 JSON-LD) or a CycloneDX one (JSON or XML), or pipe one in with `-`, and the whole pipeline applies to it: license resolution, restrictiveness, compatibility, and every CI gate.
 
 ```sh
 # Gate a container image on restrictive licenses
@@ -329,6 +334,11 @@ feluda --sbom-input bom.json --project-license MIT --fail-on-incompatible
 
 # Write the document back out with the licenses Feluda resolved
 feluda --sbom-input bom.json --sbom-enriched bom.enriched.json
+
+# A Yocto SPDX 3.0 image SBOM, or tag:value and XML from syft
+feluda --sbom-input core-image-minimal.spdx.json --fail-on-restrictive
+syft nginx:latest -o spdx-tag-value | feluda --sbom-input -
+syft nginx:latest -o cyclonedx-xml | feluda --sbom-input -
 ```
 
 **What this covers:**
@@ -336,7 +346,7 @@ feluda --sbom-input bom.json --sbom-enriched bom.enriched.json
 - 📥 **Vendor-supplied SBOMs** - run procurement's document through your own policy
 - 🔎 **NOASSERTION components** - Feluda resolves them against each package's registry, which cataloguing tools do not do
 
-The format is auto-detected. Components are identified by their PURL, so a Debian `libssl3` and an npm package of the same name stay distinct. `--sbom-input` replaces the manifest scan; `--path` still supplies the project license that compatibility is checked against.
+The format is auto-detected, and an enriched copy is written in the format it came in. Components are identified by their PURL, so a Debian `libssl3` and an npm package of the same name stay distinct. `--sbom-input` replaces the manifest scan; `--path` still supplies the project license that compatibility is checked against.
 
 ### Filesystems as a Scan Source
 
@@ -398,7 +408,7 @@ A multi platform archive is never guessed at: without `--platform` the scan stop
 
 ### SBOM Validation
 
-Validate SBOM files to ensure they conform to the SPDX or CycloneDX specifications:
+Validate SBOM files to ensure they conform to the SPDX or CycloneDX specifications. SPDX JSON, tag:value and 3.0 JSON-LD, and CycloneDX JSON and XML, are all accepted:
 
 ```sh
 # Validate an SBOM file

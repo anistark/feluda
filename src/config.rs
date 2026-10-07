@@ -724,10 +724,10 @@ max_depth = 5"#,
             let dir = setup();
             std::env::set_current_dir(dir.path()).unwrap();
 
-            fs::write(".feluda.toml", "[sbom]\nspdx = \"3.0\"\n").unwrap();
+            fs::write(".feluda.toml", "[sbom]\nspdx = \"2.1\"\n").unwrap();
             let error = load_config().unwrap_err().to_string();
             assert!(
-                error.contains("unsupported SPDX version '3.0', expected one of 2.2, 2.3"),
+                error.contains("unsupported SPDX version '2.1', expected one of 2.2, 2.3, 3.0"),
                 "{error}"
             );
         });

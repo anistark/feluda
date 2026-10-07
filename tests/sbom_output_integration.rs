@@ -277,12 +277,12 @@ fn unsupported_versions_are_refused_with_a_reason() {
         "{stderr}"
     );
 
-    fs::write(temp.path().join(".feluda.toml"), "[sbom]\nspdx = \"3.0\"\n").unwrap();
+    fs::write(temp.path().join(".feluda.toml"), "[sbom]\nspdx = \"2.1\"\n").unwrap();
     let result = feluda_in(temp.path(), &["sbom", "spdx", "--path", "app"]);
     assert!(!result.status.success());
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
-        stderr.contains("❌") && stderr.contains("unsupported SPDX version '3.0'"),
+        stderr.contains("❌") && stderr.contains("unsupported SPDX version '2.1'"),
         "{stderr}"
     );
 }

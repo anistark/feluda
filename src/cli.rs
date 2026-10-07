@@ -10,7 +10,7 @@ use std::time::Duration;
 
 // Import from the debug module instead of defining here
 use crate::debug::{is_debug_mode, log, LogLevel};
-use crate::sbom::{CycloneDxVersion, SpdxVersion};
+use crate::sbom::{CycloneDxFormat, CycloneDxVersion, SpdxFormat, SpdxVersion};
 
 /// CI output format options
 #[derive(ValueEnum, Clone, Debug)]
@@ -58,6 +58,10 @@ pub enum SbomCommand {
         #[arg(long, value_name = "VERSION")]
         spec_version: Option<SpdxVersion>,
 
+        /// How to write the SPDX document; tag-value is SPDX 2.x only [default: json]
+        #[arg(long, value_name = "FORMAT")]
+        format: Option<SpdxFormat>,
+
         /// Catalog the packages and artifacts installed under a root filesystem instead of a project tree
         #[arg(long, value_name = "PATH")]
         filesystem: Option<String>,
@@ -84,6 +88,10 @@ pub enum SbomCommand {
         #[arg(long, value_name = "VERSION")]
         spec_version: Option<CycloneDxVersion>,
 
+        /// How to write the CycloneDX BOM [default: json]
+        #[arg(long, value_name = "FORMAT")]
+        format: Option<CycloneDxFormat>,
+
         /// Catalog the packages and artifacts installed under a root filesystem instead of a project tree
         #[arg(long, value_name = "PATH")]
         filesystem: Option<String>,
@@ -100,7 +108,7 @@ pub enum SbomCommand {
         #[arg(short, long)]
         output: Option<String>,
     },
-    /// Validate SBOM file (JSON format)
+    /// Validate an SBOM file: SPDX (JSON, tag:value, 3.0 JSON-LD) or CycloneDX (JSON, XML)
     Validate {
         /// Path to the SBOM file to validate
         #[arg(value_name = "FILE")]
@@ -159,9 +167,17 @@ pub enum Commands {
         #[arg(long, value_name = "VERSION")]
         spdx_version: Option<SpdxVersion>,
 
+        /// How to write the SPDX document; tag-value is SPDX 2.x only [default: json]
+        #[arg(long, value_name = "FORMAT")]
+        spdx_format: Option<SpdxFormat>,
+
         /// CycloneDX version to write [default: 1.6, or `[sbom] cyclonedx` in .feluda.toml]
         #[arg(long, value_name = "VERSION")]
         cyclonedx_version: Option<CycloneDxVersion>,
+
+        /// How to write the CycloneDX BOM [default: json]
+        #[arg(long, value_name = "FORMAT")]
+        cyclonedx_format: Option<CycloneDxFormat>,
 
         /// SBOM format subcommand
         #[command(subcommand)]
@@ -254,7 +270,7 @@ pub struct Cli {
     #[arg(long, help_heading = HEADING_SOURCE)]
     pub ssh_passphrase: Option<String>,
 
-    /// Analyze an existing SPDX or CycloneDX JSON document instead of a project tree ('-' for stdin)
+    /// Analyze an existing SPDX (JSON, tag:value, 3.0) or CycloneDX (JSON, XML) document instead of a project tree ('-' for stdin)
     #[arg(long, value_name = "FILE", conflicts_with = "repo", help_heading = HEADING_SOURCE)]
     pub sbom_input: Option<String>,
 
@@ -1295,7 +1311,9 @@ mod tests {
             format: None,
             output: None,
             spdx_version: None,
+            spdx_format: None,
             cyclonedx_version: None,
+            cyclonedx_format: None,
         };
 
         match sbom_cmd {
@@ -1321,6 +1339,7 @@ mod tests {
             image_archive: None,
             platform: None,
             format: Some(SbomCommand::Spdx {
+                format: None,
                 path: "/project".to_string(),
                 spec_version: None,
                 filesystem: None,
@@ -1330,7 +1349,9 @@ mod tests {
             }),
             output: None,
             spdx_version: None,
+            spdx_format: None,
             cyclonedx_version: None,
+            cyclonedx_format: None,
         };
 
         match sbom_cmd {
@@ -1365,6 +1386,7 @@ mod tests {
             image_archive: None,
             platform: None,
             format: Some(SbomCommand::Cyclonedx {
+                format: None,
                 path: "/project".to_string(),
                 spec_version: None,
                 filesystem: None,
@@ -1374,7 +1396,9 @@ mod tests {
             }),
             output: None,
             spdx_version: None,
+            spdx_format: None,
             cyclonedx_version: None,
+            cyclonedx_format: None,
         };
 
         match sbom_cmd {

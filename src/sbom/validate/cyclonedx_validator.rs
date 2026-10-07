@@ -6,6 +6,17 @@ use serde_json::Value as JsonValue;
 /// Every published CycloneDX version. syft, Trivy and cdxgen write 1.6 by default.
 const SPEC_VERSIONS: [&str; 8] = ["1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7"];
 
+/// The lifecycle phases CycloneDX 1.5 onwards defines.
+const LIFECYCLE_PHASES: [&str; 7] = [
+    "design",
+    "pre-build",
+    "build",
+    "post-build",
+    "operations",
+    "discovery",
+    "decommission",
+];
+
 /// The component types any CycloneDX version defines. 1.4 has the first eight; 1.5 added
 /// `platform`, `device-driver`, `machine-learning-model` and `data`; 1.6 added
 /// `cryptographic-asset`. A type is accepted whatever version the document declares, since a
@@ -203,6 +214,29 @@ fn validate_metadata(report: &mut ValidationReport, obj: &serde_json::Map<String
                 }
             }
 
+            // A lifecycle is one of the predefined phases, or a phase of one's own with a name.
+            for lifecycle in parser::get_array(&metadata, "lifecycles").unwrap_or_default() {
+                match (
+                    parser::get_string(&lifecycle, "phase"),
+                    parser::get_string(&lifecycle, "name"),
+                ) {
+                    (Some(phase), _) if !LIFECYCLE_PHASES.contains(&phase.as_str()) => report
+                        .add_issue(
+                            ValidationIssue::warning(format!(
+                                "Metadata: unknown lifecycle phase '{phase}'"
+                            ))
+                            .with_field("metadata.lifecycles[].phase"),
+                        ),
+                    (None, None) => report.add_issue(
+                        ValidationIssue::warning(
+                            "Metadata: a lifecycle needs a 'phase' or a 'name'",
+                        )
+                        .with_field("metadata.lifecycles"),
+                    ),
+                    _ => {}
+                }
+            }
+
             if parser::has_key(&metadata, "tools") {
                 // 1.4 and earlier list tools directly; 1.5 and later nest them as components and
                 // services.
@@ -331,5 +365,34 @@ mod tests {
         assert!(messages
             .iter()
             .any(|m| m.contains("'d'") && m.contains("unknown component type")));
+    }
+
+    #[test]
+    fn test_lifecycles_are_known_phases_or_named() {
+        let report = validate(&serde_json::json!({
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.6",
+            "metadata": {
+                "lifecycles": [
+                    { "phase": "pre-build" },
+                    { "name": "staging", "description": "Our own phase" },
+                    { "phase": "shipping" },
+                    {}
+                ]
+            }
+        }))
+        .unwrap();
+        let messages: Vec<&str> = report
+            .issues
+            .iter()
+            .map(|issue| issue.message.as_str())
+            .collect();
+        assert_eq!(
+            messages,
+            [
+                "Metadata: unknown lifecycle phase 'shipping'",
+                "Metadata: a lifecycle needs a 'phase' or a 'name'"
+            ]
+        );
     }
 }

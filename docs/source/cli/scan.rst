@@ -115,7 +115,7 @@ every filter, output format and exit code exactly as it would to a source scan.
    * - Flag
      - Description
    * - ``--sbom-input <FILE>``
-     - SPDX or CycloneDX JSON document to analyse, or ``-`` for stdin
+     - SPDX (JSON, tag:value, 3.0) or CycloneDX (JSON, XML) document to analyse, or ``-`` for stdin
    * - ``--sbom-enriched <FILE>``
      - Write the input document back out with the licenses Feluda resolved
 

@@ -1,4 +1,4 @@
-:description: Generate CycloneDX 1.4 to 1.7 format SBOMs with Feluda.
+:description: Generate CycloneDX 1.4 to 1.7 format SBOMs with Feluda, as JSON or XML.
 
 .. _sbom-cyclonedx:
 
@@ -14,7 +14,8 @@ CycloneDX
 Overview
 --------
 
-CycloneDX is a lightweight SBOM standard designed for use in application security contexts and supply chain component analysis. Feluda generates CycloneDX 1.6 compliant documents by default, and 1.4, 1.5 or 1.7 on request.
+CycloneDX is a lightweight SBOM standard designed for use in application security contexts and supply chain component analysis. Feluda generates CycloneDX 1.6 compliant documents by default, and 1.4, 1.5 or 1.7 on request,
+as JSON or XML.
 
 ----
 
@@ -60,6 +61,24 @@ Feluda writes the CycloneDX document alongside your build artifacts.
      - Save CycloneDX document to the specified file
    * - ``--spec-version <VERSION>``
      - CycloneDX version to write: ``1.4``, ``1.5``, ``1.6`` (default) or ``1.7``. See :ref:`sbom-versions`
+   * - ``--format <FORMAT>``
+     - ``json`` (default) or ``xml``
+
+----
+
+XML
+---
+
+.. code-block:: bash
+
+   feluda sbom cyclonedx --format xml --output sbom
+
+The file is ``sbom.cyclonedx.xml`` (a name already ending in ``.xml`` is kept). It is the same BOM
+the JSON writer produces, in the namespace of the version asked for, with elements in the order
+that version's XSD requires; every version from 1.4 to 1.7 validates against its official schema.
+Licenses read the same way as in JSON: ``<license><id>`` for a listed id, ``<license><name>`` for
+anything else, ``<expression>`` for an expression over listed ids, and from 1.6 an
+``acknowledgement`` attribute.
 
 ----
 
@@ -68,7 +87,9 @@ CycloneDX Document Contents
 
 The generated CycloneDX document includes:
 
-- **BOM metadata** - Serial number, version, timestamp, tool info
+- **BOM metadata** - Serial number, version, timestamp, tool info, and from 1.5 the lifecycle
+  phase: ``pre-build`` when the BOM comes from a project's manifests, ``post-build`` when it
+  comes from ``--filesystem`` or ``--image-archive``
 - **Components** - Package name, version, type, purl
 - **Licenses** - License identifiers and expressions
 - **Hashes** - SHA-256 and other integrity hashes when available
