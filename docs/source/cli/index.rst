@@ -50,7 +50,7 @@ Command Overview
    * - ``feluda --image-archive``
      - Catalogue a container image from a ``docker save`` tarball or an OCI layout
    * - ``feluda --sbom-input``
-     - Scan an SPDX or CycloneDX document another tool produced
+     - Scan an SPDX or CycloneDX document another tool produced (JSON, tag:value, SPDX 3.0, XML)
    * - ``feluda watch``
      - Continuously re-scan when dependency files change
    * - ``feluda cache``

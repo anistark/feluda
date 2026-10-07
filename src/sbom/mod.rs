@@ -1,6 +1,10 @@
 pub mod cyclonedx;
+pub mod cyclonedx_xml;
 pub mod ingest;
+pub mod input;
 pub mod spdx;
+pub mod spdx3;
+pub mod tagvalue;
 pub mod validate;
 
 use crate::cli::SbomFormat;
@@ -13,7 +17,7 @@ use clap::ValueEnum;
 
 use cyclonedx::generate_cyclonedx_output;
 use serde_json::Value as JsonValue;
-use spdx::{generate_spdx_output, SpdxDocument, SpdxPackage};
+use spdx::{generate_spdx_output, SbomKind, SpdxDocument, SpdxPackage};
 
 /// Which SBOM standard a document follows.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -31,8 +35,9 @@ impl SbomType {
 
 /// The SPDX version an SBOM is written in.
 ///
-/// feluda builds one SPDX 2.3 document and writes it down to 2.2 on the way out, so a new version
-/// is a difference in `spdx::generate_spdx_output`, not a new model.
+/// feluda builds one SPDX 2.3 document and writes it down to 2.2, or across to 3.0, on the way
+/// out, so a new version is a difference in `spdx::generate_spdx_output`, not a new model. 3.0 is
+/// written as 3.0.1, the release its JSON-LD context and schema belong to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
 pub enum SpdxVersion {
     #[value(name = "2.2")]
@@ -40,6 +45,9 @@ pub enum SpdxVersion {
     #[default]
     #[value(name = "2.3")]
     V2_3,
+    /// An unquoted `3.0` in TOML arrives as the number 3, hence the alias.
+    #[value(name = "3.0", aliases = ["3.0.1", "3"])]
+    V3_0,
 }
 
 impl SpdxVersion {
@@ -47,8 +55,35 @@ impl SpdxVersion {
         match self {
             SpdxVersion::V2_2 => "2.2",
             SpdxVersion::V2_3 => "2.3",
+            SpdxVersion::V3_0 => "3.0",
         }
     }
+}
+
+/// How an SPDX document is written down.
+///
+/// Tag:value only exists for SPDX 2.x; 3.0 defines JSON-LD as its one serialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub enum SpdxFormat {
+    #[default]
+    Json,
+    #[value(name = "tag-value")]
+    TagValue,
+}
+
+/// How a CycloneDX BOM is written down. Both encode the same model, in every version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub enum CycloneDxFormat {
+    #[default]
+    Json,
+    Xml,
+}
+
+/// How each standard is written down in an SBOM run.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct SbomFormats {
+    pub spdx: SpdxFormat,
+    pub cyclonedx: CycloneDxFormat,
 }
 
 /// The CycloneDX version an SBOM is written in.
@@ -175,8 +210,19 @@ pub fn handle_sbom_command(
     image_archive: Option<ImageArchive>,
     format: &SbomFormat,
     versions: SpecVersions,
+    formats: SbomFormats,
     output_file: Option<String>,
 ) -> FeludaResult<()> {
+    // Refused before the scan, which can take minutes on an image.
+    if formats.spdx == SpdxFormat::TagValue
+        && versions.spdx == SpdxVersion::V3_0
+        && *format != SbomFormat::Cyclonedx
+    {
+        let message = "SPDX 3.0 has no tag:value serialization; write it as JSON, or pick SPDX 2.2 or 2.3 for tag:value";
+        eprintln!("❌ {message}");
+        return Err(FeludaError::InvalidData(message.to_string()));
+    }
+
     let source = filesystem
         .as_deref()
         .or(image_archive.as_ref().map(|archive| archive.path.as_str()))
@@ -210,6 +256,13 @@ pub fn handle_sbom_command(
 
     // Convert to SPDX-compliant format
     let mut spdx_doc = SpdxDocument::new(project_name);
+    // A manifest scan describes what a source tree declares; a filesystem or an image is an
+    // artifact feluda looked inside after it was built.
+    spdx_doc.sbom_type = Some(if filesystem.is_some() || image_archive.is_some() {
+        SbomKind::Analyzed
+    } else {
+        SbomKind::Source
+    });
 
     for dependency in analyzed_data {
         let mut package = SpdxPackage::new(dependency.name.clone(), &spdx_doc.document_namespace)
@@ -264,14 +317,24 @@ pub fn handle_sbom_command(
     // Generate output based on format
     match format {
         SbomFormat::Spdx => {
-            generate_spdx_output(&spdx_doc, versions.spdx, output_file)?;
+            generate_spdx_output(&spdx_doc, versions.spdx, formats.spdx, output_file)?;
         }
         SbomFormat::Cyclonedx => {
-            generate_cyclonedx_output(&spdx_doc, versions.cyclonedx, output_file)?;
+            generate_cyclonedx_output(
+                &spdx_doc,
+                versions.cyclonedx,
+                formats.cyclonedx,
+                output_file,
+            )?;
         }
         SbomFormat::All => {
-            generate_spdx_output(&spdx_doc, versions.spdx, output_file.clone())?;
-            generate_cyclonedx_output(&spdx_doc, versions.cyclonedx, output_file)?;
+            generate_spdx_output(&spdx_doc, versions.spdx, formats.spdx, output_file.clone())?;
+            generate_cyclonedx_output(
+                &spdx_doc,
+                versions.cyclonedx,
+                formats.cyclonedx,
+                output_file,
+            )?;
         }
     }
 
@@ -288,6 +351,11 @@ mod tests {
         assert_eq!(spdx, SpdxVersion::V2_2);
         let spdx: SpdxVersion = serde_json::from_str("2.3").unwrap();
         assert_eq!(spdx, SpdxVersion::V2_3);
+        // Unquoted, 3.0 is the number 3.
+        let spdx: SpdxVersion = serde_json::from_str("3.0").unwrap();
+        assert_eq!(spdx, SpdxVersion::V3_0);
+        let spdx: SpdxVersion = serde_json::from_str("\"3.0.1\"").unwrap();
+        assert_eq!(spdx, SpdxVersion::V3_0);
 
         let cyclonedx: CycloneDxVersion = serde_json::from_str("\" 1.7 \"").unwrap();
         assert_eq!(cyclonedx, CycloneDxVersion::V1_7);

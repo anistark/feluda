@@ -1,19 +1,12 @@
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
-use crate::sbom::{detect_sbom_type_in, SbomType};
-use serde_json::Value as JsonValue;
+use crate::sbom::input::{read_sbom, Original, Serialization};
 use std::fs;
 
 mod cyclonedx_validator;
 mod parser;
 mod reporter;
+mod spdx3_validator;
 mod spdx_validator;
-
-fn detect_sbom_type(content: &str) -> FeludaResult<SbomType> {
-    let json: JsonValue = serde_json::from_str(content)
-        .map_err(|e| FeludaError::Validation(format!("Failed to parse JSON: {e}")))?;
-    detect_sbom_type_in(&json)
-        .ok_or_else(|| FeludaError::Validation(SbomType::DETECTION_FAILURE.to_string()))
-}
 
 pub fn handle_sbom_validate_command(
     sbom_file: String,
@@ -29,26 +22,34 @@ pub fn handle_sbom_validate_command(
         .map_err(|_| FeludaError::Validation(format!("Failed to read SBOM file: {sbom_file}")))?;
 
     log(LogLevel::Info, "Parsing SBOM file");
-    let json: JsonValue = serde_json::from_str(&content)
-        .map_err(|e| FeludaError::Validation(format!("Invalid JSON: {e}")))?;
-
-    log(LogLevel::Info, "Detecting SBOM type");
-    let sbom_type = detect_sbom_type(&content)?;
+    // Errors returned from `run()` only print under `--debug`.
+    let document = read_sbom(&content).map_err(|e| {
+        eprintln!("❌ {e}");
+        FeludaError::Validation(e)
+    })?;
     log(
         LogLevel::Info,
-        &format!("Detected SBOM type: {sbom_type:?}"),
+        &format!(
+            "Detected SBOM serialization: {}",
+            document.serialization.describe()
+        ),
     );
 
-    let validation_report = match sbom_type {
-        SbomType::Spdx => {
-            log(LogLevel::Info, "Running SPDX validation");
-            spdx_validator::validate(&json)?
+    // Tag:value and XML are checked in the JSON shape they were read into, which carries the
+    // same fields; SPDX 3.0 is a graph, so it has its own checks.
+    let mut validation_report = match (&document.original, document.serialization) {
+        (Original::Spdx3(graph), _) => spdx3_validator::validate(graph)?,
+        (_, Serialization::SpdxJson | Serialization::SpdxTagValue) => {
+            spdx_validator::validate(&document.model)?
         }
-        SbomType::CycloneDx => {
-            log(LogLevel::Info, "Running CycloneDX validation");
-            cyclonedx_validator::validate(&json)?
-        }
+        _ => cyclonedx_validator::validate(&document.model)?,
     };
+    if matches!(
+        document.serialization,
+        Serialization::SpdxTagValue | Serialization::CycloneDxXml
+    ) {
+        validation_report.sbom_type = document.serialization.describe().to_string();
+    }
 
     validation_report.write_output(json_output, output)?;
 

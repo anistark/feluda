@@ -33,7 +33,7 @@ inputs:
     description: 'Programming language to scan (e.g., rust, python, node, go, cpp, c, r)'
     required: false
   sbom-input:
-    description: 'Analyze an existing SPDX or CycloneDX JSON document instead of the project tree'
+    description: 'Analyze an existing SPDX (JSON, tag:value, 3.0) or CycloneDX (JSON, XML) document instead of the project tree'
     required: false
   filesystem:
     description: 'Catalog the packages installed under a root filesystem or install tree instead of the project tree'

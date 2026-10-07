@@ -195,7 +195,7 @@ you can hand to a customer, an auditor, or a procurement questionnaire.
       ``feluda generate`` writes the attribution files most open source licenses
       require, populated from the dependencies actually in your tree.
 
-   .. grid-item-card:: :iconify:`lucide:boxes` SPDX 2.3 and CycloneDX 1.6
+   .. grid-item-card:: :iconify:`lucide:boxes` SPDX 2.3, SPDX 3.0 and CycloneDX 1.6
       :class-card: glassmorphic
       :link: sbom/index
       :link-type: doc
@@ -209,7 +209,7 @@ you can hand to a customer, an auditor, or a procurement questionnaire.
       :link-type: doc
 
       Point Feluda at an SBOM someone else produced and scan it as a source, no
-      original repository needed.
+      original repository needed. JSON, tag:value, SPDX 3.0 and CycloneDX XML alike.
 
    .. grid-item-card:: :iconify:`lucide:check-check` Validate before you send it
       :class-card: glassmorphic

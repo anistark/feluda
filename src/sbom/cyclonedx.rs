@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
-use crate::sbom::spdx::SpdxDocument;
-use crate::sbom::CycloneDxVersion;
+use crate::sbom::spdx::{SbomKind, SpdxDocument};
+use crate::sbom::{CycloneDxFormat, CycloneDxVersion};
 
 /// CycloneDX BOM structure, for every version feluda writes (1.4 to 1.7)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +41,10 @@ pub struct CycloneDxMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<DateTime<Utc>>,
 
+    /// Which stage of the product's life the BOM describes, from 1.5
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lifecycles: Vec<CycloneDxLifecycle>,
+
     /// Tools used to create the BOM (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<CycloneDxToolsChoice>,
@@ -52,6 +56,13 @@ pub struct CycloneDxMetadata {
     /// Component that represents the BOM (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component: Option<CycloneDxComponent>,
+}
+
+/// A lifecycle phase the BOM was made in, from 1.5.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CycloneDxLifecycle {
+    /// `design`, `pre-build`, `build`, `post-build`, `operations`, `discovery` or `decommission`
+    pub phase: String,
 }
 
 /// The two shapes `metadata.tools` has taken.
@@ -251,6 +262,7 @@ impl CycloneDxBom {
             version: Some(1),
             metadata: Some(CycloneDxMetadata {
                 timestamp: Some(Utc::now()),
+                lifecycles: Vec::new(),
                 tools: Some(tools),
                 authors: vec![],
                 component: None,
@@ -340,6 +352,20 @@ pub fn convert_spdx_to_cyclonedx(
     let mut bom = CycloneDxBom::for_version(spec_version);
     let acknowledges = spec_version >= CycloneDxVersion::V1_6;
 
+    // CISA's SBOM types map onto CycloneDX phases: a source SBOM is made before the build, an
+    // analyzed one by looking inside what the build produced.
+    if let (Some(kind), Some(metadata)) = (spdx_doc.sbom_type, bom.metadata.as_mut()) {
+        if spec_version >= CycloneDxVersion::V1_5 {
+            let phase = match kind {
+                SbomKind::Source => "pre-build",
+                SbomKind::Analyzed => "post-build",
+            };
+            metadata.lifecycles.push(CycloneDxLifecycle {
+                phase: phase.to_string(),
+            });
+        }
+    }
+
     // Convert each SPDX package to CycloneDX component
     for spdx_package in &spdx_doc.packages {
         let mut component = CycloneDxComponent {
@@ -391,33 +417,42 @@ pub fn convert_spdx_to_cyclonedx(
 pub fn generate_cyclonedx_output(
     spdx_doc: &SpdxDocument,
     spec_version: CycloneDxVersion,
+    format: CycloneDxFormat,
     output_file: Option<String>,
 ) -> FeludaResult<()> {
     log(
         LogLevel::Info,
-        &format!("Generating CycloneDX {} BOM output", spec_version.as_str()),
+        &format!(
+            "Generating CycloneDX {} BOM output as {format:?}",
+            spec_version.as_str()
+        ),
     );
 
     // Convert SPDX document to CycloneDX BOM
     let cyclonedx_bom = convert_spdx_to_cyclonedx(spdx_doc, spec_version);
 
-    // Serialize to JSON
-    let json_output = serde_json::to_string_pretty(&cyclonedx_bom).map_err(|e| {
-        FeludaError::Serialization(format!("Failed to serialize CycloneDX BOM: {e}"))
-    })?;
+    let (output, extension) = match format {
+        CycloneDxFormat::Json => (
+            serde_json::to_string_pretty(&cyclonedx_bom).map_err(|e| {
+                FeludaError::Serialization(format!("Failed to serialize CycloneDX BOM: {e}"))
+            })?,
+            ".json",
+        ),
+        CycloneDxFormat::Xml => (super::cyclonedx_xml::write(&cyclonedx_bom), ".xml"),
+    };
 
     // Output to file or stdout
     if let Some(file_path) = output_file {
-        let cyclonedx_file = if file_path.ends_with(".json") {
+        let cyclonedx_file = if file_path.ends_with(extension) {
             file_path
         } else {
             format!(
-                "{}.cyclonedx.json",
+                "{}.cyclonedx{extension}",
                 file_path.trim_end_matches(".cyclonedx")
             )
         };
 
-        std::fs::write(&cyclonedx_file, &json_output)
+        std::fs::write(&cyclonedx_file, &output)
             .map_err(|e| FeludaError::FileWrite(format!("Failed to write CycloneDX file: {e}")))?;
 
         println!("🧪 CycloneDX BOM written to: {cyclonedx_file} (EXPERIMENTAL)");
@@ -427,7 +462,7 @@ pub fn generate_cyclonedx_output(
         );
     } else {
         println!("=== CycloneDX BOM (EXPERIMENTAL) ===");
-        println!("{json_output}");
+        println!("{output}");
     }
 
     Ok(())
@@ -869,5 +904,31 @@ mod tests {
             }
             other => panic!("expected a named license, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_lifecycle_follows_what_the_sbom_was_made_from() {
+        let mut document = single_package_document("MIT");
+        let lifecycles = |document: &SpdxDocument, version| {
+            serde_json::to_value(convert_spdx_to_cyclonedx(document, version)).unwrap()["metadata"]
+                .get("lifecycles")
+                .cloned()
+        };
+
+        // Nothing said what the inventory was made from, so nothing is claimed.
+        assert_eq!(lifecycles(&document, CycloneDxVersion::V1_6), None);
+
+        document.sbom_type = Some(SbomKind::Source);
+        assert_eq!(
+            lifecycles(&document, CycloneDxVersion::V1_6),
+            Some(serde_json::json!([{ "phase": "pre-build" }]))
+        );
+        document.sbom_type = Some(SbomKind::Analyzed);
+        assert_eq!(
+            lifecycles(&document, CycloneDxVersion::V1_5),
+            Some(serde_json::json!([{ "phase": "post-build" }]))
+        );
+        // 1.4 has no lifecycles.
+        assert_eq!(lifecycles(&document, CycloneDxVersion::V1_4), None);
     }
 }
