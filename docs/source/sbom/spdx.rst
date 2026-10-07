@@ -1,4 +1,4 @@
-:description: Generate SPDX 2.3 format SBOMs with Feluda.
+:description: Generate SPDX 2.3 or 2.2 format SBOMs with Feluda.
 
 .. _sbom-spdx:
 
@@ -14,7 +14,7 @@ SPDX
 Overview
 --------
 
-SPDX is an open standard for communicating software bill of material information, including components, licenses, copyrights, and security references. Feluda generates SPDX 2.3 compliant documents.
+SPDX is an open standard for communicating software bill of material information, including components, licenses, copyrights, and security references. Feluda generates SPDX 2.3 compliant documents by default, and SPDX 2.2 on request.
 
 ----
 
@@ -52,6 +52,8 @@ Feluda saves the SPDX document to ``sbom.spdx.json`` and logs the path.
      - Description
    * - ``--output <PATH>``
      - Save SPDX document to the specified file
+   * - ``--spec-version <VERSION>``
+     - SPDX version to write: ``2.3`` (default) or ``2.2``. See :ref:`sbom-versions`
 
 ----
 
@@ -62,13 +64,21 @@ The generated SPDX document includes:
 
 - **Document metadata** - Creator info, creation timestamp, SPDX version
 - **Package information** - Name, version, download location
-- **Package coordinates** - A ``PACKAGE-MANAGER`` external reference carrying the package's PURL
+- **Package coordinates** - A ``PACKAGE-MANAGER`` external reference carrying the package's PURL (``PACKAGE_MANAGER`` in 2.2)
 - **License data** - SPDX license identifiers for each package
 - **Relationships** - Dependency relationships between packages
 - **Feluda metadata** - Tool version and scan parameters
 
 Each package's ``SPDXID`` is derived from its PURL, so two packages that share a
 name and version across ecosystems stay distinct elements in the document.
+
+SPDX license fields only accept ids from the SPDX license list, expressions over them, and
+``LicenseRef-`` ids the document defines. A license outside the list, such as ``SEE LICENSE IN
+LICENSE.txt`` or a registry title like ``The Apache Software License, Version 2.0``, is written as
+a ``LicenseRef-feluda-*`` id, for example ``LicenseRef-feluda-SEE-LICENSE-IN-LICENSE.txt``, and defined once in
+``hasExtractedLicensingInfos`` with the text the package stated. Inside an expression only the
+unlisted license becomes a reference, so ``Custom-1.0 OR MIT`` stays a choice:
+``LicenseRef-feluda-Custom-1.0 OR MIT``.
 
 ----
 

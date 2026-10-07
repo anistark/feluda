@@ -197,6 +197,12 @@ the member that pulls them in.
 root ``package.json`` with the ``workspaces`` field. Each dependency is
 attributed to the workspace package(s) that declare it.
 
+**pnpm projects** are read from ``pnpm-lock.yaml`` alone (lockfile versions 5, 6 and 9), so the
+report lists exactly what pnpm installed, the same set ``pnpm list --depth Infinity`` shows. Two
+installed versions of one package are two rows, each with the license of its own version, and a
+package left in ``node_modules`` by an earlier install is not reported. ``pnpm list`` and the
+``node_modules`` scans are used only when the lockfile cannot be read.
+
 **Go workspaces** — point Feluda at the directory containing ``go.work``.
 Feluda parses the ``use`` directives, scans each member module, and merges
 the results.
@@ -350,6 +356,8 @@ fails silently, so an unreachable service leaves the report exactly as it would 
      - Description
    * - ``--no-clearlydefined``
      - Skip the ClearlyDefined lookup for unresolved licenses
+   * - ``--update-definitions``
+     - Record what the scan resolved into the configured definitions file, for offline scans
 
 See :ref:`cli-clearlydefined` for what is asked, what comes back, and how to point it elsewhere.
 

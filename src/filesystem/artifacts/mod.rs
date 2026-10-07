@@ -233,6 +233,7 @@ fn dedupe(artifacts: Vec<Artifact>) -> Vec<LicenseInfo> {
             osi_status: OsiStatus::Unknown,
             ecosystem: artifact.ecosystem,
             sub_project: None,
+            qualifiers: Default::default(),
         });
     }
 

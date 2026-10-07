@@ -220,7 +220,26 @@ environment equivalents:
    export FELUDA_CLEARLYDEFINED_ENDPOINT=https://clearlydefined.internal/definitions
    export FELUDA_CLEARLYDEFINED_DEFINITIONS=clearlydefined.json
 
-``--no-clearlydefined`` turns it off for a single run. See :ref:`cli-clearlydefined`.
+``--no-clearlydefined`` turns it off for a single run, and ``--update-definitions`` writes the
+``definitions`` file from a connected scan. See :ref:`cli-clearlydefined`.
+
+----
+
+Choose SBOM spec versions
+-------------------------
+
+``feluda sbom`` writes SPDX 2.3 and CycloneDX 1.6 unless told otherwise. Pin other versions for a
+project when a consumer expects them:
+
+.. code-block:: toml
+
+   [sbom]
+   spdx = "2.2"
+   cyclonedx = "1.4"
+
+SPDX takes ``2.2`` or ``2.3``; CycloneDX takes ``1.4``, ``1.5``, ``1.6`` or ``1.7``. The environment
+equivalents are ``FELUDA_SBOM_SPDX`` and ``FELUDA_SBOM_CYCLONEDX``, and a ``--spec-version`` flag on
+the command line beats both. See :ref:`sbom-versions`.
 
 ----
 

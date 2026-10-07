@@ -207,7 +207,10 @@ fn alpine_rootfs_is_cataloged_from_the_apk_database() {
     assert_eq!(musl["is_restrictive"], false);
     assert_eq!(musl["ecosystem"], "apk");
     assert_eq!(musl["version"], "1.2.5-r0");
-    assert_eq!(musl["purl"], "pkg:apk/alpine/musl@1.2.5-r0");
+    assert_eq!(
+        musl["purl"],
+        "pkg:apk/alpine/musl@1.2.5-r0?arch=x86_64&distro=alpine-3.20.3"
+    );
 
     let busybox = find(&report, "alpine/busybox");
     assert_eq!(busybox["license"], "GPL-2.0-only");
@@ -233,7 +236,10 @@ fn debian_rootfs_resolves_licenses_from_copyright_files() {
     let libssl = find(&report, "debian/libssl3");
     assert_eq!(libssl["license"], "Apache-2.0");
     assert_eq!(libssl["ecosystem"], "deb");
-    assert_eq!(libssl["purl"], "pkg:deb/debian/libssl3@3.0.15-1~deb12u1");
+    assert_eq!(
+        libssl["purl"],
+        "pkg:deb/debian/libssl3@3.0.15-1~deb12u1?arch=amd64&distro=debian-12&upstream=openssl"
+    );
 
     // Debian's own short names are not SPDX ids: GPL-3+ has to become GPL-3.0-or-later or the
     // restrictive gate never fires on it.
@@ -242,6 +248,94 @@ fn debian_rootfs_resolves_licenses_from_copyright_files() {
     assert_eq!(bash["is_restrictive"], true);
 
     assert_eq!(find(&report, "debian/coreutils")["license"], "MIT");
+}
+
+/// A Debian tree whose copyright files predate DEP-5: one states a single GNU grant, the other
+/// grants different licenses for different parts of the package.
+fn pre_dep5_rootfs() -> tempfile::TempDir {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    write(
+        temp.path(),
+        "etc/os-release",
+        "ID=debian\nVERSION_ID=\"12\"\n",
+    );
+    write(
+        temp.path(),
+        "var/lib/dpkg/status",
+        "Package: base-files\n\
+         Status: install ok installed\n\
+         Architecture: amd64\n\
+         Version: 12.4+deb12u15\n\
+         \n\
+         Package: libselinux1\n\
+         Status: install ok installed\n\
+         Architecture: amd64\n\
+         Version: 3.4-1+b6\n",
+    );
+    // The only path it points at is the unversioned `common-licenses/GPL`; the grant names the
+    // version.
+    write(
+        temp.path(),
+        "usr/share/doc/base-files/copyright",
+        "This is the Debian prepackaged version of the Debian Base System\n\
+         Miscellaneous files.\n\
+         \n\
+         This program is free software; you can redistribute it and/or modify\n\
+         it under the terms of the GNU General Public License as published by\n\
+         the Free Software Foundation; either version 2 of the License, or\n\
+         (at your option) any later version.\n\
+         \n\
+         On Debian systems, the complete text of the GNU General\n\
+         Public License can be found in `/usr/share/common-licenses/GPL'.\n",
+    );
+    write(
+        temp.path(),
+        "usr/share/doc/libselinux1/copyright",
+        "This library (libselinux) is public domain software.\n\
+         \n\
+         One file is distributed under the terms of the GNU General Public License,\n\
+         version 2. See `/usr/share/common-licenses/GPL-2'.\n\
+         \n\
+         Another is distributed under the terms of the GNU Lesser General Public\n\
+         License as published by the Free Software Foundation; either version 2.1\n\
+         of the License, or (at your option) any later version. See\n\
+         `/usr/share/common-licenses/LGPL-2.1'.\n",
+    );
+    temp
+}
+
+#[test]
+fn pre_dep5_copyright_files_resolve_from_their_grant() {
+    let temp = pre_dep5_rootfs();
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+
+    let base_files = find(&report, "debian/base-files");
+    assert_eq!(base_files["license"], "GPL-2.0-or-later");
+    assert_eq!(base_files["is_restrictive"], true);
+
+    // Three licenses for three parts of the package is not one license for the package. Unknown
+    // is not restrictive either, so the gate below fails on base-files alone.
+    let libselinux = find(&report, "debian/libselinux1");
+    assert_eq!(libselinux["license"], Value::Null);
+    assert_eq!(libselinux["is_restrictive"], false);
+}
+
+#[test]
+fn a_gpl_grant_in_a_pre_dep5_copyright_file_fails_the_gate() {
+    let temp = pre_dep5_rootfs();
+    let output = feluda(&[
+        "--filesystem",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--fail-on-restrictive",
+    ]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "expected a non-zero exit, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -572,7 +666,9 @@ fn sbom_generation_describes_installed_artifacts_too() {
         "the installed distribution is missing from {purls:?}"
     );
     assert!(
-        purls.contains(&"pkg:deb/debian/libssl3@3.0.15-1~deb12u1"),
+        purls.contains(
+            &"pkg:deb/debian/libssl3@3.0.15-1~deb12u1?arch=amd64&distro=debian-12&upstream=openssl"
+        ),
         "the OS package is missing from {purls:?}"
     );
 }
@@ -620,7 +716,9 @@ fn sbom_generation_takes_the_same_source() {
         .filter_map(|reference| reference["referenceLocator"].as_str())
         .collect();
     assert!(
-        purls.contains(&"pkg:deb/debian/libssl3@3.0.15-1~deb12u1"),
+        purls.contains(
+            &"pkg:deb/debian/libssl3@3.0.15-1~deb12u1?arch=amd64&distro=debian-12&upstream=openssl"
+        ),
         "namespaced PURL missing from {purls:?}"
     );
 }
@@ -641,7 +739,7 @@ fn fedora_rootfs_is_cataloged_from_the_rpm_database() {
     assert_eq!(bzip2["license"], "BSD-4-Clause");
     assert_eq!(bzip2["ecosystem"], "rpm");
     assert_eq!(bzip2["version"], "1.0.8-19.fc41");
-    assert_eq!(bzip2["purl"], "pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41");
+    assert_eq!(bzip2["purl"], "pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41?arch=x86_64&distro=fedora-41&upstream=bzip2-1.0.8-19.fc41.src.rpm");
 
     // Fedora states SPDX expressions directly, and an AND expression has to survive intact for the
     // restrictive half of it to count.
@@ -671,25 +769,25 @@ fn opensuse_rootfs_is_cataloged_from_the_ndb_store() {
         .as_str()
         .is_some_and(|name| name.contains("gpg-pubkey"))));
 
-    let pam = find(&report, "opensuse-leap/pam");
+    let pam = find(&report, "opensuse/pam");
     assert_eq!(pam["ecosystem"], "rpm");
     assert_eq!(pam["version"], "1.3.0-150000.6.86.1");
-    assert_eq!(pam["purl"], "pkg:rpm/opensuse-leap/pam@1.3.0-150000.6.86.1");
+    assert_eq!(pam["purl"], "pkg:rpm/opensuse/pam@1.3.0-150000.6.86.1?arch=aarch64&distro=opensuse-leap-15.6&upstream=pam-1.3.0-150000.6.86.1.src.rpm");
     // SUSE writes SPDX ids with lowercase operators; the operator is normalized and the ids kept.
     assert_eq!(pam["license"], "GPL-2.0+ OR BSD-3-Clause");
     assert_eq!(pam["is_restrictive"], false);
 
     // The deprecated `+` spellings are still SPDX and still classify as copyleft.
-    let fillup = find(&report, "opensuse-leap/fillup");
+    let fillup = find(&report, "opensuse/fillup");
     assert_eq!(fillup["license"], "GPL-2.0+");
     assert_eq!(fillup["is_restrictive"], true);
 
     assert_eq!(
-        find(&report, "opensuse-leap/libgcc_s1")["license"],
+        find(&report, "opensuse/libgcc_s1")["license"],
         "GPL-3.0-or-later WITH GCC-exception-3.1"
     );
     assert_eq!(
-        find(&report, "opensuse-leap/boost-license1_66_0")["license"],
+        find(&report, "opensuse/boost-license1_66_0")["license"],
         "BSL-1.0"
     );
 }
@@ -745,7 +843,7 @@ fn an_rpm_root_filesystem_generates_an_sbom() {
         .filter_map(|reference| reference["referenceLocator"].as_str())
         .collect();
     assert!(
-        purls.contains(&"pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41"),
+        purls.contains(&"pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41?arch=x86_64&distro=fedora-41&upstream=bzip2-1.0.8-19.fc41.src.rpm"),
         "namespaced rpm PURL missing from {purls:?}"
     );
 }

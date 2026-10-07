@@ -18,7 +18,7 @@ use crate::cache;
 use crate::cli;
 use crate::config;
 use crate::debug::{log, log_debug, log_error, FeludaResult, LogLevel};
-use crate::purl::Ecosystem;
+use crate::purl::{Ecosystem, Qualifiers};
 
 static GITHUB_TOKEN: OnceLock<Option<String>> = OnceLock::new();
 
@@ -132,6 +132,7 @@ pub struct LicenseInfo {
     pub osi_status: OsiStatus,   // OSI approval status
     pub ecosystem: Ecosystem,    // The packaging ecosystem the package was resolved from
     pub sub_project: Option<String>, // Workspace member that brought in this dependency (None for non-monorepos)
+    pub qualifiers: Qualifiers, // PURL qualifiers (arch, distro, ...): written out, never compared
 }
 
 impl Serialize for LicenseInfo {
@@ -197,11 +198,13 @@ impl LicenseInfo {
         self.sub_project.as_deref()
     }
 
-    /// The package's PURL, the coordinate that identifies it across ecosystems.
+    /// The package's PURL, the coordinate that identifies it across ecosystems, with whatever
+    /// qualifiers its source recorded.
     ///
     /// `None` only when the name is empty, which no analyzer should produce.
     pub fn purl(&self) -> Option<String> {
-        self.ecosystem.purl(&self.name, &self.version)
+        self.ecosystem
+            .purl_with(&self.name, &self.version, &self.qualifiers)
     }
 
     #[allow(dead_code)]
@@ -1899,6 +1902,7 @@ mod tests {
             osi_status: OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         };
 
         assert_eq!(info.name(), "test_package");
@@ -1919,6 +1923,7 @@ mod tests {
             osi_status: OsiStatus::Unknown,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         };
 
         assert_eq!(info.get_license(), "No License");
@@ -1935,6 +1940,7 @@ mod tests {
             osi_status: OsiStatus::Approved,
             ecosystem: Ecosystem::Npm,
             sub_project: None,
+            qualifiers: Default::default(),
         };
 
         assert_eq!(npm.purl().as_deref(), Some("pkg:npm/%40babel/core@7.24.0"));
@@ -1959,6 +1965,7 @@ mod tests {
             osi_status: OsiStatus::Approved,
             ecosystem: Ecosystem::Cargo,
             sub_project: None,
+            qualifiers: Default::default(),
         };
 
         let json: serde_json::Value = serde_json::to_value(&info).unwrap();

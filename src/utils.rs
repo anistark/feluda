@@ -448,6 +448,7 @@ mod tests {
             no_local: false,
             no_vendor_scan: false,
             no_clearlydefined: false,
+            update_definitions: false,
         };
 
         let result = clone_repository(&args, temp_dir.path());
@@ -511,6 +512,7 @@ mod tests {
             no_local: false,
             no_vendor_scan: false,
             no_clearlydefined: false,
+            update_definitions: false,
         };
 
         // Enable debug mode for this test
@@ -573,6 +575,7 @@ mod tests {
             no_local: false,
             no_vendor_scan: false,
             no_clearlydefined: false,
+            update_definitions: false,
         };
 
         let result = clone_repository(&args, temp_dir.path());

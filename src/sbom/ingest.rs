@@ -27,7 +27,9 @@ use crate::licenses::{
     classify_findings, detect_license_from_content, LicenseCompatibility, LicenseInfo, OsiStatus,
 };
 use crate::purl::{parse_purl, Ecosystem};
-use crate::sbom::{detect_sbom_type_in, SbomType};
+use crate::sbom::cyclonedx::convert_spdx_license_to_cyclonedx;
+use crate::sbom::spdx::{spdx_license_field, LicenseRefs};
+use crate::sbom::{detect_sbom_type_in, CycloneDxVersion, SbomType};
 
 /// The source argument that means "read the document from stdin".
 const STDIN_SOURCE: &str = "-";
@@ -195,7 +197,7 @@ fn component_info(
     version: &str,
     license: Option<String>,
 ) -> LicenseInfo {
-    let (ecosystem, name, version) = match purl.and_then(parse_purl) {
+    let (ecosystem, name, version, qualifiers) = match purl.and_then(parse_purl) {
         Some(parsed) => {
             // A versionless PURL still leaves the document's own version field to fall back on.
             let version = if parsed.version.is_empty() {
@@ -203,9 +205,16 @@ fn component_info(
             } else {
                 parsed.version
             };
-            (parsed.ecosystem, parsed.name, version)
+            // Kept so an SBOM generated from this one says `arch` and `distro` wherever the input
+            // did.
+            (parsed.ecosystem, parsed.name, version, parsed.qualifiers)
         }
-        None => (Ecosystem::Generic, name.to_string(), version.to_string()),
+        None => (
+            Ecosystem::Generic,
+            name.to_string(),
+            version.to_string(),
+            Default::default(),
+        ),
     };
 
     LicenseInfo {
@@ -218,6 +227,7 @@ fn component_info(
         osi_status: OsiStatus::Unknown,
         ecosystem,
         sub_project: None,
+        qualifiers,
     }
 }
 
@@ -427,7 +437,25 @@ fn write_enriched(
     };
 
     let mut patched = 0;
-    let mut extracted_refs: Vec<JsonValue> = Vec::new();
+    // New refs must not repeat or collide with ones the document already defines.
+    let existing_refs = document
+        .get("hasExtractedLicensingInfos")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|info| {
+            Some((
+                string_field(info, "licenseId")?,
+                string_field(info, "extractedText").unwrap_or_default(),
+            ))
+        });
+    let mut refs = LicenseRefs::with_existing(existing_refs);
+    // From 1.6 a CycloneDX license can say whether it was declared or concluded, and what feluda
+    // resolved is a conclusion, the same distinction `licenseConcluded` carries in SPDX.
+    let acknowledgement = string_field(document, "specVersion")
+        .and_then(|version| <CycloneDxVersion as clap::ValueEnum>::from_str(&version, true).ok())
+        .filter(|version| *version >= CycloneDxVersion::V1_6)
+        .map(|_| "concluded");
     for (info, origin) in components.iter().zip(origins) {
         let Some(license) = info.license.as_deref().filter(|_| origin.resolved) else {
             continue;
@@ -442,37 +470,23 @@ fn write_enriched(
         match format {
             // The resolved license is a conclusion feluda drew, not something the document
             // declared, which is exactly the distinction `licenseConcluded` carries.
+            // A license outside the SPDX list is written as a `LicenseRef-` the document defines.
             SbomType::Spdx => {
-                entry["licenseConcluded"] = match spdx_reference(license) {
-                    Some(license_ref) => {
-                        let value = json!(license_ref);
-                        extracted_refs.push(json!({
-                            "licenseId": license_ref,
-                            "name": license,
-                            "extractedText": license,
-                        }));
-                        value
-                    }
-                    None => json!(license),
-                };
+                entry["licenseConcluded"] = json!(spdx_license_field(license, &mut refs));
             }
+            // Stated the way `feluda sbom` writes it: a listed id as `id`, an expression over listed
+            // licenses as `expression`, and anything else, such as a registry's free-form title,
+            // as `name`, since calling it an `id` would make the document invalid.
             SbomType::CycloneDx => {
-                let stated = if is_expression(license) {
-                    json!({ "expression": license })
-                } else if is_license_id(license) {
-                    json!({ "license": { "id": license } })
-                } else {
-                    // Registries hand back plenty of free-form titles ("The Apache Software
-                    // License, Version 2.0"). Those are names, and calling one an `id` would make
-                    // the document invalid.
-                    json!({ "license": { "name": license } })
-                };
+                let stated = json!(convert_spdx_license_to_cyclonedx(license, acknowledgement));
                 entry["licenses"] = json!([stated]);
             }
         }
         patched += 1;
     }
 
+    let extracted_refs: Vec<JsonValue> =
+        refs.into_defined().iter().map(|info| json!(info)).collect();
     if !extracted_refs.is_empty() {
         let existing = enriched
             .get_mut("hasExtractedLicensingInfos")
@@ -501,56 +515,6 @@ fn write_enriched(
     eprintln!("✓ Enriched SBOM written to {output_path} ({patched} licenses resolved)");
 
     Ok(())
-}
-
-/// Whether a license string is a bare SPDX id: no spaces, and nothing outside the character set
-/// SPDX ids use.
-fn is_license_id(license: &str) -> bool {
-    !license.is_empty()
-        && license
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_'))
-}
-
-/// Whether a license string is a compound SPDX expression built entirely from ids and operators.
-///
-/// A free-form title can also contain the word "or", so shape is checked as well as compoundness.
-fn is_expression(license: &str) -> bool {
-    crate::spdx::is_compound(license)
-        && license
-            .replace(['(', ')'], " ")
-            .split_whitespace()
-            .all(|token| matches!(token, "AND" | "OR" | "WITH") || is_license_id(token))
-}
-
-/// The `LicenseRef-*` id a free-form license has to be written as, or `None` when the license is
-/// already an SPDX id or expression and can be written literally.
-///
-/// SPDX only accepts ids from its list, expressions over them, and document-local `LicenseRef-*`
-/// ids defined in `hasExtractedLicensingInfos`. A registry title like "The Apache Software
-/// License, Version 2.0" is none of those, so it goes in as a reference feluda defines.
-fn spdx_reference(license: &str) -> Option<String> {
-    if is_license_id(license) || is_expression(license) {
-        return None;
-    }
-
-    let slug: String = license
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '.' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    // Runs of replaced punctuation collapse, so the id stays readable.
-    let slug = slug
-        .split('-')
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    Some(format!("LicenseRef-feluda-{slug}"))
 }
 
 #[cfg(test)]
@@ -649,13 +613,14 @@ mod tests {
         assert_eq!(origins.len(), 3);
 
         // The PURL, not the package name, decides the ecosystem. An OS package keeps the distro
-        // namespace the document gave it, so the PURL it round-trips to is the one that arrived.
+        // namespace and the qualifiers the document gave it, so the PURL it round-trips to is the
+        // one that arrived.
         assert_eq!(components[0].ecosystem, Ecosystem::Deb);
         assert_eq!(components[0].name, "debian/libssl3");
         assert_eq!(components[0].version, "3.0.15-1");
         assert_eq!(
             components[0].purl().as_deref(),
-            Some("pkg:deb/debian/libssl3@3.0.15-1")
+            Some("pkg:deb/debian/libssl3@3.0.15-1?arch=amd64&distro=debian-12")
         );
         // NOASSERTION on the conclusion falls through to the declaration.
         assert_eq!(components[0].license.as_deref(), Some("OpenSSL"));
@@ -881,21 +846,22 @@ mod tests {
     fn test_free_form_licenses_become_license_refs() {
         // Maven Central answers with titles, not SPDX ids, and neither format accepts one where
         // an id is expected.
+        let mut refs = LicenseRefs::default();
         assert_eq!(
-            spdx_reference("The Apache Software License, Version 2.0").as_deref(),
-            Some("LicenseRef-feluda-The-Apache-Software-License-Version-2.0")
+            spdx_license_field("The Apache Software License, Version 2.0", &mut refs),
+            "LicenseRef-feluda-The-Apache-Software-License-Version-2.0"
         );
-        assert!(spdx_reference("MIT").is_none());
-        assert!(spdx_reference("MIT OR Apache-2.0").is_none());
+        assert_eq!(spdx_license_field("MIT", &mut refs), "MIT");
+        assert_eq!(
+            spdx_license_field("MIT OR Apache-2.0", &mut refs),
+            "MIT OR Apache-2.0"
+        );
         // "or" inside a title does not make it an expression.
-        assert!(spdx_reference("Apache or MIT style license").is_some());
-
-        assert!(is_license_id("GPL-3.0-or-later"));
-        assert!(!is_license_id("Acme Commercial License"));
-        assert!(is_expression("(MIT AND BSD-2-Clause)"));
-        assert!(!is_expression(
-            "Server Side Public License, v 1 OR whatever"
-        ));
+        assert_eq!(
+            spdx_license_field("Apache or MIT style license", &mut refs),
+            "LicenseRef-feluda-Apache-or-MIT-style-license"
+        );
+        assert_eq!(refs.into_defined().len(), 2);
     }
 
     #[test]
@@ -928,6 +894,119 @@ mod tests {
             extracted[0]["extractedText"],
             "The Apache Software License, Version 2.0"
         );
+    }
+
+    #[test]
+    fn test_enriched_cyclonedx_writes_only_listed_ids_as_ids() {
+        let document = cyclonedx_fixture();
+        let (mut components, mut origins) = extract_cyclonedx(&document);
+        // Id shaped, but not on the SPDX list.
+        components[2].license = Some("Custom-1.0".to_string());
+        origins[2].resolved = true;
+        components[1].license = Some("apache-2.0".to_string());
+        origins[1].resolved = true;
+
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("enriched.cdx.json");
+        write_enriched(
+            &document,
+            SbomType::CycloneDx,
+            &components,
+            &origins,
+            output.to_str().unwrap(),
+        )
+        .unwrap();
+
+        let written: JsonValue =
+            serde_json::from_str(&fs::read_to_string(&output).unwrap()).unwrap();
+        let components = written["components"].as_array().unwrap();
+        assert_eq!(
+            components[2]["licenses"][0],
+            json!({ "license": { "name": "Custom-1.0" } })
+        );
+        assert_eq!(
+            components[1]["licenses"][0],
+            json!({ "license": { "id": "Apache-2.0" } })
+        );
+    }
+
+    #[test]
+    fn test_enriched_cyclonedx_1_6_marks_resolved_licenses_concluded() {
+        let temp = tempfile::tempdir().unwrap();
+        for (version, expected) in [("1.5", None), ("1.6", Some("concluded"))] {
+            let mut document = cyclonedx_fixture();
+            document["specVersion"] = json!(version);
+            let (mut components, mut origins) = extract_cyclonedx(&document);
+            components[2].license = Some("MIT".to_string());
+            origins[2].resolved = true;
+
+            let output = temp.path().join(format!("enriched-{version}.cdx.json"));
+            write_enriched(
+                &document,
+                SbomType::CycloneDx,
+                &components,
+                &origins,
+                output.to_str().unwrap(),
+            )
+            .unwrap();
+
+            let written: JsonValue =
+                serde_json::from_str(&fs::read_to_string(&output).unwrap()).unwrap();
+            let license = &written["components"][2]["licenses"][0]["license"];
+            assert_eq!(license["id"], "MIT");
+            assert_eq!(
+                license.get("acknowledgement").and_then(|v| v.as_str()),
+                expected,
+                "CycloneDX {version}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_enriched_spdx_refs_do_not_collide_with_the_documents_own() {
+        let mut document = spdx_fixture();
+        // A ref an earlier run defined, for a different text that folds to the same id.
+        document["hasExtractedLicensingInfos"] = json!([{
+            "licenseId": "LicenseRef-feluda-Acme-License",
+            "extractedText": "Acme License"
+        }]);
+        let (mut components, mut origins) = extract_spdx(&document);
+        components[0].license = Some("Acme, License".to_string());
+        origins[0].resolved = true;
+        components[1].license = Some("Acme License".to_string());
+        origins[1].resolved = true;
+
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("enriched.spdx.json");
+        write_enriched(
+            &document,
+            SbomType::Spdx,
+            &components,
+            &origins,
+            output.to_str().unwrap(),
+        )
+        .unwrap();
+
+        let written: JsonValue =
+            serde_json::from_str(&fs::read_to_string(&output).unwrap()).unwrap();
+        // The same text reuses the existing ref; a different one gets its own.
+        assert_eq!(
+            written["packages"][1]["licenseConcluded"],
+            "LicenseRef-feluda-Acme-License"
+        );
+        let other = written["packages"][0]["licenseConcluded"].as_str().unwrap();
+        assert!(
+            other.starts_with("LicenseRef-feluda-Acme-License-"),
+            "{other}"
+        );
+
+        let ids: Vec<&str> = written["hasExtractedLicensingInfos"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|info| info["licenseId"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["LicenseRef-feluda-Acme-License", other]);
     }
 
     #[test]

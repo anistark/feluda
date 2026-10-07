@@ -29,7 +29,7 @@ use std::path::Path;
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
 use crate::purl::Ecosystem;
 
-use super::{package_finding, Catalog};
+use super::{package_finding, qualifiers, Catalog};
 
 /// Where rpm keeps its database, relative to the root of the filesystem being scanned.
 pub const DATABASE_PATH: &str = "var/lib/rpm";
@@ -109,7 +109,8 @@ pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Cata
             )));
         }
     };
-    let catalog = build(&blobs, namespace);
+    let vendor = namespace.map(vendor);
+    let catalog = build(&blobs, vendor.as_deref());
 
     log(
         LogLevel::Info,
@@ -121,6 +122,19 @@ pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Cata
         ),
     );
     Ok(Some(catalog))
+}
+
+/// The PURL namespace for an rpm distro: its vendor, which is not always its `os-release` ID.
+///
+/// RHEL says `rhel` and openSUSE says `opensuse-leap` or `opensuse-tumbleweed`, but syft names
+/// their packages `pkg:rpm/redhat/...` and `pkg:rpm/opensuse/...`. Following it keeps the two tools'
+/// PURLs matching; the release is still spelled out in full in the `distro` qualifier.
+fn vendor(id: &str) -> String {
+    match id {
+        "rhel" | "hummingbird" => "redhat".to_string(),
+        id if id.starts_with("opensuse") => "opensuse".to_string(),
+        id => id.to_string(),
+    }
 }
 
 /// Turn header blobs into findings, and collect the artifact metadata they claim.
@@ -147,6 +161,10 @@ fn build(blobs: &[Vec<u8>], namespace: Option<&str>) -> Catalog {
                 .as_deref()
                 .and_then(license::normalize)
                 .as_deref(),
+            qualifiers(&[
+                ("arch", header.arch.as_deref()),
+                ("upstream", header.source_rpm.as_deref()),
+            ]),
         ));
     }
 
@@ -226,6 +244,15 @@ mod tests {
     }
 
     #[test]
+    fn test_vendor_namespace() {
+        assert_eq!(vendor("rhel"), "redhat");
+        assert_eq!(vendor("opensuse-leap"), "opensuse");
+        assert_eq!(vendor("opensuse-tumbleweed"), "opensuse");
+        assert_eq!(vendor("fedora"), "fedora");
+        assert_eq!(vendor("rocky"), "rocky");
+    }
+
+    #[test]
     fn test_no_database_is_not_an_error() {
         let temp = tempfile::tempdir().unwrap();
         assert!(catalog(temp.path(), Some("fedora")).unwrap().is_none());
@@ -251,7 +278,9 @@ mod tests {
         assert_eq!(bzip2.ecosystem, Ecosystem::Rpm);
         assert_eq!(
             bzip2.purl().as_deref(),
-            Some("pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41")
+            Some(
+                "pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41?arch=x86_64&upstream=bzip2-1.0.8-19.fc41.src.rpm"
+            )
         );
     }
 
@@ -333,14 +362,16 @@ mod tests {
         let pam = catalog
             .packages
             .iter()
-            .find(|package| package.name == "opensuse-leap/pam")
+            .find(|package| package.name == "opensuse/pam")
             .expect("pam missing");
         assert_eq!(pam.version, "1.3.0-150000.6.86.1");
         // SUSE writes SPDX with lowercase operators; only the operator is rewritten.
         assert_eq!(pam.license.as_deref(), Some("GPL-2.0+ OR BSD-3-Clause"));
         assert_eq!(
             pam.purl().as_deref(),
-            Some("pkg:rpm/opensuse-leap/pam@1.3.0-150000.6.86.1")
+            Some(
+                "pkg:rpm/opensuse/pam@1.3.0-150000.6.86.1?arch=aarch64&upstream=pam-1.3.0-150000.6.86.1.src.rpm"
+            )
         );
 
         for package in &catalog.packages {

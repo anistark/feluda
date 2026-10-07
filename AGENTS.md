@@ -21,7 +21,7 @@
 
 ### What Feluda Does
 
-Feluda scans a project's dependency files, resolves each dependency's license (from local files or the GitHub API), and produces a report. It supports **eight language ecosystems**, multiple output formats, SBOM generation, and CI/CD integration.
+Feluda scans a project's dependency files, resolves each dependency's license (from local files or the GitHub API), and produces a report. It supports **ten language ecosystems**, multiple output formats, SBOM generation, and CI/CD integration.
 
 ### The Analysis Pipeline
 
@@ -65,13 +65,15 @@ src/reporter.rs — format output (text/JSON/YAML/CI/gist)
 | Language | Manifest File(s) | Parser Module | Local License Detection |
 |----------|-------------------|---------------|------------------------|
 | **Rust** | `Cargo.toml` | `src/languages/rust.rs` | `Cargo.toml` license field |
-| **Node.js** | `package.json` | `src/languages/node.rs` | `node_modules/*/LICENSE` files |
-| **Go** | `go.mod` | `src/languages/go.rs` | — |
+| **Node.js** | `package.json`, `pnpm-lock.yaml` | `src/languages/node.rs` | `node_modules/.pnpm/<name>@<version>` store entry, then `node_modules/*/LICENSE` files |
+| **Go** | `go.mod`, `go.work` | `src/languages/go.rs` | — |
 | **Python** | `requirements.txt`, `Pipfile.lock`, `pip_freeze.txt`, `pyproject.toml` | `src/languages/python.rs` | — |
 | **C** | `configure.ac`, `configure.in`, `Makefile` | `src/languages/c.rs` | — |
-| **C++** | `vcpkg.json`, `conanfile.txt`, `CMakeLists.txt`, `MODULE.bazel` | `src/languages/cpp.rs` | — |
+| **C++** | `vcpkg.json`, `conanfile.txt`, `conanfile.py`, `CMakeLists.txt`, `MODULE.bazel` | `src/languages/cpp.rs` | — |
 | **R** | `DESCRIPTION`, `renv.lock` | `src/languages/r.rs` | — |
 | **.NET** | `.csproj`, `.fsproj`, `.vbproj`, `.slnx` | `src/languages/dotnet.rs` | — |
+| **Java** | `pom.xml`, `build.gradle`, `build.gradle.kts` | `src/languages/java.rs` | License file inside the cached jar in `MAVEN_REPO_LOCAL` or `~/.m2/repository` |
+| **Ruby** | `Gemfile.lock`, `Gemfile` | `src/languages/ruby.rs` | License file in installed gems (`gem env gempath`, `GEM_HOME`) |
 
 ### Critical Rules
 
@@ -145,6 +147,10 @@ src/
 ├── debug.rs             # FeludaError enum, FeludaResult, debug logging
 ├── config.rs            # .feluda.toml + env var config (figment)
 ├── parser.rs            # Project discovery, language detection, parse coordination
+├── manifest.rs          # Which files count as manifests/lockfiles, shared by scanner and watch
+├── init.rs              # `feluda init`: write .feluda.toml and .pre-commit-config.yaml
+├── watch.rs             # `feluda watch`: re-scan when a dependency file changes
+├── spdx.rs              # SPDX expression parsing and evaluation (OR / AND / WITH), SPDX license list lookup
 ├── licenses.rs          # License analysis, compatibility, OSI status, GitHub API
 ├── source_scan.rs       # Own-source license header findings (default scan)
 ├── vendor_scan.rs       # Vendored/unmanaged dependency findings (default scan)
@@ -160,7 +166,7 @@ src/
 │   ├── mod.rs           # --filesystem: catalog what a tree has installed
 │   ├── apk.rs           # Alpine: /lib/apk/db/installed
 │   ├── dpkg.rs          # Debian/Ubuntu: /var/lib/dpkg/status
-│   ├── copyright.rs     # DEP-5 parsing, Debian license short name → SPDX
+│   ├── copyright.rs     # DEP-5 parsing, Debian short name → SPDX, pre-DEP-5 GNU grant sentences
 │   ├── deb822.rs        # Shared stanza parser for dpkg's file formats
 │   ├── rpm/
 │   │   ├── mod.rs       # Fedora/RHEL: /var/lib/rpm, backend detection
@@ -184,16 +190,18 @@ src/
 │   ├── rust.rs          # Rust/Cargo dependency analysis
 │   ├── node.rs          # Node.js/npm/pnpm/yarn/bun dependency analysis
 │   ├── go.rs            # Go module dependency analysis
+│   ├── java.rs          # Java Maven/Gradle dependency analysis (POMs read with quick-xml)
 │   ├── python.rs        # Python dependency analysis
 │   ├── c.rs             # C dependency analysis
 │   ├── cpp.rs           # C++ dependency analysis
 │   ├── r.rs             # R dependency analysis
+│   ├── ruby.rs          # Ruby Bundler dependency analysis
 │   └── dotnet.rs        # .NET dependency analysis
 └── sbom/
-    ├── mod.rs           # SBOM command handler, format detection, shared types
+    ├── mod.rs           # SBOM command handler, format detection, spec version types
     ├── ingest.rs        # --sbom-input: read SPDX/CycloneDX as a scan source
-    ├── spdx.rs          # SPDX 2.3 format generation
-    ├── cyclonedx.rs     # CycloneDX v1.5 format generation
+    ├── spdx.rs          # SPDX 2.3 (default) and 2.2 generation
+    ├── cyclonedx.rs     # CycloneDX 1.6 (default), 1.4, 1.5 and 1.7 generation
     └── validate/
         ├── mod.rs       # Validation command handler
         ├── parser.rs    # SBOM file parsing
@@ -207,14 +215,20 @@ src/
 - **Language detection via file patterns.** `src/languages/mod.rs` defines `Language::from_file_name()` which maps manifest filenames to language variants. `src/parser.rs` scans the project root for these files.
 - **Parallel analysis.** Multiple project roots are analyzed in parallel using `rayon`.
 - **Three-tier license resolution.** Local files are checked first (e.g., `node_modules/*/LICENSE`, `Cargo.toml` license field), then the ecosystem's registry or the GitHub API, then ClearlyDefined for whatever is still unresolved. The `--no-local` flag skips the first tier, `--no-clearlydefined` skips the last.
-- **Four ways in, one pipeline.** The manifest scan, `--sbom-input`, `--filesystem` and `--image-archive` all produce a `Vec<LicenseInfo>`; everything downstream (compatibility, filters, reports, exit codes) is shared. A package's identity is its `Ecosystem` + PURL (`src/purl.rs`), which is what lets findings from different ecosystems coexist in one report. Sources that build findings themselves rather than through a language analyzer finish with `licenses::classify_findings`, so restrictiveness and OSI status are decided identically whatever discovered the package.
-- **OS packages carry their distro in the name.** A cataloged package is named `debian/libssl3`, which is what puts the namespace in its PURL (`pkg:deb/debian/libssl3`). This mirrors how maven, npm and golang names already carry their namespace. PURL qualifiers (`arch`, `distro`) are deliberately not emitted, because `parse_purl` deliberately drops them on read.
+- **Four ways in, one pipeline.** The manifest scan, `--sbom-input`, `--filesystem` and `--image-archive` all produce a `Vec<LicenseInfo>`; everything downstream (compatibility, filters, reports, exit codes) is shared. A package's identity is its `Ecosystem` + PURL without qualifiers (`src/purl.rs`), which is what lets findings from different ecosystems coexist in one report. Sources that build findings themselves rather than through a language analyzer finish with `licenses::classify_findings`, so restrictiveness and OSI status are decided identically whatever discovered the package.
+- **OS packages carry their distro in the name.** A cataloged package is named `debian/libssl3`, which is what puts the namespace in its PURL (`pkg:deb/debian/libssl3`). This mirrors how maven, npm and golang names already carry their namespace.
+- **OS package PURLs match syft's, character for character.** Checked against syft on `debian:12-slim`, `alpine:3.20`, `ubi9-minimal` and `opensuse/leap:15.6`; only rpm's `gpg-pubkey` rows differ, since feluda skips signing keys. The rules that took: rpm's namespace is the vendor (`rpm::vendor` maps `rhel` to `redhat` and `opensuse-*` to `opensuse`) while deb and apk use the `os-release` ID; rpm names keep their case (the purl spec makes them case sensitive, deb and apk names are lowercased); dpkg's `upstream` is `source@version` when `Source:` carries a version; `distro` is the raw ID joined to `VERSION_ID`, then `BUILD_ID`, else the ID alone, with Debian's point release read from `/etc/debian_version`. Change any of these only against a syft run on a real image.
+- **PURL qualifiers are output, never identity.** `LicenseInfo::qualifiers` holds what the OS catalogers record (`arch`, `upstream`, plus `distro`, added in `scan_tree`), and `LicenseInfo::purl()` writes them out. Nothing compares them: dedup, caches, `Ecosystem::coordinates` and SPDX identifiers (`SpdxPackage::with_purl` hashes `purl::without_qualifiers`) all work from the bare PURL, since a license belongs to the package and not to one build of it. That is why a package installed for two architectures is one row carrying the first `arch`. rpm keeps rpm's own `epoch:version-release` as its display version, and `Ecosystem::purl_with` moves the epoch into `?epoch=` as the purl spec requires. `parse_purl` keeps the qualifiers it reads, so `--sbom-input` round trips them. Language artifacts get no qualifiers. A new `LicenseInfo` literal needs `qualifiers: Default::default()`.
 - **Installed artifacts are deduped by file ownership, never by name.** dpkg's `/var/lib/dpkg/info/*.list`, apk's `F:`/`R:` records and rpm's `DIRNAMES`/`DIRINDEXES`/`BASENAMES` tags say which files belong to which package, so an artifact a distro package already ships is suppressed exactly. The OS catalogers filter those file lists through `filesystem::artifacts::is_artifact_metadata` as they read them, so only the handful of relevant paths are held in memory. Adding a new artifact cataloger means teaching that one function about its metadata file, and the ownership check follows for free. Recognition is two-step: `recognises` judges the path alone (all a file list offers) and `confirms` judges the content (only the walk has a file to open). Go binaries have no telling name, so `go::is_metadata` claims every extensionless or `.exe` path and `exe::is_executable` narrows it to real ELF/Mach-O/PE files by their first four bytes. That is why the owned set holds every extensionless path a package ships, and why dpkg's merged-`/usr` aliases (`/bin/x` recorded, `usr/bin/x` on disk) are remembered both ways.
 - **Go build info is read without a Go toolchain or an object-file crate.** `filesystem/artifacts/exe.rs` parses only what `debug/buildinfo` needs from ELF, Mach-O and PE: the data region and a virtual-address-to-file-offset map. `go.rs` searches that region for the `\xff Go buildinf:` header at 16-byte alignment and decodes the strings inline (Go 1.18+) or through pointers (older). Build info carries no license, so every module leaves the cataloger unresolved and goes through `resolve_missing_licenses` to pkg.go.dev, which is where the time goes on a tree holding many Go binaries. `tests/fixtures/go/app` is a synthesised ELF that `go version -m` reads; regenerate it with `FELUDA_WRITE_FIXTURES=1 cargo test` when the builder changes.
+- **A Debian copyright file is read four ways, most confident first.** `license_from_copyright` tries the DEP-5 `Files: *` stanza, then the first DEP-5 `License`, then the shared content matcher, then `grant_license` for files that predate DEP-5. The last reads the FSF grant sentence ("under the terms of the GNU General Public License ... either version 2 ... or any later version"), never the `/usr/share/common-licenses/<name>` path, since the GPL files there are unversioned. It reports only when every grant in the file names the same license; an unversioned GNU license or a second one (the FDL for a manual) leaves the package unknown, and a paragraph about the Debian packaging gives way to the software's grant, as `Files: *` beats `Files: debian/*`. On `debian:12-slim` that leaves three unknowns (`libselinux1`, `libtasn1-6`, `libcrypt1`), each licensing parts of the package differently; resolving those would mean picking one license for a mixed package, so don't.
 - **The rpm database is read without a SQLite dependency.** `filesystem/rpm/sqlite.rs` is a read-only b-tree reader for the one table rpm keeps headers in. This is deliberate: linking `rusqlite` (bundled) would put a C toolchain in front of every target in `release-binaries.yml`, and the `sqlite3` CLI is not guaranteed on the host. Don't replace it with either. `filesystem/rpm/ndb.rs` reads rpm's own ndb store the same way, and both readers hand the same header blobs to `header.rs`, so a new backend is a new storage reader and nothing else. Berkeley DB is detected and reported by name. The database is looked for under `var/lib/rpm` and then `usr/lib/sysimage/rpm`, since Fedora 36+ and SUSE keep it under `/usr` with only a symlink at the old path.
 - **An image archive is a filesystem that has not been extracted yet.** `src/image/` does nothing a cataloger would recognise: `store.rs` presents an OCI layout directory or a tar file (indexed once by header walk, then read by seeking, so a multi-gigabyte image is streamed) as one blob store; `manifest.rs` reads `index.json` (OCI, nested indexes, buildx attestations dropped) or legacy `manifest.json` and picks one image, refusing to guess between several without `--platform`; `layers.rs` squashes the layers into a `TempDir` and `filesystem::scan_tree` takes it from there. Compression is sniffed from magic bytes, never trusted from media types. The extractor is hand-written rather than `tar::Entry::unpack` for two reasons: modes are never applied (a read-only lower directory would block the next layer), and every write is checked to resolve inside the root *before* any directory is created, so a lower layer's symlink to `/etc` cannot turn a later `etc/passwd` into a write on the host. Whiteouts are collected during the pass and applied against the set of paths that layer wrote, which is the spec's "hides lower layers only" rule without reading the layer twice. zstd goes through a small multi-frame wrapper because `ruzstd::StreamingDecoder` stops at the first frame. There is deliberately no registry client; `docs/source/cli/containers.rst` says why.
+- **One SBOM model, written down to the version asked for.** `feluda sbom` builds a single SPDX 2.3 `SpdxDocument`; `generate_spdx_output` adjusts it for 2.2 (the PURL category is `PACKAGE_MANAGER`) and CycloneDX is converted from it per version (1.4 writes `metadata.tools` as a plain list, 1.6+ adds `acknowledgement`). A new version is a difference in a writer, never a second model. The version comes from `--spec-version` on `sbom spdx` / `sbom cyclonedx` (or `--spdx-version` / `--cyclonedx-version` on `feluda sbom`), then `[sbom] spdx` / `cyclonedx` in `.feluda.toml` or `FELUDA_SBOM_*`, then the defaults (SPDX 2.3, CycloneDX 1.6, which is what syft, Trivy and cdxgen write); `SpecVersions::resolve` in `src/sbom/mod.rs` settles it. Version values are read from text or numbers, since unquoted TOML and figment env values arrive as floats. Every output version was checked against its official JSON schema; check a writer change the same way. Ingest (`--sbom-input`) is not tied to these versions: it reads SPDX 2.2/2.3 and CycloneDX 1.2 to 1.7 JSON alike.
+- **SBOM license fields only state what the spec accepts.** `config/spdx_license_ids.txt` is the SPDX license list (the enum in CycloneDX's `spdx.schema.json`, embedded at build time); `spdx::listed_id` and `spdx::rewrite_expression` answer from it in the list's spelling. CycloneDX validates `license.id` against that list case sensitively, so `convert_spdx_license_to_cyclonedx` writes a listed id as `id`, a compound expression over listed licenses as `expression`, and anything else (a registry title, an id newer than the list) as `name`. SPDX accepts listed ids, expressions over them and `LicenseRef-` ids the document defines, so `sbom::spdx::spdx_license_field` turns an unlisted license into a `LicenseRef-feluda-*` defined once in `hasExtractedLicensingInfos` through `LicenseRefs` (inside an expression only the unlisted id is replaced, so `Custom-1.0 OR MIT` stays a choice; texts that fold to one id get a hash suffix). The SPDX writer applies it in `prepare_spdx_document`, on the written copy only, so CycloneDX, converted from the model, still sees the stated text. `feluda sbom`, `--sbom-enriched` and `sbom validate` all go through these functions; don't reintroduce a character set check in their place. Refresh the list with `just update-spdx-ids`, never by hand. Upstream of all this, `SpdxPackage::with_license` keeps a license `convert_to_spdx_license_expression` refuses as long as `stated_license_title` calls it plain text (ASCII letters, digits, spaces, `.,:;()[]/'+-_&`), so Maven titles with commas reach the writers instead of becoming `NOASSERTION`; quotes, backslashes, control characters, `$ { } < >` and backticks still do. Keep `convert_to_spdx_license_expression` strict: it decides what is an expression, not what is a license.
 - **Registry lookups have one home each.** `languages::resolve_license_for(ecosystem, name, version)` dispatches to the lookup its analyzer already uses. Add a new registry client to the language module, not to the dispatcher.
-- **ClearlyDefined is the exception, and deliberately not a language module.** It answers for every ecosystem at once, so it lives in `src/clearlydefined.rs` and runs as a pass over finished findings rather than inside an analyzer: `resolve_unknown_licenses(&mut findings, strict)` picks out what is still unresolved, maps it onto a ClearlyDefined coordinate, asks in one batch, and reclassifies what it fills in. Each scan source calls it once where its findings are final — the SBOM ingest before it writes the enriched copy, `scan_filesystem` after `classify_findings`, and `analyze_dependencies` at the end of the manifest branch. It returns the indices it changed, which is how the enriched SBOM knows what to write back. Only `licensed.declared` is read; the per-file scan results in the same document describe fixtures and vendored code inside the package. `[clearlydefined] definitions` swaps the service for a JSON file of definitions (the API's own shape, or bare license strings) for air gapped builds; when set, neither the endpoint nor the answer cache is touched.
+- **ClearlyDefined is the exception, and deliberately not a language module.** It answers for every ecosystem at once, so it lives in `src/clearlydefined.rs` and runs as a pass over finished findings rather than inside an analyzer: `resolve_unknown_licenses(&mut findings, strict)` picks out what is still unresolved, maps it onto a ClearlyDefined coordinate, asks in one batch, and reclassifies what it fills in. Each scan source calls it once where its findings are final — the SBOM ingest before it writes the enriched copy, `scan_filesystem` after `classify_findings`, and `analyze_dependencies` at the end of the manifest branch. It returns the indices it changed, which is how the enriched SBOM knows what to write back. Only `licensed.declared` is read; the per-file scan results in the same document describe fixtures and vendored code inside the package. `[clearlydefined] definitions` swaps the service for a JSON file of definitions (the API's own shape, or bare license strings) for air gapped builds; when set, neither the endpoint nor the answer cache is touched. `--update-definitions` writes that file: the file answers first, the service answers the rest, and afterwards every finding with a coordinate is merged back in (registry answers too, since an air gapped run loses the registries as well), with service misses recorded as `NOASSERTION` placeholders. An entry that already names a license is never overwritten, and a file that exists but does not parse is left alone.
+- **A pnpm project is its lockfile.** `read_pnpm_lockfile` reads `pnpm-lock.yaml` with `serde_yaml` and takes the keys of `packages` (lockfile 5.x `/name/version`, 6.0 `/name@version(peers)`, 9.0 `name@version`), preferring an entry's own `name`/`version` for packages from outside the registry. When it parses, it is the whole answer: `pnpm list` and the `node_modules` scans only run when it does not, since they count orphans from earlier installs (#98). Node dependencies are `(name, version)` pairs, so two installed versions are two rows, and `get_license_from_pnpm_metadata` answers from that exact version's store directory (scope `/` spelled `+`) before the version blind hoisted lookup.
 - **Caching.** Two files in the user cache directory (`~/Library/Caches/feluda`, `$XDG_CACHE_HOME/feluda`, `%LOCALAPPDATA%\feluda`): `github_licenses.json` for the GitHub license table (30 days) and `clearlydefined.json` for ClearlyDefined answers (7 days, misses cached too). Both go through the generic `load_cache`/`save_cache` pair in `src/cache.rs`; `feluda cache` reports both and `--clear` removes both.
 - **Configuration layering.** `figment` merges defaults → `.feluda.toml` → environment variables. See `src/config.rs`.
 - **Error handling.** `thiserror`-based `FeludaError` in `src/debug.rs` with `FeludaResult<T>` alias. Debug mode (`--debug`) enables verbose logging.
@@ -253,6 +267,8 @@ Documentation is hosted on ReadTheDocs. When updating docs, place content in `do
 | **ratatui** | TUI framework | Interactive terminal UI (`--gui`) |
 | **serde** / **serde_json** / **serde_yaml** | Serialization | JSON/YAML output, config parsing |
 | **cargo_metadata** | Rust analysis | Cargo dependency resolution |
+| **quick-xml** | Java analysis | Pull reader for `pom.xml`. 0.42+ content is `&str` and non UTF-8 input is an error |
+| **notify** | Watch mode | Filesystem events for `feluda watch` |
 | **Sphinx** | Documentation | RST-based, deployed to ReadTheDocs |
 | **clippy** | Linting | Enforced: `-D warnings` (zero warnings policy) |
 | **cargo fmt** | Formatting | Standard rustfmt |
@@ -271,6 +287,7 @@ just lint           # Clean → fmt check → clippy
 just test-ci        # Full CI check (format → clippy → test)
 just clean          # Remove build artifacts
 just setup          # Configure git hooks
+just update-spdx-ids  # Refresh config/spdx_license_ids.txt from CycloneDX's schema
 just install        # Build + install to /usr/local/bin
 ```
 
@@ -411,15 +428,21 @@ feluda generate                           # Generate NOTICE / THIRD_PARTY_LICENS
 feluda sbom                               # Generate all SBOM formats
 feluda sbom spdx --output sbom.json       # Generate SPDX SBOM
 feluda sbom cyclonedx --output sbom.json  # Generate CycloneDX SBOM
+feluda sbom cyclonedx --spec-version 1.4  # ...in an older spec version (spdx: 2.2 | 2.3)
+feluda sbom --spdx-version 2.2 --cyclonedx-version 1.5   # Both formats, each pinned
 feluda sbom validate sbom.json            # Validate SBOM file
 feluda cache                              # Show cache status
 feluda cache --clear                      # Clear cache
+feluda init                               # Write .feluda.toml and .pre-commit-config.yaml
+feluda watch                              # Re-scan whenever a dependency file changes
+feluda --restrictive --json watch         # Scan flags go before the subcommand
 
 # Options
 feluda --github-token <token>             # Authenticated API requests
 feluda --no-local                         # Skip local license detection
 feluda --no-vendor-scan                   # Skip the vendored/unmanaged tree walk
 feluda --no-clearlydefined                # Skip the ClearlyDefined lookup for unresolved licenses
+feluda --update-definitions               # Record resolved licenses into [clearlydefined] definitions
 feluda --strict                           # Strict license parsing
 feluda --debug                            # Enable debug logging
 ```
@@ -441,7 +464,7 @@ feluda --debug                            # Enable debug logging
 | `src/languages/*.rs` | Per-language dependency parsers |
 | `src/reporter.rs` | Output formatting (text, JSON, YAML, CI, gist) |
 | `src/table.rs` | TUI interface (ratatui) |
-| `src/sbom/mod.rs` | SBOM generation entry point |
+| `src/sbom/mod.rs` | SBOM generation entry point, `SpdxVersion` / `CycloneDxVersion` / `SpecVersions` |
 | `src/sbom/ingest.rs` | SBOM ingest (`--sbom-input`), the non-manifest scan source |
 | `src/filesystem/mod.rs` | Filesystem scan (`--filesystem`), the installed-tree scan source |
 | `src/image/mod.rs` | Image archive scan (`--image-archive`), squashes layers then reuses the filesystem scan |
@@ -449,9 +472,10 @@ feluda --debug                            # Enable debug logging
 | `src/clearlydefined.rs` | ClearlyDefined fallback for licenses nothing else resolved |
 | `src/cache.rs` | GitHub license table and ClearlyDefined answer caching |
 | `config/license_compatibility.toml` | License compatibility matrix |
+| `config/spdx_license_ids.txt` | SPDX license and exception ids, the list CycloneDX accepts as `license.id` |
 | `action.yml` | GitHub Action definition |
 | `justfile` | All development task commands |
-| `.feluda.toml` | User configuration (restrictive overrides, ignores, custom licenses, ClearlyDefined toggle) |
+| `.feluda.toml` | User configuration (restrictive overrides, ignores, custom licenses, ClearlyDefined toggle, SBOM spec versions) |
 | `skills/feluda/SKILL.md` | Claude Code skill — install in any project to get auto license checks |
 
 ---
@@ -512,6 +536,9 @@ feluda --debug                            # Enable debug logging
 
 - **`*.json` is gitignored.** The `.gitignore` includes `*.json`, so JSON files in the repo root won't be tracked. Config JSON files should use TOML instead.
 - **clippy must pass with zero warnings** — CI enforces `-D warnings`.
+- **License expressions in SBOMs have no length limit.** Neither SPDX nor CycloneDX sets one, and a long expression is usually a package bundling many licensed components. The old 100 and 200 character caps replaced real expressions with `NOASSERTION` (#257); don't add a length check back to `convert_to_spdx_license_expression` or the package validation in `src/sbom/spdx.rs`.
+- **SPDX timestamps are whole seconds.** SPDX 2.x requires `YYYY-MM-DDThh:mm:ssZ`, and the reference SPDX tools reject chrono's default fractional seconds outright. `DateTime` fields in `src/sbom/spdx.rs` go through `#[serde(with = "spdx_timestamp")]`; a new one has to as well. Check SPDX output with `pyspdxtools -i` (from `pip install spdx-tools`), which also catches undefined `LicenseRef-` ids that a JSON schema cannot.
+- **Top level errors print only under `--debug`.** `FeludaError::log` goes through the debug logger, so an error returned from `run()` exits 1 silently. Validation that a user needs to see prints its own `❌` line on stderr before returning (see `input_error` in `src/sbom/ingest.rs`, `usage_error` in `src/clearlydefined.rs`).
 - **The `--debug` flag controls logging.** All `log()`, `log_debug()`, `log_error()` calls in `src/debug.rs` are no-ops unless `--debug` is active.
 - **`reqwest` is in blocking mode.** Despite `tokio` being a dependency, HTTP calls use `reqwest::blocking`. This is intentional for CLI simplicity.
 - **The ClearlyDefined API needs HTTP/1.1.** It accepts an HTTP/2 POST and never answers it, so its client sets `http1_only()`. It also intermittently hangs on HTTP/1.1 (accepts the request, never responds), which is why that client has a short timeout, one retry on a fresh connection, and gives up on the run after a batch fails twice. Don't remove either without testing against the live service.
@@ -544,6 +571,8 @@ The `examples/` directory contains test projects for each supported language:
 - `cpp-example/` — C++ project
 - `r-example/` — R project
 - `dotnet-example/` — .NET project
+- `java-example/` — Java project
+- `ruby-example/` — Ruby project
 - `ci/` — CI integration examples (GitHub Actions, Jenkins)
 
 Use these for testing. Run `just test-examples` to validate against all of them.

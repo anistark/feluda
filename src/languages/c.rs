@@ -88,6 +88,7 @@ pub fn analyze_c_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Lice
                 },
                 ecosystem: Ecosystem::Generic,
                 sub_project: None,
+                qualifiers: Default::default(),
             }
         })
         .collect()

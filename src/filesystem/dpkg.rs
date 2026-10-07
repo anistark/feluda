@@ -18,7 +18,7 @@ use crate::purl::Ecosystem;
 use super::artifacts::is_artifact_metadata;
 use super::copyright::license_from_copyright;
 use super::deb822::parse_stanzas;
-use super::{package_finding, read_database, Catalog};
+use super::{package_finding, qualifiers, read_database, Catalog};
 
 /// Where dpkg records what is installed, relative to the root of the filesystem being scanned.
 pub const DATABASE_PATH: &str = "var/lib/dpkg/status";
@@ -47,6 +47,12 @@ struct Entry {
     /// one source share a single copyright file, which dpkg records by pointing the binary's doc
     /// directory at the source's.
     source: Option<String>,
+    /// The source package's version, when dpkg records one because it differs from the binary's
+    /// (a binNMU like `5.2.15-2+b13` built from source `5.2.15-2`).
+    source_version: Option<String>,
+    /// The architecture the package was built for: `amd64`, `arm64`, or `all` for one that runs
+    /// anywhere.
+    arch: Option<String>,
 }
 
 /// Read every installed package out of a Debian or Ubuntu root filesystem.
@@ -68,12 +74,17 @@ pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Cata
         .par_iter()
         .map(|entry| {
             let license = read_license(root, entry);
+            let upstream = upstream(entry);
             package_finding(
                 Ecosystem::Deb,
                 namespace,
                 &entry.name,
                 &entry.version,
                 license.as_deref(),
+                qualifiers(&[
+                    ("arch", entry.arch.as_deref()),
+                    ("upstream", upstream.as_deref()),
+                ]),
             )
         })
         .collect();
@@ -186,6 +197,8 @@ fn parse_status(content: &str) -> Vec<Entry> {
         }
         let version = stanza.first_line("Version").unwrap_or_default();
 
+        // A license belongs to the package, not to one build of it, so a second architecture of
+        // the same version is one row. It keeps the first architecture's `arch` qualifier.
         if entries
             .iter()
             .any(|entry| entry.name == name && entry.version == version)
@@ -201,6 +214,8 @@ fn parse_status(content: &str) -> Vec<Entry> {
             name: name.to_string(),
             version: version.to_string(),
             source: source_package(stanza.first_line("Source")),
+            source_version: source_version(stanza.first_line("Source")),
+            arch: stanza.first_line("Architecture").map(str::to_string),
         });
     }
 
@@ -225,6 +240,24 @@ fn is_installed(status: Option<&str>) -> bool {
 fn source_package(source: Option<&str>) -> Option<String> {
     let source = source?.split('(').next()?.trim();
     (!source.is_empty()).then(|| source.to_string())
+}
+
+/// The version in `Source: openssl (3.0.15-1)`, which dpkg writes only when it differs from the
+/// binary package's own.
+fn source_version(source: Option<&str>) -> Option<String> {
+    let (_, rest) = source?.split_once('(')?;
+    let version = rest.split(')').next()?.trim();
+    (!version.is_empty()).then(|| version.to_string())
+}
+
+/// The `upstream` qualifier: the source package, with its version when dpkg recorded one, as
+/// `name@version`. That is the form syft writes, so the two tools' PURLs agree.
+fn upstream(entry: &Entry) -> Option<String> {
+    let source = entry.source.as_deref()?;
+    Some(match entry.source_version.as_deref() {
+        Some(version) => format!("{source}@{version}"),
+        None => source.to_string(),
+    })
 }
 
 /// Find a package's license in the copyright file Debian Policy requires it to ship.
@@ -338,6 +371,14 @@ mod tests {
         );
         assert_eq!(source_package(Some("openssl")).as_deref(), Some("openssl"));
         assert_eq!(source_package(None), None);
+
+        assert_eq!(
+            source_version(Some("openssl (3.0.15-1)")).as_deref(),
+            Some("3.0.15-1")
+        );
+        assert_eq!(source_version(Some("openssl")), None);
+        assert_eq!(source_version(Some("openssl ()")), None);
+        assert_eq!(source_version(None), None);
     }
 
     #[test]
@@ -393,9 +434,50 @@ mod tests {
         assert_eq!(libssl.ecosystem, Ecosystem::Deb);
         assert_eq!(
             libssl.purl().as_deref(),
-            Some("pkg:deb/debian/libssl3@3.0.15-1~deb12u1")
+            Some("pkg:deb/debian/libssl3@3.0.15-1~deb12u1?arch=amd64&upstream=openssl")
         );
         assert_eq!(packages[1].license.as_deref(), Some("MIT"));
+    }
+
+    #[test]
+    fn test_catalog_records_arch_and_upstream_qualifiers() {
+        let temp = rootfs(
+            "Package: libssl3\n\
+             Status: install ok installed\n\
+             Architecture: arm64\n\
+             Source: openssl (3.0.15-1)\n\
+             Version: 3.0.15-1~deb12u1\n\
+             \n\
+             Package: libcrypt1\n\
+             Status: install ok installed\n\
+             Architecture: arm64\n\
+             Source: libxcrypt\n\
+             Version: 1:4.4.33-2\n\
+             \n\
+             Package: tzdata\n\
+             Status: install ok installed\n\
+             Architecture: all\n\
+             Version: 2024a-0+deb12u1\n",
+        );
+
+        let packages = catalog(temp.path(), Some("debian"))
+            .unwrap()
+            .unwrap()
+            .packages;
+        assert_eq!(
+            packages[0].purl().as_deref(),
+            Some("pkg:deb/debian/libssl3@3.0.15-1~deb12u1?arch=arm64&upstream=openssl%403.0.15-1")
+        );
+        // A source with no version of its own is named alone.
+        assert_eq!(
+            packages[1].purl().as_deref(),
+            Some("pkg:deb/debian/libcrypt1@1%3A4.4.33-2?arch=arm64&upstream=libxcrypt")
+        );
+        // No `Source:` means the source package is the binary one, and there is nothing to add.
+        assert_eq!(
+            packages[2].purl().as_deref(),
+            Some("pkg:deb/debian/tzdata@2024a-0%2Bdeb12u1?arch=all")
+        );
     }
 
     #[test]

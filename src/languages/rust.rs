@@ -205,6 +205,7 @@ pub fn analyze_rust_licenses_with_config(
                 },
                 ecosystem: Ecosystem::Cargo,
                 sub_project: None,
+                qualifiers: Default::default(),
             }
         })
         .collect()

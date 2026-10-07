@@ -109,6 +109,7 @@ fn parse_renv_lock(
                             },
                             ecosystem: Ecosystem::Cran,
                             sub_project: None,
+                            qualifiers: Default::default(),
                         });
                     }
                 } else {
@@ -184,6 +185,7 @@ fn parse_description_file(
                     },
                     ecosystem: Ecosystem::Cran,
                     sub_project: None,
+                    qualifiers: Default::default(),
                 });
             }
         }

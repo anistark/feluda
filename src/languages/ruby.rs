@@ -77,6 +77,7 @@ pub fn analyze_ruby_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
                 osi_status: crate::licenses::get_osi_status(&license),
                 ecosystem: Ecosystem::Gem,
                 sub_project: None,
+                qualifiers: Default::default(),
             }
         })
         .collect()

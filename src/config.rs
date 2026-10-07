@@ -72,6 +72,8 @@ pub struct FeludaConfig {
     #[serde(default)]
     pub clearlydefined: ClearlyDefinedConfig,
     #[serde(default)]
+    pub sbom: SbomConfig,
+    #[serde(default)]
     pub strict: bool,
 }
 
@@ -141,6 +143,24 @@ impl Default for ClearlyDefinedConfig {
             definitions: None,
         }
     }
+}
+
+/// Which spec version `feluda sbom` writes when no flag names one.
+///
+/// ```toml
+/// [sbom]
+/// spdx = "2.2"
+/// cyclonedx = "1.4"
+/// ```
+///
+/// Unset means feluda's default: SPDX 2.3 and CycloneDX 1.6. The fields are one word each so
+/// `FELUDA_SBOM_SPDX` and `FELUDA_SBOM_CYCLONEDX` can reach them.
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+pub struct SbomConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spdx: Option<crate::sbom::SpdxVersion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cyclonedx: Option<crate::sbom::CycloneDxVersion>,
 }
 
 fn default_true() -> bool {
@@ -662,6 +682,58 @@ max_depth = 5"#,
     }
 
     #[test]
+    fn test_sbom_versions_from_toml_and_env() {
+        temp_env::with_vars(
+            vec![
+                ("FELUDA_SBOM_SPDX", None::<&str>),
+                ("FELUDA_SBOM_CYCLONEDX", None::<&str>),
+            ],
+            || {
+                let dir = setup();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                // Unset: the writers fall back to their own defaults.
+                let config = load_config().unwrap();
+                assert!(config.sbom.spdx.is_none());
+                assert!(config.sbom.cyclonedx.is_none());
+
+                // Quoted or not, a version reads the same.
+                fs::write(".feluda.toml", "[sbom]\nspdx = \"2.2\"\ncyclonedx = 1.4\n").unwrap();
+                let config = load_config().unwrap();
+                assert_eq!(config.sbom.spdx, Some(crate::sbom::SpdxVersion::V2_2));
+                assert_eq!(
+                    config.sbom.cyclonedx,
+                    Some(crate::sbom::CycloneDxVersion::V1_4)
+                );
+
+                // The environment wins over the file.
+                temp_env::with_var("FELUDA_SBOM_CYCLONEDX", Some("1.7"), || {
+                    let config = load_config().unwrap();
+                    assert_eq!(
+                        config.sbom.cyclonedx,
+                        Some(crate::sbom::CycloneDxVersion::V1_7)
+                    );
+                });
+            },
+        );
+    }
+
+    #[test]
+    fn test_unsupported_sbom_version_is_rejected() {
+        temp_env::with_var("FELUDA_SBOM_SPDX", None::<&str>, || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(".feluda.toml", "[sbom]\nspdx = \"3.0\"\n").unwrap();
+            let error = load_config().unwrap_err().to_string();
+            assert!(
+                error.contains("unsupported SPDX version '3.0', expected one of 2.2, 2.3"),
+                "{error}"
+            );
+        });
+    }
+
+    #[test]
     fn test_env_config() {
         temp_env::with_vars(
             vec![(
@@ -874,6 +946,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
     fn test_config_serialization() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
@@ -1228,6 +1301,7 @@ match_all = ["Cal.com, Inc."]
     fn test_feluda_config_validation_success() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string(), "GPL-3.0".to_string()],
@@ -1246,6 +1320,7 @@ match_all = ["Cal.com, Inc."]
     fn test_feluda_config_validation_license_failure() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["".to_string()], // Invalid empty license
@@ -1269,6 +1344,7 @@ match_all = ["Cal.com, Inc."]
     fn test_feluda_config_validation_dependency_failure() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string()],
@@ -1702,6 +1778,7 @@ reason = "All versions ignored"
     fn test_feluda_config_with_dependency_ignore() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["GPL-3.0".to_string()],

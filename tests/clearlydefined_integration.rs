@@ -284,3 +284,267 @@ fn a_definitions_file_answers_instead_of_the_service() {
         "answers from a file must not be written to the cache"
     );
 }
+
+/// One component per way an update can learn about a package: ClearlyDefined answers the first,
+/// has never heard of the second, and the third already states its license in the document.
+const UPDATE_SBOM: &str = r#"{
+  "spdxVersion": "SPDX-2.3",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "fixture",
+  "documentNamespace": "https://example.com/fixture",
+  "creationInfo": {"created": "2026-01-01T00:00:00Z", "creators": ["Tool: fixture"]},
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-1",
+      "name": "feluda-fixture-answered",
+      "versionInfo": "1.0.0",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "externalRefs": [{
+        "referenceCategory": "PACKAGE-MANAGER",
+        "referenceType": "purl",
+        "referenceLocator": "pkg:cargo/feluda-fixture-answered@1.0.0"
+      }]
+    },
+    {
+      "SPDXID": "SPDXRef-2",
+      "name": "feluda-fixture-unknown",
+      "versionInfo": "2.0.0",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "externalRefs": [{
+        "referenceCategory": "PACKAGE-MANAGER",
+        "referenceType": "purl",
+        "referenceLocator": "pkg:cargo/feluda-fixture-unknown@2.0.0"
+      }]
+    },
+    {
+      "SPDXID": "SPDXRef-3",
+      "name": "feluda-fixture-stated",
+      "versionInfo": "3.0.0",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "externalRefs": [{
+        "referenceCategory": "PACKAGE-MANAGER",
+        "referenceType": "purl",
+        "referenceLocator": "pkg:cargo/feluda-fixture-stated@3.0.0"
+      }]
+    }
+  ]
+}"#;
+
+const UPDATE_RESPONSE: &str = r#"{
+  "crate/cratesio/-/feluda-fixture-answered/1.0.0": {
+    "licensed": {"declared": "Apache-2.0"}
+  },
+  "crate/cratesio/-/feluda-fixture-unknown/2.0.0": {
+    "licensed": {"toolScore": {"total": 0}}
+  }
+}"#;
+
+fn feluda_with_definitions(
+    home: &std::path::Path,
+    sbom: &str,
+    endpoint: &str,
+    definitions: &std::path::Path,
+    extra_args: &[&str],
+) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_feluda"))
+        .args(["--sbom-input", sbom, "--json"])
+        .args(extra_args)
+        .env("HOME", home)
+        .env("XDG_CACHE_HOME", home.join("cache"))
+        .env("FELUDA_CLEARLYDEFINED_ENDPOINT", endpoint)
+        .env("FELUDA_CLEARLYDEFINED_DEFINITIONS", definitions)
+        .output()
+        .expect("failed to run feluda binary")
+}
+
+fn read_definitions(path: &std::path::Path) -> serde_json::Map<String, Value> {
+    let contents = std::fs::read_to_string(path).expect("definitions file was not written");
+    serde_json::from_str(&contents).expect("definitions file is not a JSON object")
+}
+
+#[test]
+fn an_update_records_what_a_connected_run_resolved() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let sbom = temp.path().join("fixture.spdx.json");
+    std::fs::write(&sbom, UPDATE_SBOM).expect("failed to write fixture SBOM");
+    let definitions = temp.path().join("clearlydefined.json");
+    let stub = Stub::start(UPDATE_RESPONSE);
+
+    let output = feluda_with_definitions(
+        temp.path(),
+        &sbom.to_string_lossy(),
+        &stub.endpoint,
+        &definitions,
+        &["--update-definitions"],
+    );
+    let entries = report(&output);
+    assert_eq!(
+        entry(&entries, "feluda-fixture-answered")["license"],
+        "Apache-2.0"
+    );
+
+    // The file did not exist, so the service was asked, and only about what was unresolved.
+    let requested: Vec<String> =
+        serde_json::from_str(&stub.request_body()).expect("stub received invalid JSON");
+    assert!(!requested.contains(&"crate/cratesio/-/feluda-fixture-stated/3.0.0".to_string()));
+
+    let recorded = read_definitions(&definitions);
+    assert_eq!(
+        recorded["crate/cratesio/-/feluda-fixture-answered/1.0.0"],
+        "Apache-2.0"
+    );
+    // A package the service has never heard of is left as a placeholder to fill in by hand.
+    assert_eq!(
+        recorded["crate/cratesio/-/feluda-fixture-unknown/2.0.0"],
+        "NOASSERTION"
+    );
+    // A license another tier resolved is recorded too: offline, that tier may not answer.
+    assert_eq!(
+        recorded["crate/cratesio/-/feluda-fixture-stated/3.0.0"],
+        "MIT"
+    );
+    assert_eq!(recorded.len(), 3);
+}
+
+#[test]
+fn an_update_keeps_what_the_file_already_says() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let sbom = temp.path().join("fixture.spdx.json");
+    std::fs::write(&sbom, UPDATE_SBOM).expect("failed to write fixture SBOM");
+    let definitions = temp.path().join("clearlydefined.json");
+    // A correction someone made by hand, and a placeholder someone has since filled in.
+    std::fs::write(
+        &definitions,
+        r#"{
+          "crate/cratesio/-/feluda-fixture-answered/1.0.0": "BSD-3-Clause",
+          "crate/cratesio/-/feluda-fixture-unknown/2.0.0": "ISC",
+          "npm/npmjs/-/unrelated/1.0.0": "MIT"
+        }"#,
+    )
+    .expect("failed to write definitions file");
+    let stub = Stub::start(UPDATE_RESPONSE);
+
+    let output = feluda_with_definitions(
+        temp.path(),
+        &sbom.to_string_lossy(),
+        &stub.endpoint,
+        &definitions,
+        &["--update-definitions"],
+    );
+    let entries = report(&output);
+    assert_eq!(
+        entry(&entries, "feluda-fixture-answered")["license"],
+        "BSD-3-Clause"
+    );
+    assert_eq!(entry(&entries, "feluda-fixture-unknown")["license"], "ISC");
+
+    // Everything unresolved was answered by the file, so the service had nothing to be asked.
+    assert!(
+        stub.requests
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .is_err(),
+        "the service was asked about coordinates the file already answers"
+    );
+
+    let recorded = read_definitions(&definitions);
+    assert_eq!(
+        recorded["crate/cratesio/-/feluda-fixture-answered/1.0.0"],
+        "BSD-3-Clause"
+    );
+    assert_eq!(
+        recorded["crate/cratesio/-/feluda-fixture-unknown/2.0.0"],
+        "ISC"
+    );
+    assert_eq!(recorded["npm/npmjs/-/unrelated/1.0.0"], "MIT");
+    assert_eq!(
+        recorded["crate/cratesio/-/feluda-fixture-stated/3.0.0"],
+        "MIT"
+    );
+}
+
+#[test]
+fn an_updated_file_answers_a_run_without_the_service() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let sbom = temp.path().join("fixture.spdx.json");
+    std::fs::write(&sbom, UPDATE_SBOM).expect("failed to write fixture SBOM");
+    let definitions = temp.path().join("clearlydefined.json");
+    let stub = Stub::start(UPDATE_RESPONSE);
+    let sbom = sbom.to_string_lossy().to_string();
+
+    report(&feluda_with_definitions(
+        temp.path(),
+        &sbom,
+        &stub.endpoint,
+        &definitions,
+        &["--update-definitions"],
+    ));
+    stub.request_body();
+
+    // The air gapped half: a fresh cache and an endpoint nothing listens on.
+    let offline = temp.path().join("offline");
+    std::fs::create_dir(&offline).expect("failed to create offline home");
+    let entries = report(&feluda_with_definitions(
+        &offline,
+        &sbom,
+        "http://127.0.0.1:9/definitions",
+        &definitions,
+        &[],
+    ));
+    assert_eq!(
+        entry(&entries, "feluda-fixture-answered")["license"],
+        "Apache-2.0"
+    );
+    assert!(entry(&entries, "feluda-fixture-unknown")["license"].is_null());
+}
+
+#[test]
+fn an_unreadable_file_is_not_overwritten() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let sbom = temp.path().join("fixture.spdx.json");
+    std::fs::write(&sbom, UPDATE_SBOM).expect("failed to write fixture SBOM");
+    let definitions = temp.path().join("clearlydefined.json");
+    std::fs::write(&definitions, "{ half written").expect("failed to write definitions file");
+    let stub = Stub::start(UPDATE_RESPONSE);
+
+    let output = feluda_with_definitions(
+        temp.path(),
+        &sbom.to_string_lossy(),
+        &stub.endpoint,
+        &definitions,
+        &["--update-definitions"],
+    );
+    let entries = report(&output);
+    // The scan itself still gets the service's answers.
+    assert_eq!(
+        entry(&entries, "feluda-fixture-answered")["license"],
+        "Apache-2.0"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&definitions).unwrap(),
+        "{ half written"
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("was not updated"));
+}
+
+#[test]
+fn an_update_without_a_file_to_write_is_an_error() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let sbom = write_sbom(temp.path());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_feluda"))
+        .args(["--sbom-input", &sbom, "--update-definitions"])
+        .current_dir(temp.path())
+        .env("HOME", temp.path())
+        .env("XDG_CACHE_HOME", temp.path().join("cache"))
+        .env(
+            "FELUDA_CLEARLYDEFINED_ENDPOINT",
+            "http://127.0.0.1:9/definitions",
+        )
+        .output()
+        .expect("failed to run feluda binary");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--update-definitions"));
+}

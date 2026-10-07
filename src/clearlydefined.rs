@@ -18,18 +18,23 @@
 //! `facets.core.discovered`, but those include the licenses of test fixtures and vendored code
 //! inside the package, and reporting one of those as the package's license would be worse than
 //! reporting Unknown.
+//!
+//! A build with no network answers from a file of definitions instead, and `--update-definitions`
+//! is how that file gets written: a connected run records what it resolved, the file is committed,
+//! and the air gapped run reads it back.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::cache;
 use crate::cli::with_spinner;
 use crate::config;
-use crate::debug::{log, LogLevel};
+use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
 use crate::licenses::{
     fetch_licenses_from_github, get_osi_status, is_license_restrictive, is_unresolved_license,
     LicenseInfo,
@@ -57,11 +62,39 @@ const RETRY_BACKOFF: Duration = Duration::from_secs(1);
 /// Values `licensed.declared` uses to say it has no answer.
 const NO_ANSWER: &[&str] = &["NOASSERTION", "NONE", "OTHER", "UNKNOWN"];
 
+/// What an entry recorded for a coordinate the service had no answer for says. It reads back as no
+/// answer, and it marks the coordinate as one a person can fill in by hand.
+const PLACEHOLDER: &str = "NOASSERTION";
+
 static DISABLED: OnceLock<bool> = OnceLock::new();
+static UPDATE_DEFINITIONS: OnceLock<bool> = OnceLock::new();
 
 /// Turn the lookup off for this process, from `--no-clearlydefined`.
 pub fn set_disabled(disabled: bool) {
     let _ = DISABLED.set(disabled);
+}
+
+/// Record what this process resolves into the definitions file, from `--update-definitions`.
+///
+/// Fails when there is nothing to record into: the lookup is turned off in configuration, or no
+/// definitions file is configured. Either way the flag would otherwise do nothing, silently.
+pub fn set_update_definitions(update: bool) -> FeludaResult<()> {
+    if update {
+        let settings = config::load_config()?.clearlydefined;
+        if !settings.enabled {
+            return Err(usage_error(
+                "--update-definitions needs ClearlyDefined, which [clearlydefined] enabled = false turns off",
+            ));
+        }
+        if definitions_path(settings.definitions.as_deref()).is_none() {
+            return Err(usage_error(
+                "--update-definitions needs a file to write: set [clearlydefined] definitions in \
+                 .feluda.toml or FELUDA_CLEARLYDEFINED_DEFINITIONS",
+            ));
+        }
+    }
+    let _ = UPDATE_DEFINITIONS.set(update);
+    Ok(())
 }
 
 /// Where definitions come from on this run.
@@ -71,6 +104,23 @@ enum Source {
     /// A file of definitions standing in for the service, for a build with no network. Nothing is
     /// asked over the network and the cache is not consulted: the file is the whole answer.
     File(PathBuf),
+    /// The file first and the service for whatever it does not answer, with what the run knows
+    /// written back to the file afterwards. The connected half of the air gapped workflow.
+    Update { endpoint: String, path: PathBuf },
+}
+
+/// Say what was wrong on stderr as well as returning it, since `FeludaError::log` only prints under
+/// `--debug` and a bare exit code does not explain a flag that cannot be honoured.
+fn usage_error(message: &str) -> FeludaError {
+    eprintln!("❌ {message}");
+    FeludaError::Config(message.to_string())
+}
+
+fn definitions_path(configured: Option<&str>) -> Option<PathBuf> {
+    configured
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
 }
 
 /// The source to ask, or `None` when this run must not ask at all.
@@ -84,12 +134,13 @@ fn source() -> Option<Source> {
         log(LogLevel::Info, "ClearlyDefined disabled by configuration");
         return None;
     }
-    if let Some(path) = settings.definitions.as_deref().map(str::trim) {
-        if !path.is_empty() {
-            return Some(Source::File(PathBuf::from(path)));
-        }
-    }
-    Some(Source::Service(format!("{}{NO_FILES}", settings.endpoint)))
+    let endpoint = format!("{}{NO_FILES}", settings.endpoint);
+    let updating = *UPDATE_DEFINITIONS.get().unwrap_or(&false);
+    Some(match definitions_path(settings.definitions.as_deref()) {
+        Some(path) if updating => Source::Update { endpoint, path },
+        Some(path) => Source::File(path),
+        None => Source::Service(endpoint),
+    })
 }
 
 /// Fill in licenses ClearlyDefined knows and feluda could not resolve.
@@ -115,39 +166,57 @@ pub fn resolve_unknown_licenses(findings: &mut [LicenseInfo], strict: bool) -> V
         .filter_map(|(index, info)| Some((index, coordinates(info)?)))
         .collect();
 
-    if pending.is_empty() {
-        return Vec::new();
+    // Asked even when nothing is pending while updating, so the file still gets what the other
+    // tiers resolved.
+    let answers = if pending.is_empty() {
+        HashMap::new()
+    } else {
+        log(
+            LogLevel::Info,
+            &format!(
+                "Asking ClearlyDefined about {} unresolved package(s)",
+                pending.len()
+            ),
+        );
+        with_spinner("🔍: ClearlyDefined", |indicator| {
+            let answers = match &source {
+                Source::Service(endpoint) => lookup(&pending, endpoint),
+                Source::File(path) => lookup_in_file(&pending, path),
+                Source::Update { endpoint, path } => lookup_for_update(&pending, path, endpoint),
+            };
+            let resolved = answers.values().filter(|license| license.is_some()).count();
+            indicator.update_progress(&format!("{resolved} resolved"));
+            answers
+        })
+    };
+
+    let resolved = apply_answers(findings, &pending, &answers, strict);
+
+    if let Source::Update { path, .. } = &source {
+        record_definitions(path, findings, &answers);
     }
 
-    log(
-        LogLevel::Info,
-        &format!(
-            "Asking ClearlyDefined about {} unresolved package(s)",
-            pending.len()
-        ),
-    );
+    resolved
+}
 
-    let definitions = with_spinner("🔍: ClearlyDefined", |indicator| {
-        let mut definitions = match &source {
-            Source::Service(endpoint) => lookup(&pending, endpoint),
-            Source::File(path) => lookup_in_file(&pending, path),
-        };
-        definitions.retain(|_, license| license.is_some());
-        indicator.update_progress(&format!("{} resolved", definitions.len()));
-        definitions
-    });
-
-    if definitions.is_empty() {
+/// Write each answer into its finding and reclassify it. Returns the indices it filled in.
+fn apply_answers(
+    findings: &mut [LicenseInfo],
+    pending: &[(usize, String)],
+    answers: &HashMap<String, Option<String>>,
+    strict: bool,
+) -> Vec<usize> {
+    if !answers.values().any(Option::is_some) {
         return Vec::new();
     }
 
     let mut resolved = Vec::new();
     let known_licenses = fetch_licenses_from_github().unwrap_or_default();
     for (index, coordinate) in pending {
-        let Some(Some(license)) = definitions.get(&coordinate) else {
+        let Some(Some(license)) = answers.get(coordinate) else {
             continue;
         };
-        let info = &mut findings[index];
+        let info = &mut findings[*index];
         log(
             LogLevel::Info,
             &format!("ClearlyDefined resolved {coordinate} as {license}"),
@@ -155,7 +224,7 @@ pub fn resolve_unknown_licenses(findings: &mut [LicenseInfo], strict: bool) -> V
         info.license = Some(license.clone());
         info.is_restrictive = is_license_restrictive(&info.license, &known_licenses, strict);
         info.osi_status = get_osi_status(license);
-        resolved.push(index);
+        resolved.push(*index);
     }
 
     resolved
@@ -260,6 +329,134 @@ fn lookup_in_file(pending: &[(usize, String)], path: &Path) -> HashMap<String, O
 fn read_definitions_file(path: &Path) -> Result<HashMap<String, Entry>, String> {
     let contents = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     serde_json::from_str(&contents).map_err(|e| e.to_string())
+}
+
+/// Answer from the file what it can, and ask the service about the rest.
+///
+/// The file may not exist yet, since the first update is what creates it. One that exists and
+/// cannot be read is left to `record_definitions` to report, which also refuses to overwrite it.
+fn lookup_for_update(
+    pending: &[(usize, String)],
+    path: &Path,
+    endpoint: &str,
+) -> HashMap<String, Option<String>> {
+    let recorded = read_definitions_file(path).unwrap_or_default();
+
+    let mut answers = HashMap::new();
+    let mut unanswered = Vec::new();
+    for (index, coordinate) in pending {
+        match recorded.get(coordinate).and_then(Entry::declared_license) {
+            Some(license) => {
+                answers.insert(coordinate.clone(), Some(license));
+            }
+            None => unanswered.push((*index, coordinate.clone())),
+        }
+    }
+
+    if !unanswered.is_empty() {
+        answers.extend(lookup(&unanswered, endpoint));
+    }
+    answers
+}
+
+/// Merge what this run knows into the definitions file.
+///
+/// Every finding with a coordinate is recorded, not only the ones ClearlyDefined answered. A run
+/// with no network loses the registries as well as ClearlyDefined, so a dependency a registry
+/// resolved here would be unresolved there, and the file is the only thing it can fall back on.
+/// A coordinate the service had no answer for is recorded as a placeholder for a person to fill in;
+/// one whose batch never got an answer at all is left out, since nothing was learned about it.
+fn record_definitions(
+    path: &Path,
+    findings: &[LicenseInfo],
+    answers: &HashMap<String, Option<String>>,
+) {
+    let mut recorded: BTreeMap<String, Value> = if path.exists() {
+        let parsed = std::fs::read_to_string(path)
+            .map_err(|e| e.to_string())
+            .and_then(|contents| serde_json::from_str(&contents).map_err(|e| e.to_string()));
+        match parsed {
+            Ok(recorded) => recorded,
+            Err(e) => {
+                eprintln!(
+                    "⚠️  ClearlyDefined definitions file {} was not updated: {e}",
+                    path.display()
+                );
+                return;
+            }
+        }
+    } else {
+        BTreeMap::new()
+    };
+
+    let observed = findings.iter().filter_map(|info| {
+        let coordinate = coordinates(info)?;
+        let license = info
+            .license
+            .as_deref()
+            .filter(|license| !is_unresolved_license(Some(license)))
+            .and_then(usable_license);
+        if license.is_none() && !answers.contains_key(&coordinate) {
+            return None;
+        }
+        Some((coordinate, license))
+    });
+
+    let changed = merge_definitions(&mut recorded, observed);
+    if changed == 0 {
+        log(
+            LogLevel::Info,
+            &format!("{} already holds every definition", path.display()),
+        );
+        return;
+    }
+
+    let written = serde_json::to_string_pretty(&recorded)
+        .map_err(|e| e.to_string())
+        .and_then(|json| std::fs::write(path, json + "\n").map_err(|e| e.to_string()));
+    match written {
+        Ok(()) => eprintln!(
+            "✓ ClearlyDefined definitions written to {} ({changed} {})",
+            path.display(),
+            if changed == 1 { "entry" } else { "entries" }
+        ),
+        Err(e) => eprintln!(
+            "⚠️  ClearlyDefined definitions file {} could not be written: {e}",
+            path.display()
+        ),
+    }
+}
+
+/// Fold observed licenses into the recorded entries. Returns how many entries it added or changed.
+///
+/// An entry that already names a license is never replaced: it is either an earlier answer or a
+/// correction someone made on purpose, and the file is theirs. Only a missing entry or one that
+/// answers nothing (a placeholder, an undeclared definition) gives way to a license.
+fn merge_definitions(
+    recorded: &mut BTreeMap<String, Value>,
+    observed: impl IntoIterator<Item = (String, Option<String>)>,
+) -> usize {
+    let mut changed = 0;
+    for (coordinate, license) in observed {
+        let answers = recorded
+            .get(&coordinate)
+            .map(|entry| entry_license(entry).is_some());
+        let replace = match answers {
+            None => true,
+            Some(false) => license.is_some(),
+            Some(true) => false,
+        };
+        if replace {
+            let value = license.unwrap_or_else(|| PLACEHOLDER.to_string());
+            recorded.insert(coordinate, Value::String(value));
+            changed += 1;
+        }
+    }
+    changed
+}
+
+fn entry_license(entry: &Value) -> Option<String> {
+    Entry::deserialize(entry).ok()?.declared_license()
 }
 
 /// One value in a definitions file: what the service returns for the coordinate, or just the
@@ -370,9 +567,12 @@ fn usable_license(declared: &str) -> Option<String> {
 
 /// The ClearlyDefined coordinate for a finding: `type/provider/namespace/name/revision`.
 ///
-/// `None` for anything the service does not index. OS packages are out because a deb revision
-/// carries an architecture suffix feluda does not record and rpm and apk are not harvested at all;
-/// CRAN and Conan are not supported; and a `generic` finding is a path, not a package.
+/// `None` for anything the service does not index or cannot usefully answer. rpm and apk are not
+/// harvested at all. Debian is harvested (`deb/debian/-/<name>/<version>_<arch>`, epoch dropped)
+/// but almost never with a declared license: on `debian:12-slim` it declared one for 10 of 88
+/// packages, half of those partly `NOASSERTION`, and none of the ones the copyright files leave
+/// unresolved. Its per-file `discovered` licenses are not a conclusion. CRAN and Conan are not
+/// supported; and a `generic` finding is a path, not a package.
 fn coordinates(info: &LicenseInfo) -> Option<String> {
     let (kind, provider) = match info.ecosystem {
         Ecosystem::Cargo => ("crate", "cratesio"),
@@ -476,6 +676,7 @@ mod tests {
             osi_status: OsiStatus::Unknown,
             ecosystem,
             sub_project: None,
+            qualifiers: Default::default(),
         }
     }
 
@@ -625,6 +826,89 @@ mod tests {
             None
         );
     }
+    fn recorded(json: &str) -> BTreeMap<String, Value> {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn test_merge_adds_licenses_and_placeholders() {
+        let mut file = BTreeMap::new();
+        let changed = merge_definitions(
+            &mut file,
+            [
+                (
+                    "crate/cratesio/-/a/1.0.0".to_string(),
+                    Some("MIT".to_string()),
+                ),
+                ("crate/cratesio/-/b/1.0.0".to_string(), None),
+            ],
+        );
+        assert_eq!(changed, 2);
+        assert_eq!(file["crate/cratesio/-/a/1.0.0"], "MIT");
+        assert_eq!(file["crate/cratesio/-/b/1.0.0"], PLACEHOLDER);
+    }
+
+    #[test]
+    fn test_merge_never_replaces_a_recorded_license() {
+        // A correction made by hand and an earlier answer in the service's own shape both stand.
+        let mut file = recorded(
+            r#"{
+              "crate/cratesio/-/by-hand/1.0.0": "BSD-3-Clause",
+              "crate/cratesio/-/harvested/1.0.0": {"licensed": {"declared": "Apache-2.0"}}
+            }"#,
+        );
+        let before = file.clone();
+        let changed = merge_definitions(
+            &mut file,
+            [
+                (
+                    "crate/cratesio/-/by-hand/1.0.0".to_string(),
+                    Some("MIT".to_string()),
+                ),
+                ("crate/cratesio/-/harvested/1.0.0".to_string(), None),
+            ],
+        );
+        assert_eq!(changed, 0);
+        assert_eq!(file, before);
+    }
+
+    #[test]
+    fn test_merge_fills_in_entries_that_answer_nothing() {
+        let mut file = recorded(
+            r#"{
+              "crate/cratesio/-/placeholder/1.0.0": "NOASSERTION",
+              "crate/cratesio/-/undeclared/1.0.0": {"licensed": {}},
+              "crate/cratesio/-/still-unknown/1.0.0": "NOASSERTION"
+            }"#,
+        );
+        let changed = merge_definitions(
+            &mut file,
+            [
+                (
+                    "crate/cratesio/-/placeholder/1.0.0".to_string(),
+                    Some("MIT".to_string()),
+                ),
+                (
+                    "crate/cratesio/-/undeclared/1.0.0".to_string(),
+                    Some("ISC".to_string()),
+                ),
+                ("crate/cratesio/-/still-unknown/1.0.0".to_string(), None),
+            ],
+        );
+        assert_eq!(changed, 2);
+        assert_eq!(file["crate/cratesio/-/placeholder/1.0.0"], "MIT");
+        assert_eq!(file["crate/cratesio/-/undeclared/1.0.0"], "ISC");
+        assert_eq!(file["crate/cratesio/-/still-unknown/1.0.0"], PLACEHOLDER);
+    }
+
+    #[test]
+    fn test_a_recorded_placeholder_reads_back_as_no_answer() {
+        assert_eq!(entry_license(&Value::String(PLACEHOLDER.to_string())), None);
+        assert_eq!(
+            entry_license(&Value::String("MIT".to_string())).as_deref(),
+            Some("MIT")
+        );
+    }
 }
 
 /// Live checks against the real service, skipped by default: `cargo test -- --ignored clearlydefined`.
@@ -672,7 +956,9 @@ mod live {
     fn live_endpoint() -> String {
         match source().expect("enabled by default") {
             Source::Service(endpoint) => endpoint,
-            Source::File(_) => panic!("live test needs the service, not a file"),
+            Source::File(_) | Source::Update { .. } => {
+                panic!("live test needs the service, not a file")
+            }
         }
     }
 
@@ -753,7 +1039,9 @@ mod live {
             ],
             || match source().expect("enabled by default") {
                 Source::File(path) => assert_eq!(path, PathBuf::from("defs.json")),
-                Source::Service(endpoint) => panic!("service {endpoint} chosen over the file"),
+                Source::Service(endpoint) | Source::Update { endpoint, .. } => {
+                    panic!("service {endpoint} chosen over the file")
+                }
             },
         );
     }

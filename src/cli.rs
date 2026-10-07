@@ -10,6 +10,7 @@ use std::time::Duration;
 
 // Import from the debug module instead of defining here
 use crate::debug::{is_debug_mode, log, LogLevel};
+use crate::sbom::{CycloneDxVersion, SpdxVersion};
 
 /// CI output format options
 #[derive(ValueEnum, Clone, Debug)]
@@ -53,6 +54,10 @@ pub enum SbomCommand {
         #[arg(short, long, default_value = "./")]
         path: String,
 
+        /// SPDX version to write [default: 2.3, or `[sbom] spdx` in .feluda.toml]
+        #[arg(long, value_name = "VERSION")]
+        spec_version: Option<SpdxVersion>,
+
         /// Catalog the packages and artifacts installed under a root filesystem instead of a project tree
         #[arg(long, value_name = "PATH")]
         filesystem: Option<String>,
@@ -74,6 +79,10 @@ pub enum SbomCommand {
         /// Path to the local project directory
         #[arg(short, long, default_value = "./")]
         path: String,
+
+        /// CycloneDX version to write [default: 1.6, or `[sbom] cyclonedx` in .feluda.toml]
+        #[arg(long, value_name = "VERSION")]
+        spec_version: Option<CycloneDxVersion>,
 
         /// Catalog the packages and artifacts installed under a root filesystem instead of a project tree
         #[arg(long, value_name = "PATH")]
@@ -145,6 +154,14 @@ pub enum Commands {
         /// Path to write the SBOM files
         #[arg(short, long)]
         output: Option<String>,
+
+        /// SPDX version to write [default: 2.3, or `[sbom] spdx` in .feluda.toml]
+        #[arg(long, value_name = "VERSION")]
+        spdx_version: Option<SpdxVersion>,
+
+        /// CycloneDX version to write [default: 1.6, or `[sbom] cyclonedx` in .feluda.toml]
+        #[arg(long, value_name = "VERSION")]
+        cyclonedx_version: Option<CycloneDxVersion>,
 
         /// SBOM format subcommand
         #[command(subcommand)]
@@ -347,6 +364,14 @@ pub struct Cli {
     /// Skip the ClearlyDefined lookup for licenses Feluda could not resolve
     #[arg(long, help_heading = HEADING_DETECTION)]
     pub no_clearlydefined: bool,
+
+    /// Save resolved licenses into the ClearlyDefined definitions file for offline scans
+    #[arg(
+        long,
+        conflicts_with = "no_clearlydefined",
+        help_heading = HEADING_DETECTION
+    )]
+    pub update_definitions: bool,
 }
 
 impl Cli {
@@ -881,6 +906,7 @@ mod tests {
             no_local: false,
             no_vendor_scan: false,
             no_clearlydefined: false,
+            update_definitions: false,
         };
 
         assert_eq!(cli.path, "./");
@@ -931,6 +957,7 @@ mod tests {
             no_local: false,
             no_vendor_scan: false,
             no_clearlydefined: false,
+            update_definitions: false,
         };
 
         let cmd = cli.get_command_args();
@@ -988,6 +1015,7 @@ mod tests {
             no_local: false,
             no_vendor_scan: false,
             no_clearlydefined: false,
+            update_definitions: false,
         };
 
         let cmd = cli.get_command_args();
@@ -1266,6 +1294,8 @@ mod tests {
             platform: None,
             format: None,
             output: None,
+            spdx_version: None,
+            cyclonedx_version: None,
         };
 
         match sbom_cmd {
@@ -1292,12 +1322,15 @@ mod tests {
             platform: None,
             format: Some(SbomCommand::Spdx {
                 path: "/project".to_string(),
+                spec_version: None,
                 filesystem: None,
                 image_archive: None,
                 platform: None,
                 output: Some("sbom.json".to_string()),
             }),
             output: None,
+            spdx_version: None,
+            cyclonedx_version: None,
         };
 
         match sbom_cmd {
@@ -1333,12 +1366,15 @@ mod tests {
             platform: None,
             format: Some(SbomCommand::Cyclonedx {
                 path: "/project".to_string(),
+                spec_version: None,
                 filesystem: None,
                 image_archive: None,
                 platform: None,
                 output: Some("sbom.xml".to_string()),
             }),
             output: None,
+            spdx_version: None,
+            cyclonedx_version: None,
         };
 
         match sbom_cmd {

@@ -81,6 +81,101 @@ pub fn is_compound(input: &str) -> bool {
         || input.contains('(')
 }
 
+// ── The SPDX license list ────────────────────────────────────────────────────
+
+/// The SPDX license and exception ids, as CycloneDX's schema lists them for `license.id`.
+const LISTED_IDS: &str = include_str!("../config/spdx_license_ids.txt");
+
+/// Every listed id, keyed by its lowercase spelling, since SPDX matches ids case insensitively but
+/// a document has to spell them the way the list does.
+fn listed_ids() -> &'static std::collections::HashMap<String, &'static str> {
+    static IDS: std::sync::OnceLock<std::collections::HashMap<String, &'static str>> =
+        std::sync::OnceLock::new();
+    IDS.get_or_init(|| {
+        LISTED_IDS
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(|id| (id.to_ascii_lowercase(), id))
+            .collect()
+    })
+}
+
+/// The SPDX list's spelling of `id`, or `None` when the list has no such license or exception.
+///
+/// `mit` gives `MIT`. A free form name such as `SEE LICENSE IN LICENSE.txt`, or an id the list
+/// does not carry yet, gives `None`: CycloneDX only accepts listed ids as `license.id`, so those
+/// belong in `license.name`.
+pub fn listed_id(id: &str) -> Option<&'static str> {
+    listed_ids().get(&id.trim().to_ascii_lowercase()).copied()
+}
+
+/// The list's spelling of a license id inside an expression, or `None` when it is not listed.
+///
+/// Document local `LicenseRef-` and `DocumentRef-` ids are kept as they are, since SPDX allows
+/// them anywhere in an expression, and a trailing `+` ("or later") is allowed on a listed license.
+fn listed_license(id: &str) -> Option<String> {
+    if id.starts_with("LicenseRef-") || id.starts_with("DocumentRef-") {
+        return Some(id.to_string());
+    }
+    listed_id(id).map(str::to_string).or_else(|| {
+        let base = id.strip_suffix('+')?;
+        listed_id(base).map(|base| format!("{base}+"))
+    })
+}
+
+/// Rewrite a well formed expression with every license in the list's spelling.
+///
+/// A license the list does not carry is handed to `unlisted`, whose answer takes its place, or
+/// which rejects the whole expression by returning `None`. Exceptions have no document local
+/// form in SPDX 2.x, so an unlisted exception always rejects it. `None` also means the input is
+/// not an expression at all: prose such as `SEE LICENSE IN LICENSE.txt`, a dangling operator or an
+/// unclosed parenthesis.
+pub fn rewrite_expression(
+    input: &str,
+    mut unlisted: impl FnMut(&str) -> Option<String>,
+) -> Option<String> {
+    let tokens = tokenize(input.trim());
+    // The parser forgives a `WITH` with nothing after it and an unclosed parenthesis, so both are
+    // ruled out before its verdict is trusted.
+    let balanced = tokens.iter().filter(|t| **t == Token::LParen).count()
+        == tokens.iter().filter(|t| **t == Token::RParen).count();
+    let dangling = matches!(tokens.last(), Some(Token::Or | Token::And | Token::With));
+    if !balanced || dangling || parse_strict(input).is_none() {
+        return None;
+    }
+
+    let mut written = String::new();
+    let mut previous: Option<&Token> = None;
+    for token in &tokens {
+        let text = match token {
+            Token::Id(id) if previous == Some(&Token::With) => listed_id(id)?.to_string(),
+            Token::Id(id) => match listed_license(id) {
+                Some(license) => license,
+                None => unlisted(id)?,
+            },
+            Token::Or => "OR".to_string(),
+            Token::And => "AND".to_string(),
+            Token::With => "WITH".to_string(),
+            Token::LParen => "(".to_string(),
+            Token::RParen => ")".to_string(),
+        };
+        let joins = matches!(previous, None | Some(Token::LParen)) || *token == Token::RParen;
+        if !joins {
+            written.push(' ');
+        }
+        written.push_str(&text);
+        previous = Some(token);
+    }
+    Some(written)
+}
+
+/// The expression with every license in the list's spelling, or `None` unless every license and
+/// exception in it is listed. A single id counts as an expression.
+pub fn listed_expression(input: &str) -> Option<String> {
+    rewrite_expression(input, |_| None)
+}
+
 // ── Tokeniser ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -303,6 +398,100 @@ pub fn expression_osi_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_the_bundled_list_is_well_formed() {
+        let ids: Vec<&str> = LISTED_IDS
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect();
+        // Every id once, whatever its case, or lookups would depend on which spelling came last.
+        assert_eq!(listed_ids().len(), ids.len());
+        assert!(
+            ids.len() > 600,
+            "only {} ids; is the list truncated?",
+            ids.len()
+        );
+        for id in &ids {
+            assert_eq!(id.trim(), *id);
+            assert!(!id.contains(' '), "{id:?}");
+        }
+    }
+
+    #[test]
+    fn test_listed_id_uses_the_lists_spelling() {
+        assert_eq!(listed_id("MIT"), Some("MIT"));
+        assert_eq!(listed_id("mit"), Some("MIT"));
+        assert_eq!(listed_id(" apache-2.0 "), Some("Apache-2.0"));
+        // Deprecated ids are still on the list, and exceptions are too.
+        assert_eq!(listed_id("GPL-2.0+"), Some("GPL-2.0+"));
+        assert_eq!(
+            listed_id("Classpath-exception-2.0"),
+            Some("Classpath-exception-2.0")
+        );
+
+        assert_eq!(listed_id("SEE LICENSE IN LICENSE.txt"), None);
+        assert_eq!(listed_id("Custom-1.0"), None);
+        assert_eq!(listed_id("LicenseRef-acme"), None);
+        assert_eq!(listed_id(""), None);
+    }
+
+    #[test]
+    fn test_listed_expressions() {
+        let listed = |input: &str| listed_expression(input);
+
+        assert_eq!(
+            listed("MIT OR Apache-2.0").as_deref(),
+            Some("MIT OR Apache-2.0")
+        );
+        assert_eq!(
+            listed("(MIT AND BSD-3-Clause) OR GPL-2.0-only").as_deref(),
+            Some("(MIT AND BSD-3-Clause) OR GPL-2.0-only")
+        );
+        assert_eq!(
+            listed("GPL-2.0-only WITH classpath-exception-2.0").as_deref(),
+            Some("GPL-2.0-only WITH Classpath-exception-2.0")
+        );
+        assert_eq!(
+            listed("LicenseRef-acme OR mit").as_deref(),
+            Some("LicenseRef-acme OR MIT")
+        );
+        assert_eq!(
+            listed("apache-2.0+ AND MIT").as_deref(),
+            Some("Apache-2.0+ AND MIT")
+        );
+        assert_eq!(listed(" ( MIT  OR ISC ) ").as_deref(), Some("(MIT OR ISC)"));
+        // A single id is an expression too.
+        assert_eq!(listed("mit").as_deref(), Some("MIT"));
+
+        // Prose joined by an operator is not an expression.
+        assert_eq!(listed("Apache License 2.0 OR MIT"), None);
+        assert_eq!(listed("SEE LICENSE IN LICENSE.txt"), None);
+        assert_eq!(listed("Custom-1.0 OR MIT"), None);
+        // An exception has to be a listed exception.
+        assert_eq!(listed("MIT WITH Custom-exception"), None);
+        // Malformed shapes the lenient parser would forgive.
+        assert_eq!(listed("MIT OR"), None);
+        assert_eq!(listed("MIT WITH"), None);
+        assert_eq!(listed("(MIT OR Apache-2.0"), None);
+    }
+
+    #[test]
+    fn test_unlisted_licenses_are_rewritten_in_place() {
+        let referenced = rewrite_expression("Custom-1.0 OR (mit AND Other-2)", |id| {
+            Some(format!("LicenseRef-{id}"))
+        });
+        assert_eq!(
+            referenced.as_deref(),
+            Some("LicenseRef-Custom-1.0 OR (MIT AND LicenseRef-Other-2)")
+        );
+
+        // An unlisted exception has nowhere to go.
+        assert_eq!(
+            rewrite_expression("MIT WITH Custom-exception", |id| Some(id.to_string())),
+            None
+        );
+    }
 
     #[test]
     fn test_parse_simple() {

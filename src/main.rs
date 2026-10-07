@@ -33,8 +33,8 @@ use licenses::{
 };
 use parser::parse_root;
 use reporter::{generate_report, ReportConfig};
-use sbom::handle_sbom_command;
 use sbom::validate::handle_sbom_validate_command;
+use sbom::{handle_sbom_command, SpecVersions};
 use std::env;
 use std::path::Path;
 use std::process;
@@ -109,6 +109,7 @@ fn run() -> FeludaResult<()> {
     set_github_token(args.github_token.clone());
 
     clearlydefined::set_disabled(args.no_clearlydefined);
+    clearlydefined::set_update_definitions(args.update_definitions)?;
 
     // Handle repository cloning if --repo is provided
     let (analysis_path, _temp_dir) = match &args.repo.clone() {
@@ -198,6 +199,8 @@ fn run() -> FeludaResult<()> {
                 platform,
                 format,
                 output,
+                spdx_version,
+                cyclonedx_version,
             } => {
                 // The image source is a pair: the archive, and which image inside it.
                 let image = |archive: Option<String>, platform: Option<String>| {
@@ -207,6 +210,7 @@ fn run() -> FeludaResult<()> {
                 match format {
                     Some(cli::SbomCommand::Spdx {
                         path: fmt_path,
+                        spec_version,
                         filesystem: fmt_filesystem,
                         image_archive: fmt_image_archive,
                         platform: fmt_platform,
@@ -225,11 +229,13 @@ fn run() -> FeludaResult<()> {
                             image(fmt_image_archive, fmt_platform)
                                 .or_else(|| image(image_archive.clone(), platform.clone())),
                             &cli::SbomFormat::Spdx,
+                            SpecVersions::resolve(spec_version.or(spdx_version), None)?,
                             final_output,
                         )
                     }
                     Some(cli::SbomCommand::Cyclonedx {
                         path: fmt_path,
+                        spec_version,
                         filesystem: fmt_filesystem,
                         image_archive: fmt_image_archive,
                         platform: fmt_platform,
@@ -247,6 +253,7 @@ fn run() -> FeludaResult<()> {
                             image(fmt_image_archive, fmt_platform)
                                 .or_else(|| image(image_archive.clone(), platform.clone())),
                             &cli::SbomFormat::Cyclonedx,
+                            SpecVersions::resolve(None, spec_version.or(cyclonedx_version))?,
                             final_output,
                         )
                     }
@@ -262,6 +269,7 @@ fn run() -> FeludaResult<()> {
                             filesystem,
                             image(image_archive, platform),
                             &cli::SbomFormat::All,
+                            SpecVersions::resolve(spdx_version, cyclonedx_version)?,
                             output,
                         )
                     }

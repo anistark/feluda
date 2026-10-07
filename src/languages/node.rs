@@ -278,15 +278,17 @@ pub fn analyze_js_licenses_with_config(
         .parent()
         .unwrap_or(Path::new("."));
 
-    let all_dependencies = if project_root.join("pnpm-lock.yaml").exists() {
+    let all_dependencies: Vec<(String, String)> = if project_root.join("pnpm-lock.yaml").exists() {
         log(
             LogLevel::Info,
             "Detected pnpm project - using specialized pnpm analysis",
         );
-        analyze_pnpm_project_comprehensive(project_root, package_json_path)
+        analyze_pnpm_project(project_root)
     } else {
         log(LogLevel::Info, "Using general npm/yarn analysis");
         try_all_dependency_detection_methods(project_root, package_json_path)
+            .into_iter()
+            .collect()
     };
 
     if all_dependencies.is_empty() {
@@ -303,7 +305,7 @@ pub fn analyze_js_licenses_with_config(
     );
     log_debug(
         "All detected dependencies (first 20)",
-        &all_dependencies.iter().take(20).collect::<HashMap<_, _>>(),
+        &all_dependencies.iter().take(20).collect::<Vec<_>>(),
     );
 
     let known_licenses = match fetch_licenses_from_github() {
@@ -359,6 +361,7 @@ pub fn analyze_js_licenses_with_config(
                 osi_status: crate::licenses::get_osi_status(&license),
                 ecosystem: Ecosystem::Npm,
                 sub_project,
+                qualifiers: Default::default(),
             }
         })
         .collect()
@@ -989,31 +992,135 @@ fn parse_pnpm_lockfile(project_root: &Path) -> Option<HashMap<String, String>> {
     }
 
     log(LogLevel::Info, "Parsing pnpm-lock.yaml");
+    let packages = read_pnpm_lockfile(project_root)
+        .inspect_err(|e| {
+            log(
+                LogLevel::Warn,
+                &format!("Could not read pnpm-lock.yaml: {e}"),
+            )
+        })
+        .ok()?;
+    log(
+        LogLevel::Info,
+        &format!("Parsed {} dependencies from pnpm-lock.yaml", packages.len()),
+    );
+    Some(packages.into_iter().collect())
+}
 
-    if let Ok(content) = fs::read_to_string(&lockfile_path) {
-        let mut deps = HashMap::new();
+/// Every package `pnpm-lock.yaml` says is installed, as sorted, distinct `(name, version)` pairs.
+///
+/// Read as YAML rather than line by line: keys are quoted when they start with `@`, and the shape
+/// of the `packages` map changed twice. What is read is its keys, which is where every lockfile
+/// version records name and version, and never the `importers` or top level `dependencies` maps,
+/// which describe what a project asked for rather than what was installed. Workspace members
+/// linked with `link:` are never in `packages`, so they are not reported as dependencies.
+fn read_pnpm_lockfile(project_root: &Path) -> Result<Vec<(String, String)>, String> {
+    let content = fs::read_to_string(project_root.join("pnpm-lock.yaml"))
+        .map_err(|e| format!("failed to read: {e}"))?;
+    let lockfile: serde_yaml::Value =
+        serde_yaml::from_str(&content).map_err(|e| format!("not valid YAML: {e}"))?;
 
-        for line in content.lines() {
-            if line.trim().starts_with('/') && line.contains(':') {
-                if let Some(pkg_info) = line.trim().strip_prefix('/') {
-                    if let Some(colon_pos) = pkg_info.find(':') {
-                        let pkg_with_version = &pkg_info[..colon_pos];
-                        if let Some((pkg_name, version)) = pkg_with_version.rsplit_once('@') {
-                            deps.insert(pkg_name.to_string(), version.to_string());
-                        }
-                    }
-                }
+    let grammar = PnpmKeyGrammar::for_lockfile_version(lockfile.get("lockfileVersion"));
+
+    let Some(packages) = lockfile.get("packages") else {
+        return Ok(Vec::new());
+    };
+    let packages = packages.as_mapping().ok_or("`packages` is not a map")?;
+
+    let mut installed = std::collections::BTreeSet::new();
+    for (key, entry) in packages {
+        let Some(key) = key.as_str() else {
+            continue;
+        };
+        match pnpm_package_identity(key, entry, grammar) {
+            Some(identity) => {
+                installed.insert(identity);
             }
+            None => log(
+                LogLevel::Warn,
+                &format!("Skipping pnpm-lock.yaml package key {key:?}: no name and version in it"),
+            ),
         }
-
-        log(
-            LogLevel::Info,
-            &format!("Parsed {} dependencies from pnpm-lock.yaml", deps.len()),
-        );
-        Some(deps)
-    } else {
-        None
     }
+    Ok(installed.into_iter().collect())
+}
+
+/// How a `packages` key spells a name and version.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PnpmKeyGrammar {
+    /// Lockfile 5.x and older: `/name/1.0.0`, `/@scope/name/1.0.0`, peers after `_`.
+    Slash,
+    /// Lockfile 6.0 (leading `/`) and 9.0 (none): `name@1.0.0`, peers in parentheses.
+    At,
+}
+
+impl PnpmKeyGrammar {
+    fn for_lockfile_version(version: Option<&serde_yaml::Value>) -> Self {
+        // 5.4 is written unquoted and reads as a number, 6.0 and 9.0 are quoted strings.
+        let major = match version {
+            Some(serde_yaml::Value::Number(n)) => n.as_f64().map(|v| v as u64),
+            Some(serde_yaml::Value::String(s)) => s.split('.').next().and_then(|m| m.parse().ok()),
+            _ => None,
+        };
+        match major {
+            Some(major) if major < 6 => PnpmKeyGrammar::Slash,
+            _ => PnpmKeyGrammar::At,
+        }
+    }
+}
+
+/// The name and version one `packages` entry installs.
+///
+/// A package that did not come from the registry (a tarball, a git repository, a local directory)
+/// has a key that is a location rather than a name, and its entry carries the real `name` and
+/// `version`; those fields win over anything parsed out of the key.
+fn pnpm_package_identity(
+    key: &str,
+    entry: &serde_yaml::Value,
+    grammar: PnpmKeyGrammar,
+) -> Option<(String, String)> {
+    let field = |name: &str| {
+        entry
+            .get(name)
+            .and_then(serde_yaml::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+
+    let parsed = parse_pnpm_package_key(key, grammar);
+    let name = field("name").or(parsed.map(|(name, _)| name))?;
+    let version = field("version").or(parsed.map(|(_, version)| version))?;
+    if name.contains(char::is_whitespace) {
+        return None;
+    }
+    Some((name.to_string(), version.to_string()))
+}
+
+/// Split a `packages` key into name and version, peer dependency suffixes dropped.
+fn parse_pnpm_package_key(key: &str, grammar: PnpmKeyGrammar) -> Option<(&str, &str)> {
+    let key = key.strip_prefix('/').unwrap_or(key);
+    let (name, version) = match grammar {
+        PnpmKeyGrammar::Slash => {
+            let without_peers = key.split('_').next().unwrap_or(key);
+            let without_peers = without_peers.split('(').next().unwrap_or(without_peers);
+            without_peers.rsplit_once('/')?
+        }
+        PnpmKeyGrammar::At => {
+            // The separator is the first `@` after the scope's own. Splitting at the last one
+            // instead would cut a tarball URL or a peer suffix in half.
+            let separator = key
+                .char_indices()
+                .skip(1)
+                .find(|&(_, c)| c == '@')
+                .map(|(index, _)| index)?;
+            let (name, version) = (&key[..separator], &key[separator + 1..]);
+            (name, version.split('(').next().unwrap_or(version))
+        }
+    };
+    if name.is_empty() || version.is_empty() {
+        return None;
+    }
+    Some((name, version))
 }
 
 fn parse_yarn_lockfile(project_root: &Path) -> Option<HashMap<String, String>> {
@@ -1449,14 +1556,16 @@ fn get_license_for_package(
     #[cfg(not(windows))]
     const NPM: &str = "npm";
 
-    let mut result = get_license_from_package_json(project_root, name, version);
+    // The version specific store entry first, so a second installed version is not answered for
+    // by whichever one was hoisted.
+    let mut result = get_license_from_pnpm_metadata(project_root, name, version)
+        .or_else(|| get_license_from_package_json(project_root, name, version));
 
     if result.is_none() && !no_local {
         result = get_license_from_local_license_file(project_root, name);
     }
 
     result
-        .or_else(|| get_license_from_pnpm_metadata(project_root, name, version))
         .or_else(|| get_license_from_npm_view(NPM, name, version))
         .or_else(|| get_license_from_npm_registry_api(name, version))
         .unwrap_or_else(|| "Unknown (failed to retrieve)".to_string())
@@ -1647,40 +1756,43 @@ pub(crate) fn get_license_from_npm_registry_api(
     None
 }
 
+/// The license of one exact version, from its directory in pnpm's virtual store.
+///
+/// This is the only lookup that can tell two installed versions apart: `node_modules/<name>` holds
+/// whichever version was hoisted, so it answers for that one no matter which was asked about. The
+/// store spells a scope's `/` as `+`, and a directory for a package with peers carries a `_` suffix.
 fn get_license_from_pnpm_metadata(
     project_root: &Path,
     package_name: &str,
     version: &str,
 ) -> Option<String> {
-    let pnpm_meta_path = project_root.join("node_modules").join(".pnpm");
+    let store = project_root.join("node_modules").join(".pnpm");
+    let expected = format!("{}@{version}", package_name.replace('/', "+"));
 
-    if pnpm_meta_path.exists() {
-        let expected_dir_name = format!("{package_name}@{version}");
-
-        if let Ok(entries) = fs::read_dir(&pnpm_meta_path) {
-            for entry in entries.flatten() {
-                let dir_name = entry.file_name();
-                let dir_name_str = dir_name.to_string_lossy();
-
-                if dir_name_str.starts_with(&expected_dir_name) {
-                    let package_json_path = entry
-                        .path()
-                        .join("node_modules")
-                        .join(package_name)
-                        .join("package.json");
-                    if let Ok(content) = fs::read_to_string(&package_json_path) {
-                        if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                            if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
-                                if !license.is_empty() && license != "UNLICENSED" {
-                                    return Some(license.to_string());
-                                }
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
+    let entries = fs::read_dir(&store).ok()?;
+    for entry in entries.flatten() {
+        let dir_name = entry.file_name();
+        let dir_name = dir_name.to_string_lossy();
+        let matches = dir_name == expected.as_str()
+            || dir_name
+                .strip_prefix(expected.as_str())
+                .is_some_and(|rest| rest.starts_with('_'));
+        if !matches {
+            continue;
         }
+
+        let package_json_path = entry
+            .path()
+            .join("node_modules")
+            .join(package_name)
+            .join("package.json");
+        let content = fs::read_to_string(&package_json_path).ok()?;
+        let json = serde_json::from_str::<Value>(&content).ok()?;
+        return json
+            .get("license")
+            .and_then(|l| l.as_str())
+            .filter(|license| !license.is_empty() && *license != "UNLICENSED")
+            .map(str::to_string);
     }
 
     None
@@ -1782,28 +1894,39 @@ fn parse_package_json_dependencies(
     Ok(all_deps)
 }
 
-fn analyze_pnpm_project_comprehensive(
-    project_root: &Path,
-    _package_json_path: &str,
-) -> HashMap<String, String> {
+/// The dependencies of a pnpm project, one entry per installed name and version.
+///
+/// The lockfile is the answer whenever it can be read: it names every package pnpm installed, once
+/// per version, and nothing else. Everything else only runs when it cannot be read, because each of
+/// those sees something the lockfile does not mean. The disk scans count whatever sits in
+/// `node_modules`, including packages an earlier install left behind, and name-keyed merging of
+/// several sources is what reported more packages than `pnpm list` did (#98).
+fn analyze_pnpm_project(project_root: &Path) -> Vec<(String, String)> {
+    match read_pnpm_lockfile(project_root) {
+        Ok(packages) => {
+            log(
+                LogLevel::Info,
+                &format!("pnpm-lock.yaml lists {} package(s)", packages.len()),
+            );
+            packages
+        }
+        Err(e) => {
+            log(
+                LogLevel::Warn,
+                &format!("Could not read pnpm-lock.yaml ({e}); falling back to pnpm list and node_modules"),
+            );
+            analyze_pnpm_project_without_lockfile(project_root)
+                .into_iter()
+                .collect()
+        }
+    }
+}
+
+/// Every source other than the lockfile, merged by name. Only for a lockfile that cannot be read.
+fn analyze_pnpm_project_without_lockfile(project_root: &Path) -> HashMap<String, String> {
     let mut all_deps = HashMap::new();
 
-    log(
-        LogLevel::Info,
-        "Method 1: Comprehensive pnpm-lock.yaml parsing",
-    );
-    if let Ok(lockfile_deps) = parse_pnpm_lockfile_comprehensive(project_root) {
-        log(
-            LogLevel::Info,
-            &format!(
-                "pnpm-lock.yaml parsing found {} dependencies",
-                lockfile_deps.len()
-            ),
-        );
-        all_deps.extend(lockfile_deps);
-    }
-
-    log(LogLevel::Info, "Method 2: pnpm list commands");
+    log(LogLevel::Info, "Method 1: pnpm list commands");
     let before_pnpm_commands = all_deps.len();
 
     if let Ok(deps) = try_pnpm_list_all_dependencies(project_root) {
@@ -1844,28 +1967,7 @@ fn analyze_pnpm_project_comprehensive(
         ),
     );
 
-    log(LogLevel::Info, "Method 3: Enhanced lockfile parsing");
-    let before_enhanced_lockfile = all_deps.len();
-    if let Ok(enhanced_deps) = parse_pnpm_lockfile_enhanced(project_root) {
-        log(
-            LogLevel::Info,
-            &format!(
-                "Enhanced lockfile parsing found {} dependencies",
-                enhanced_deps.len()
-            ),
-        );
-        all_deps.extend(enhanced_deps);
-    }
-    log(
-        LogLevel::Info,
-        &format!(
-            "Total after enhanced lockfile: {} (added {})",
-            all_deps.len(),
-            all_deps.len().saturating_sub(before_enhanced_lockfile)
-        ),
-    );
-
-    log(LogLevel::Info, "Method 4: .pnpm virtual store analysis");
+    log(LogLevel::Info, "Method 2: .pnpm virtual store analysis");
     let before_virtual_store = all_deps.len();
     if let Ok(virtual_store_deps) = analyze_pnpm_virtual_store_comprehensive(project_root) {
         log(
@@ -1886,7 +1988,7 @@ fn analyze_pnpm_project_comprehensive(
         ),
     );
 
-    log(LogLevel::Info, "Method 5: node_modules symlink resolution");
+    log(LogLevel::Info, "Method 3: node_modules symlink resolution");
     let before_symlinks = all_deps.len();
     if let Ok(symlink_deps) = resolve_pnpm_symlinks(project_root) {
         log(
@@ -1907,7 +2009,7 @@ fn analyze_pnpm_project_comprehensive(
         ),
     );
 
-    log(LogLevel::Info, "Method 6: Deep .pnpm directory scanning");
+    log(LogLevel::Info, "Method 4: Deep .pnpm directory scanning");
     let before_deep_scan = all_deps.len();
     if let Ok(deep_scan_deps) = deep_scan_pnpm_store(project_root) {
         log(
@@ -1929,7 +2031,7 @@ fn analyze_pnpm_project_comprehensive(
     );
 
     if all_deps.len() < 200 {
-        log(LogLevel::Info, "Method 7: node_modules scan");
+        log(LogLevel::Info, "Method 5: node_modules scan");
         let before_fallback = all_deps.len();
         if let Ok(fallback_deps) = comprehensive_node_modules_scan(project_root) {
             log(
@@ -1952,114 +2054,6 @@ fn analyze_pnpm_project_comprehensive(
     }
 
     all_deps
-}
-
-fn parse_pnpm_lockfile_comprehensive(
-    project_root: &Path,
-) -> Result<HashMap<String, String>, String> {
-    let lockfile_path = project_root.join("pnpm-lock.yaml");
-    if !lockfile_path.exists() {
-        return Err("pnpm-lock.yaml not found".to_string());
-    }
-
-    log(LogLevel::Info, "Parsing pnpm-lock.yaml comprehensively");
-
-    let content = fs::read_to_string(&lockfile_path)
-        .map_err(|e| format!("Failed to read pnpm-lock.yaml: {e}"))?;
-
-    let mut deps = HashMap::new();
-    let mut in_packages_section = false;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-
-        if trimmed == "packages:" {
-            in_packages_section = true;
-            continue;
-        }
-
-        if !trimmed.is_empty()
-            && !trimmed.starts_with(' ')
-            && trimmed.ends_with(':')
-            && in_packages_section
-            && trimmed != "packages:"
-        {
-            in_packages_section = false;
-            continue;
-        }
-
-        if in_packages_section && trimmed.starts_with('/') && trimmed.contains(':') {
-            if let Some(pkg_info) = trimmed.strip_prefix('/').and_then(|s| s.strip_suffix(':')) {
-                if let Some((pkg_name, version)) = parse_pnpm_package_entry(pkg_info) {
-                    deps.insert(pkg_name, version);
-                }
-            }
-        }
-
-        if trimmed.contains('@') && trimmed.contains(':') && !trimmed.starts_with('#') {
-            if let Some((pkg_name, version)) = extract_package_from_lockfile_line(trimmed) {
-                deps.insert(pkg_name, version);
-            }
-        }
-    }
-
-    log(
-        LogLevel::Info,
-        &format!(
-            "Comprehensive pnpm-lock.yaml parsing found {} dependencies",
-            deps.len()
-        ),
-    );
-    Ok(deps)
-}
-
-fn parse_pnpm_package_entry(pkg_info: &str) -> Option<(String, String)> {
-    let clean_info = pkg_info.split('(').next().unwrap_or(pkg_info);
-    let clean_info = clean_info.split('_').next().unwrap_or(clean_info);
-
-    if let Some(at_pos) = clean_info.rfind('@') {
-        let name_part = &clean_info[..at_pos];
-        let version_part = &clean_info[at_pos + 1..];
-
-        if version_part
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_digit())
-        {
-            return Some((name_part.to_string(), version_part.to_string()));
-        }
-    }
-
-    None
-}
-
-fn extract_package_from_lockfile_line(line: &str) -> Option<(String, String)> {
-    if line.contains("resolution:") {
-        return None;
-    }
-
-    if let Some(colon_pos) = line.find(':') {
-        let name_part = line[..colon_pos].trim();
-        let version_part = line[colon_pos + 1..].trim();
-
-        if name_part.is_empty() || version_part.is_empty() {
-            return None;
-        }
-
-        if name_part.contains('/') && !name_part.starts_with('@') {
-            return None;
-        }
-
-        if version_part
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_digit())
-        {
-            return Some((name_part.to_string(), version_part.to_string()));
-        }
-    }
-
-    None
 }
 
 fn try_pnpm_list_comprehensive(project_root: &Path) -> Result<HashMap<String, String>, String> {
@@ -2389,79 +2383,6 @@ fn try_pnpm_list_all_dependencies(project_root: &Path) -> Result<HashMap<String,
     Ok(dependencies)
 }
 
-fn parse_pnpm_lockfile_enhanced(project_root: &Path) -> Result<HashMap<String, String>, String> {
-    let lockfile_path = project_root.join("pnpm-lock.yaml");
-    if !lockfile_path.exists() {
-        return Err("pnpm-lock.yaml not found".to_string());
-    }
-
-    log(LogLevel::Info, "Enhanced parsing of pnpm-lock.yaml");
-
-    let content = fs::read_to_string(&lockfile_path)
-        .map_err(|e| format!("Failed to read pnpm-lock.yaml: {e}"))?;
-
-    let mut deps = HashMap::new();
-    let mut current_section = None;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-
-        if trimmed.ends_with(':') && !trimmed.starts_with(' ') {
-            current_section = Some(trimmed.trim_end_matches(':').to_string());
-            continue;
-        }
-
-        match current_section.as_deref() {
-            Some("packages") => {
-                if trimmed.starts_with('/') && trimmed.contains(':') {
-                    if let Some(pkg_info) =
-                        trimmed.strip_prefix('/').and_then(|s| s.strip_suffix(':'))
-                    {
-                        if let Some((pkg_name, version)) = parse_pnpm_package_entry(pkg_info) {
-                            deps.insert(pkg_name, version);
-                        }
-                    }
-                }
-            }
-            Some("dependencies") | Some("devDependencies") | Some("optionalDependencies") => {
-                if let Some(colon_pos) = trimmed.find(':') {
-                    let name = trimmed[..colon_pos]
-                        .trim()
-                        .trim_matches('\'')
-                        .trim_matches('"');
-                    let version_spec = trimmed[colon_pos + 1..].trim();
-
-                    if !name.is_empty() && !version_spec.is_empty() {
-                        let clean_version =
-                            clean_version_string(version_spec.trim_matches('\'').trim_matches('"'));
-                        deps.insert(name.to_string(), clean_version);
-                    }
-                }
-            }
-            _ => {
-                if trimmed.contains('@') && trimmed.contains(':') && !trimmed.starts_with('#') {
-                    if let Some((potential_pkg, _)) = trimmed.split_once(':') {
-                        if let Some((pkg_name, version)) = potential_pkg.trim().rsplit_once('@') {
-                            if version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                                deps.insert(pkg_name.to_string(), version.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    log(
-        LogLevel::Info,
-        &format!(
-            "Enhanced lockfile parsing found {} dependencies",
-            deps.len()
-        ),
-    );
-    Ok(deps)
-}
-
 fn parse_pnpm_virtual_store_entry(dir_name: &str) -> Option<(String, String)> {
     if let Some((pkg_with_version, _hash)) = dir_name.split_once('_') {
         let pkg_with_version = pkg_with_version.replace('+', "/");
@@ -2774,83 +2695,249 @@ mod tests {
         assert!(attribution.is_empty());
     }
 
-    #[test]
-    fn test_parse_pnpm_lockfile_enhanced_strips_quotes_from_scoped_deps() {
+    fn lockfile(content: &str) -> TempDir {
         let temp = TempDir::new().unwrap();
-        let lockfile = "\
-dependencies:
-  '@babel/code-frame': 7.26.2
-  lodash: 4.17.21
-";
-        fs::write(temp.path().join("pnpm-lock.yaml"), lockfile).unwrap();
+        fs::write(temp.path().join("pnpm-lock.yaml"), content).unwrap();
+        temp
+    }
 
-        let deps = parse_pnpm_lockfile_enhanced(temp.path()).unwrap();
-        assert_eq!(deps.get("@babel/code-frame"), Some(&"7.26.2".to_string()));
-        assert_eq!(deps.get("lodash"), Some(&"4.17.21".to_string()));
-        // No entry should have a leading quote:
-        assert!(deps.keys().all(|k| !k.starts_with('\'')));
+    fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
+        entries
+            .iter()
+            .map(|(name, version)| (name.to_string(), version.to_string()))
+            .collect()
     }
 
     #[test]
-    fn test_pnpm_lockfile_quoted_and_unquoted_names_collapse() {
+    fn test_pnpm_lockfile_v9() {
+        // pnpm 9 and 10: no leading slash, scoped keys quoted, peers only in `snapshots`.
+        let temp = lockfile(
+            "\
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      '@babel/core':
+        specifier: 7.26.9
+        version: 7.26.9
+      debug:
+        specifier: 4.3.4
+        version: 4.3.4(supports-color@8.1.1)
+      sibling:
+        specifier: workspace:*
+        version: link:packages/sibling
+
+packages:
+  '@babel/core@7.26.9':
+    resolution: {integrity: sha512-deadbeef}
+  debug@4.3.4:
+    resolution: {integrity: sha512-deadbeef}
+  ms@2.0.0:
+    resolution: {integrity: sha512-deadbeef}
+  ms@2.1.2: {}
+  supports-color@8.1.1: {}
+
+snapshots:
+  debug@4.3.4(supports-color@8.1.1):
+    dependencies:
+      ms: 2.1.2
+      supports-color: 8.1.1
+",
+        );
+
+        assert_eq!(
+            read_pnpm_lockfile(temp.path()).unwrap(),
+            pairs(&[
+                ("@babel/core", "7.26.9"),
+                ("debug", "4.3.4"),
+                ("ms", "2.0.0"),
+                ("ms", "2.1.2"),
+                ("supports-color", "8.1.1"),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_pnpm_lockfile_v6() {
+        // pnpm 8: a leading slash, peers in parentheses on the key.
+        let temp = lockfile(
+            "\
+lockfileVersion: '6.0'
+
+dependencies:
+  '@babel/core':
+    specifier: 7.26.9
+    version: 7.26.9
+
+packages:
+  /@babel/core@7.26.9:
+    resolution: {integrity: sha512-deadbeef}
+    dev: false
+  /debug@4.3.4(supports-color@8.1.1):
+    resolution: {integrity: sha512-deadbeef}
+  /ms@2.1.2:
+    resolution: {integrity: sha512-deadbeef}
+",
+        );
+
+        assert_eq!(
+            read_pnpm_lockfile(temp.path()).unwrap(),
+            pairs(&[
+                ("@babel/core", "7.26.9"),
+                ("debug", "4.3.4"),
+                ("ms", "2.1.2")
+            ])
+        );
+    }
+
+    #[test]
+    fn test_pnpm_lockfile_v5() {
+        // pnpm 7 and older: name and version separated by a slash, peers after an underscore.
+        let temp = lockfile(
+            "\
+lockfileVersion: 5.4
+
+packages:
+  /@babel/core/7.26.9:
+    resolution: {integrity: sha512-deadbeef}
+  /debug/4.3.4_supports-color@8.1.1:
+    resolution: {integrity: sha512-deadbeef}
+  /ms/2.1.2:
+    resolution: {integrity: sha512-deadbeef}
+",
+        );
+
+        assert_eq!(
+            read_pnpm_lockfile(temp.path()).unwrap(),
+            pairs(&[
+                ("@babel/core", "7.26.9"),
+                ("debug", "4.3.4"),
+                ("ms", "2.1.2")
+            ])
+        );
+    }
+
+    #[test]
+    fn test_pnpm_lockfile_packages_from_outside_the_registry() {
+        // The key is a location; the entry's own name and version say what it is.
+        let temp = lockfile(
+            "\
+lockfileVersion: '6.0'
+
+packages:
+  github.com/owner/repo/0123abcd:
+    resolution: {tarball: https://codeload.github.com/owner/repo/tar.gz/0123abcd}
+    name: from-git
+    version: 1.2.3
+  /tarball@https://example.com/tarball-2.0.0.tgz:
+    resolution: {tarball: https://example.com/tarball-2.0.0.tgz}
+",
+        );
+
+        assert_eq!(
+            read_pnpm_lockfile(temp.path()).unwrap(),
+            pairs(&[
+                ("from-git", "1.2.3"),
+                ("tarball", "https://example.com/tarball-2.0.0.tgz"),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_pnpm_lockfile_without_packages_is_empty() {
+        let temp = lockfile("lockfileVersion: '9.0'\n\nimporters:\n  .: {}\n");
+        assert_eq!(read_pnpm_lockfile(temp.path()).unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn test_unreadable_pnpm_lockfile_is_an_error() {
+        let temp = lockfile("packages: [unterminated\n");
+        assert!(read_pnpm_lockfile(temp.path()).is_err());
+    }
+
+    #[test]
+    fn test_pnpm_project_reports_the_lockfile_and_nothing_else() {
+        // #98. Everything on disk here is a way the old merged detection reported more than pnpm
+        // installed: a store directory left by an earlier install, a hoisted copy of a different
+        // version, and a quoted scoped key that used to become its own name.
+        let temp = lockfile(
+            "\
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      '@babel/core':
+        specifier: ^7.26.9
+        version: 7.26.9
+
+packages:
+  '@babel/core@7.26.9':
+    resolution: {integrity: sha512-deadbeef}
+  ms@2.0.0:
+    resolution: {integrity: sha512-deadbeef}
+  ms@2.1.2:
+    resolution: {integrity: sha512-deadbeef}
+",
+        );
+        let root = temp.path();
+        for (dir, name, version) in [
+            ("@babel+core@7.26.9", "@babel/core", "7.26.9"),
+            ("ms@2.0.0", "ms", "2.0.0"),
+            ("ms@2.1.2", "ms", "2.1.2"),
+            ("orphan@1.0.0", "orphan", "1.0.0"),
+        ] {
+            let package = root
+                .join("node_modules/.pnpm")
+                .join(dir)
+                .join("node_modules")
+                .join(name);
+            fs::create_dir_all(&package).unwrap();
+            fs::write(
+                package.join("package.json"),
+                format!(r#"{{"name":"{name}","version":"{version}","license":"MIT"}}"#),
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            analyze_pnpm_project(root),
+            pairs(&[("@babel/core", "7.26.9"), ("ms", "2.0.0"), ("ms", "2.1.2")])
+        );
+    }
+
+    #[test]
+    fn test_pnpm_store_answers_for_the_exact_version() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
-        // The SAME package (@babel/core) is discoverable through two paths that
-        // produce different names pre-fix:
-        //   - the `packages:` section + .pnpm virtual store + node_modules all
-        //     yield the unquoted name `@babel/core`;
-        //   - the `dependencies:` section of pnpm-lock.yaml is parsed by
-        //     parse_pnpm_lockfile_enhanced, which pre-fix kept the YAML-mandated
-        //     quotes around the `@`-prefixed key, yielding `'@babel/core'`.
-        // Without the quote-stripping fix those are two distinct HashMap keys —
-        // a phantom duplicate row, exactly the symptom reported in issue #98.
-        // With the fix both names normalise to `@babel/core` and collapse to
-        // one entry.
-        fs::write(
-            root.join("pnpm-lock.yaml"),
-            "packages:\n  /@babel/core@7.26.9:\n    resolution: {integrity: sha1-deadbeef}\ndependencies:\n  '@babel/core': 7.26.9\n",
-        )
-        .unwrap();
-        fs::write(
-            root.join("package.json"),
-            r#"{"name":"x","version":"1.0.0","dependencies":{"@babel/core":"^7.26.9"}}"#,
-        )
-        .unwrap();
-        // virtual store mirror
-        let vs = root.join("node_modules/.pnpm/@babel+core@7.26.9/node_modules/@babel/core");
-        fs::create_dir_all(&vs).unwrap();
-        fs::write(
-            vs.join("package.json"),
-            r#"{"name":"@babel/core","version":"7.26.9","license":"MIT"}"#,
-        )
-        .unwrap();
-        // top-level symlink target
-        let top = root.join("node_modules/@babel/core");
-        fs::create_dir_all(&top).unwrap();
-        fs::write(
-            top.join("package.json"),
-            r#"{"name":"@babel/core","version":"7.26.9","license":"MIT"}"#,
-        )
-        .unwrap();
+        for (dir, name, license) in [
+            ("@scope+pkg@1.0.0", "@scope/pkg", "MIT"),
+            ("@scope+pkg@1.0.0-beta.1", "@scope/pkg", "GPL-3.0"),
+            ("debug@4.3.4_supports-color@8.1.1", "debug", "MIT"),
+            ("debug@2.6.9", "debug", "ISC"),
+        ] {
+            let package = root
+                .join("node_modules/.pnpm")
+                .join(dir)
+                .join("node_modules")
+                .join(name);
+            fs::create_dir_all(&package).unwrap();
+            fs::write(
+                package.join("package.json"),
+                format!(r#"{{"name":"{name}","license":"{license}"}}"#),
+            )
+            .unwrap();
+        }
 
-        let deps = analyze_pnpm_project_comprehensive(root, "package.json");
-        // Exactly one entry for @babel/core — not a quoted phantom twin. The
-        // filter matches both `@babel/core` and `'@babel/core'` so it counts
-        // the duplicate the quote bug would introduce.
-        let babel_entries: Vec<_> = deps
-            .iter()
-            .filter(|(k, _)| k.trim_matches('\'') == "@babel/core")
-            .collect();
+        let license = |name, version| get_license_from_pnpm_metadata(root, name, version);
+        assert_eq!(license("@scope/pkg", "1.0.0").as_deref(), Some("MIT"));
         assert_eq!(
-            babel_entries.len(),
-            1,
-            "expected a single @babel/core entry, got {babel_entries:?}\nfull deps: {deps:?}"
+            license("@scope/pkg", "1.0.0-beta.1").as_deref(),
+            Some("GPL-3.0")
         );
-        assert_eq!(deps.get("@babel/core").map(String::as_str), Some("7.26.9"));
-        // No key should retain a leading quote (the quote-bug signature).
-        assert!(
-            deps.keys().all(|k| !k.starts_with('\'')),
-            "quoted key leaked into deps: {deps:?}"
-        );
+        assert_eq!(license("debug", "4.3.4").as_deref(), Some("MIT"));
+        assert_eq!(license("debug", "2.6.9").as_deref(), Some("ISC"));
+        assert_eq!(license("debug", "1.0.0"), None);
     }
 }

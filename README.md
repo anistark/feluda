@@ -193,6 +193,9 @@ feluda --no-vendor-scan
 # Skip the ClearlyDefined lookup for licenses Feluda could not resolve
 feluda --no-clearlydefined
 
+# Record what this scan resolved into the configured ClearlyDefined definitions file
+feluda --update-definitions
+
 # Filter by OSI approval status
 feluda --osi approved        # Show only OSI approved licenses
 feluda --osi not-approved   # Show only non-OSI approved licenses
@@ -224,7 +227,9 @@ enabled = false
 ```
 
 An air gapped build can answer from a file instead: `definitions = "clearlydefined.json"` points
-at a JSON object keyed by coordinate, and nothing is asked over the network.
+at a JSON object keyed by coordinate, and nothing is asked over the network. Run
+`feluda --update-definitions` on a connected machine to write that file from a real scan, then
+commit it.
 
 ### Beyond Manifests
 
@@ -278,11 +283,22 @@ feluda sbom cyclonedx --output sbom.json
 
 # Generate all formats with custom output
 feluda sbom --output sbom-output
+
+# Write an older spec version for a consumer that needs one
+feluda sbom cyclonedx --spec-version 1.4
 ```
 
 **Supported SBOM Formats:**
-- **SPDX 2.3** - Software Package Data Exchange format (JSON)
-- **CycloneDX** - CycloneDX v1.5 format (JSON)
+- **SPDX** - Software Package Data Exchange format (JSON), 2.3 by default or 2.2
+- **CycloneDX** - CycloneDX format (JSON), 1.6 by default or 1.4, 1.5, 1.7
+
+Pick a version with `--spec-version` on `sbom spdx` / `sbom cyclonedx`, with `--spdx-version` / `--cyclonedx-version` on `feluda sbom`, or pin it for a project:
+
+```toml
+[sbom]
+spdx = "2.2"
+cyclonedx = "1.4"
+```
 
 **What's Included in SBOM:**
 - Package names and versions
@@ -340,14 +356,14 @@ feluda sbom spdx --filesystem ./rootfs --output rootfs.spdx.json
 
 **What this covers:**
 - 🏔️ **Alpine** - the apk installed database, which records each package's license directly
-- 🌀 **Debian and Ubuntu** - the dpkg database for what is installed, plus each package's `copyright` file for its license, including the machine-readable DEP-5 format
+- 🌀 **Debian and Ubuntu** - the dpkg database for what is installed, plus each package's `copyright` file for its license, from the machine-readable DEP-5 format or, in older files, the GNU grant sentence
 - 🎩 **Fedora, RHEL, Rocky, Alma, SUSE and openSUSE** - the rpm database in either its sqlite or ndb form, whose package headers record the license directly
 - 🐍 **Installed Python distributions** - `*.dist-info/METADATA` and `*.egg-info/PKG-INFO`, wherever they sit
 - 📗 **Installed Node packages** - the `package.json` inside every `node_modules` entry
 - 🐹 **Go binaries** - the build info the Go linker writes into every executable, so a distroless Go image reports the modules compiled into it
 - 📦 **Anything unpacked** - `docker export` output, extracted layers, chroots, installation trees
 
-OS packages carry the distro in their PURL (`pkg:deb/debian/libssl3@3.0.15-1`, `pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41`), so Feluda's findings match what other tools report for the same package. Distro license short names are translated to SPDX, so Debian's `GPL-2+` and Fedora's `GPLv2+` both classify as `GPL-2.0-or-later` rather than as unknown. A package whose license cannot be read is reported as unknown and never guessed at.
+OS packages carry the distro in their PURL (`pkg:deb/debian/libssl3@3.0.15-1`, `pkg:rpm/fedora/bzip2-libs@1.0.8-19.fc41`), with the `arch`, `distro`, `upstream` and rpm `epoch` qualifiers syft writes (`?arch=amd64&distro=debian-12.15`), so Feluda's PURLs for an image are the same ones syft reports. Distro license short names are translated to SPDX, so Debian's `GPL-2+` and Fedora's `GPLv2+` both classify as `GPL-2.0-or-later` rather than as unknown. A package whose license cannot be read is reported as unknown and never guessed at.
 
 The application's own dependencies are usually the larger half of an image, and they arrive with no manifest behind them, so they are catalogued too. An artifact that a distro package already ships is reported once, not twice: Feluda reads each package manager's file list to see which is which. An artifact whose installed metadata states no license is resolved against its registry, which is something an OS package can never do. Go build info carries no license at all, so every module read out of a binary goes to pkg.go.dev.
 
