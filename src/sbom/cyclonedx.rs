@@ -4,8 +4,9 @@ use uuid::Uuid;
 
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
 use crate::sbom::spdx::SpdxDocument;
+use crate::sbom::CycloneDxVersion;
 
-/// CycloneDX v1.5 BOM structure
+/// CycloneDX BOM structure, for every version feluda writes (1.4 to 1.7)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CycloneDxBom {
@@ -13,7 +14,7 @@ pub struct CycloneDxBom {
     pub bom_format: String, // "CycloneDX"
 
     /// Specification version (required)
-    pub spec_version: String, // "1.5"
+    pub spec_version: String, // "1.6"
 
     /// Serial number for the BOM (optional but recommended)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,7 +43,7 @@ pub struct CycloneDxMetadata {
 
     /// Tools used to create the BOM (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<CycloneDxTools>,
+    pub tools: Option<CycloneDxToolsChoice>,
 
     /// Authors of the BOM (optional)
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -53,7 +54,29 @@ pub struct CycloneDxMetadata {
     pub component: Option<CycloneDxComponent>,
 }
 
-/// CycloneDX tools structure (v1.5 format)
+/// The two shapes `metadata.tools` has taken.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CycloneDxToolsChoice {
+    /// 1.5 and later: tools are components and services
+    Nested(CycloneDxTools),
+    /// 1.4 and earlier: a plain list, deprecated from 1.5
+    Legacy(Vec<CycloneDxLegacyTool>),
+}
+
+/// A tool as CycloneDX 1.4 and earlier list it
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CycloneDxLegacyTool {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vendor: Option<String>,
+
+    pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+/// CycloneDX tools structure (1.5 and later)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CycloneDxTools {
     /// Tool components
@@ -151,7 +174,12 @@ pub enum CycloneDxLicenseChoice {
     /// License object wrapper
     License { license: CycloneDxLicense },
     /// SPDX license expression wrapper
-    Expression { expression: String },
+    Expression {
+        expression: String,
+        /// `declared` or `concluded`, from 1.6
+        #[serde(skip_serializing_if = "Option::is_none")]
+        acknowledgement: Option<String>,
+    },
 }
 
 /// CycloneDX license object
@@ -168,6 +196,10 @@ pub struct CycloneDxLicense {
     /// License URL (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+
+    /// `declared` or `concluded`, from 1.6
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledgement: Option<String>,
 }
 
 /// CycloneDX external reference structure
@@ -187,23 +219,39 @@ pub struct CycloneDxExternalReference {
 
 impl CycloneDxBom {
     pub fn new() -> Self {
+        Self::for_version(CycloneDxVersion::default())
+    }
+
+    pub fn for_version(spec_version: CycloneDxVersion) -> Self {
         let serial_number = format!("urn:uuid:{}", Uuid::new_v4());
+        let feluda_version = Some(env!("CARGO_PKG_VERSION").to_string());
+
+        // 1.5 deprecated the plain tool list for components and services.
+        let tools = if spec_version >= CycloneDxVersion::V1_5 {
+            CycloneDxToolsChoice::Nested(CycloneDxTools {
+                components: vec![CycloneDxTool {
+                    component_type: "application".to_string(),
+                    name: "feluda".to_string(),
+                    version: feluda_version,
+                }],
+                services: vec![],
+            })
+        } else {
+            CycloneDxToolsChoice::Legacy(vec![CycloneDxLegacyTool {
+                vendor: None,
+                name: "feluda".to_string(),
+                version: feluda_version,
+            }])
+        };
 
         Self {
             bom_format: "CycloneDX".to_string(),
-            spec_version: "1.5".to_string(),
+            spec_version: spec_version.as_str().to_string(),
             serial_number: Some(serial_number),
             version: Some(1),
             metadata: Some(CycloneDxMetadata {
                 timestamp: Some(Utc::now()),
-                tools: Some(CycloneDxTools {
-                    components: vec![CycloneDxTool {
-                        component_type: "application".to_string(),
-                        name: "feluda".to_string(),
-                        version: Some(env!("CARGO_PKG_VERSION").to_string()),
-                    }],
-                    services: vec![],
-                }),
+                tools: Some(tools),
                 authors: vec![],
                 component: None,
             }),
@@ -223,33 +271,51 @@ impl Default for CycloneDxBom {
 }
 
 /// Convert SPDX license to CycloneDX license format
-fn convert_spdx_license_to_cyclonedx(spdx_license: &str) -> CycloneDxLicenseChoice {
-    // Check if it looks like an SPDX expression (contains AND, OR, WITH)
-    if spdx_license.contains(" AND ")
-        || spdx_license.contains(" OR ")
-        || spdx_license.contains(" WITH ")
-    {
+///
+/// CycloneDX validates `license.id` against the SPDX license list, so only a listed id is written
+/// as one, in the list's spelling. Anything else feluda resolved (a registry title, `SEE LICENSE
+/// IN LICENSE.txt`, an id newer than the bundled list) is written as `license.name`, which takes
+/// any text. An expression is written as one only when every license in it is listed, for the
+/// same reason.
+///
+/// `acknowledgement` is CycloneDX 1.6's `declared` or `concluded`, or `None` for earlier versions.
+/// `NOASSERTION` never carries one, since it states that no license was found.
+pub fn convert_spdx_license_to_cyclonedx(
+    spdx_license: &str,
+    acknowledgement: Option<&str>,
+) -> CycloneDxLicenseChoice {
+    let acknowledgement = acknowledgement.map(str::to_string);
+    let named = |name: &str, acknowledgement: Option<String>| CycloneDxLicenseChoice::License {
+        license: CycloneDxLicense {
+            id: None,
+            name: Some(name.to_string()),
+            url: None,
+            acknowledgement,
+        },
+    };
+
+    let expression = crate::spdx::is_compound(spdx_license)
+        .then(|| crate::spdx::listed_expression(spdx_license))
+        .flatten();
+
+    if spdx_license == "NOASSERTION" {
+        named("NOASSERTION", None)
+    } else if let Some(expression) = expression {
         CycloneDxLicenseChoice::Expression {
-            expression: spdx_license.to_string(),
+            expression,
+            acknowledgement,
         }
-    } else if spdx_license == "NOASSERTION" {
-        // Handle NOASSERTION case
+    } else if let Some(id) = crate::spdx::listed_id(spdx_license) {
         CycloneDxLicenseChoice::License {
             license: CycloneDxLicense {
-                id: None,
-                name: Some("NOASSERTION".to_string()),
+                id: Some(id.to_string()),
+                name: None,
                 url: None,
+                acknowledgement,
             },
         }
     } else {
-        // Single license identifier
-        CycloneDxLicenseChoice::License {
-            license: CycloneDxLicense {
-                id: Some(spdx_license.to_string()),
-                name: None,
-                url: None,
-            },
-        }
+        named(spdx_license, acknowledgement)
     }
 }
 
@@ -267,8 +333,12 @@ fn purl_of(spdx_package: &crate::sbom::spdx::SpdxPackage) -> Option<String> {
 }
 
 /// Convert SPDX document to CycloneDX BOM
-pub fn convert_spdx_to_cyclonedx(spdx_doc: &SpdxDocument) -> CycloneDxBom {
-    let mut bom = CycloneDxBom::new();
+pub fn convert_spdx_to_cyclonedx(
+    spdx_doc: &SpdxDocument,
+    spec_version: CycloneDxVersion,
+) -> CycloneDxBom {
+    let mut bom = CycloneDxBom::for_version(spec_version);
+    let acknowledges = spec_version >= CycloneDxVersion::V1_6;
 
     // Convert each SPDX package to CycloneDX component
     for spdx_package in &spdx_doc.packages {
@@ -284,15 +354,24 @@ pub fn convert_spdx_to_cyclonedx(spdx_doc: &SpdxDocument) -> CycloneDxBom {
             external_references: Vec::new(),
         };
 
-        // Convert licenses
-        if let Some(ref license_concluded) = spdx_package.license_concluded {
-            component
-                .licenses
-                .push(convert_spdx_license_to_cyclonedx(license_concluded));
-        } else if let Some(ref license_declared) = spdx_package.license_declared {
-            component
-                .licenses
-                .push(convert_spdx_license_to_cyclonedx(license_declared));
+        // The declared license comes first: what feluda reports is what the package states in
+        // its manifest, registry entry or license file, which is CycloneDX's `declared`. A
+        // package with only a conclusion says so.
+        let stated = spdx_package
+            .license_declared
+            .as_deref()
+            .map(|license| (license, "declared"))
+            .or_else(|| {
+                spdx_package
+                    .license_concluded
+                    .as_deref()
+                    .map(|license| (license, "concluded"))
+            });
+        if let Some((license, acknowledgement)) = stated {
+            component.licenses.push(convert_spdx_license_to_cyclonedx(
+                license,
+                acknowledges.then_some(acknowledgement),
+            ));
         }
 
         bom.add_component(component);
@@ -311,12 +390,16 @@ pub fn convert_spdx_to_cyclonedx(spdx_doc: &SpdxDocument) -> CycloneDxBom {
 
 pub fn generate_cyclonedx_output(
     spdx_doc: &SpdxDocument,
+    spec_version: CycloneDxVersion,
     output_file: Option<String>,
 ) -> FeludaResult<()> {
-    log(LogLevel::Info, "Generating CycloneDX 1.5 BOM output");
+    log(
+        LogLevel::Info,
+        &format!("Generating CycloneDX {} BOM output", spec_version.as_str()),
+    );
 
     // Convert SPDX document to CycloneDX BOM
-    let cyclonedx_bom = convert_spdx_to_cyclonedx(spdx_doc);
+    let cyclonedx_bom = convert_spdx_to_cyclonedx(spdx_doc, spec_version);
 
     // Serialize to JSON
     let json_output = serde_json::to_string_pretty(&cyclonedx_bom).map_err(|e| {
@@ -360,7 +443,7 @@ mod tests {
         let bom = CycloneDxBom::new();
 
         assert_eq!(bom.bom_format, "CycloneDX");
-        assert_eq!(bom.spec_version, "1.5");
+        assert_eq!(bom.spec_version, "1.6");
         assert!(bom.serial_number.is_some());
         assert_eq!(bom.version, Some(1));
         assert!(bom.metadata.is_some());
@@ -390,7 +473,7 @@ mod tests {
     #[test]
     fn test_convert_spdx_license_to_cyclonedx() {
         // Test simple license
-        let license = convert_spdx_license_to_cyclonedx("MIT");
+        let license = convert_spdx_license_to_cyclonedx("MIT", None);
         match license {
             CycloneDxLicenseChoice::License { license } => {
                 assert_eq!(license.id, Some("MIT".to_string()));
@@ -401,16 +484,16 @@ mod tests {
         }
 
         // Test SPDX expression
-        let license = convert_spdx_license_to_cyclonedx("MIT OR Apache-2.0");
+        let license = convert_spdx_license_to_cyclonedx("MIT OR Apache-2.0", None);
         match license {
-            CycloneDxLicenseChoice::Expression { expression } => {
+            CycloneDxLicenseChoice::Expression { expression, .. } => {
                 assert_eq!(expression, "MIT OR Apache-2.0");
             }
             _ => panic!("Expected Expression variant"),
         }
 
         // Test NOASSERTION
-        let license = convert_spdx_license_to_cyclonedx("NOASSERTION");
+        let license = convert_spdx_license_to_cyclonedx("NOASSERTION", None);
         match license {
             CycloneDxLicenseChoice::License { license } => {
                 assert_eq!(license.id, None);
@@ -432,10 +515,10 @@ mod tests {
 
         spdx_doc.add_package(package);
 
-        let cyclonedx_bom = convert_spdx_to_cyclonedx(&spdx_doc);
+        let cyclonedx_bom = convert_spdx_to_cyclonedx(&spdx_doc, CycloneDxVersion::V1_6);
 
         assert_eq!(cyclonedx_bom.bom_format, "CycloneDX");
-        assert_eq!(cyclonedx_bom.spec_version, "1.5");
+        assert_eq!(cyclonedx_bom.spec_version, "1.6");
         assert_eq!(cyclonedx_bom.components.len(), 1);
 
         let component = &cyclonedx_bom.components[0];
@@ -458,11 +541,12 @@ mod tests {
                 .with_license(expression),
         );
 
-        let bom = convert_spdx_to_cyclonedx(&spdx_doc);
+        let bom = convert_spdx_to_cyclonedx(&spdx_doc, CycloneDxVersion::V1_6);
 
         match &bom.components[0].licenses[..] {
             [CycloneDxLicenseChoice::Expression {
                 expression: written,
+                ..
             }] => {
                 assert_eq!(written, expression)
             }
@@ -480,7 +564,7 @@ mod tests {
                 .with_license("BSD-2-Clause"),
         );
 
-        let bom = convert_spdx_to_cyclonedx(&spdx_doc);
+        let bom = convert_spdx_to_cyclonedx(&spdx_doc, CycloneDxVersion::V1_6);
 
         assert_eq!(
             bom.components[0].purl.as_deref(),
@@ -498,7 +582,7 @@ mod tests {
             SpdxPackage::new("mystery", &spdx_doc.document_namespace).with_version("1.0.0"),
         );
 
-        let bom = convert_spdx_to_cyclonedx(&spdx_doc);
+        let bom = convert_spdx_to_cyclonedx(&spdx_doc, CycloneDxVersion::V1_6);
 
         assert_eq!(bom.components[0].purl, None);
         assert!(!serde_json::to_string(&bom).unwrap().contains("\"purl\""));
@@ -511,7 +595,7 @@ mod tests {
 
         // Verify it contains required fields
         assert!(json.contains("\"bomFormat\": \"CycloneDX\""));
-        assert!(json.contains("\"specVersion\": \"1.5\""));
+        assert!(json.contains("\"specVersion\": \"1.6\""));
         assert!(json.contains("\"serialNumber\""));
         assert!(json.contains("\"metadata\""));
     }
@@ -529,6 +613,7 @@ mod tests {
                     id: Some("MIT".to_string()),
                     name: None,
                     url: None,
+                    acknowledgement: None,
                 },
             }],
             copyright: Some("Copyright 2023 Test".to_string()),
@@ -554,6 +639,7 @@ mod tests {
                 id: Some("Apache-2.0".to_string()),
                 name: None,
                 url: Some("https://opensource.org/licenses/Apache-2.0".to_string()),
+                acknowledgement: None,
             },
         };
 
@@ -564,6 +650,7 @@ mod tests {
         // Test Expression variant
         let expression_variant = CycloneDxLicenseChoice::Expression {
             expression: "MIT AND Apache-2.0".to_string(),
+            acknowledgement: None,
         };
 
         let json = serde_json::to_string(&expression_variant).unwrap();
@@ -578,7 +665,9 @@ mod tests {
         assert!(metadata.timestamp.is_some());
         assert!(metadata.tools.is_some());
 
-        let tools = metadata.tools.unwrap();
+        let Some(CycloneDxToolsChoice::Nested(tools)) = metadata.tools else {
+            panic!("1.6 nests tools as components");
+        };
         assert!(!tools.components.is_empty());
         assert!(tools.services.is_empty());
 
@@ -611,7 +700,7 @@ mod tests {
             spdx_doc.add_package(package);
         }
 
-        let cyclonedx_bom = convert_spdx_to_cyclonedx(&spdx_doc);
+        let cyclonedx_bom = convert_spdx_to_cyclonedx(&spdx_doc, CycloneDxVersion::V1_6);
 
         assert_eq!(cyclonedx_bom.components.len(), 4);
 
@@ -629,7 +718,7 @@ mod tests {
                 }
                 "dual-license" => {
                     assert!(!component.licenses.is_empty());
-                    if let CycloneDxLicenseChoice::Expression { expression } =
+                    if let CycloneDxLicenseChoice::Expression { expression, .. } =
                         &component.licenses[0]
                     {
                         assert_eq!(expression, "MIT OR Apache-2.0");
@@ -637,7 +726,7 @@ mod tests {
                 }
                 "complex-expr" => {
                     assert!(!component.licenses.is_empty());
-                    if let CycloneDxLicenseChoice::Expression { expression } =
+                    if let CycloneDxLicenseChoice::Expression { expression, .. } =
                         &component.licenses[0]
                     {
                         assert_eq!(expression, "(MIT OR Apache-2.0) AND BSD-3-Clause");
@@ -651,6 +740,134 @@ mod tests {
                 }
                 _ => panic!("Unexpected component name: {}", component.name),
             }
+        }
+    }
+
+    fn single_package_document(license: &str) -> SpdxDocument {
+        let mut spdx_doc = SpdxDocument::new("test-project");
+        spdx_doc.add_package(
+            SpdxPackage::new("lib", &spdx_doc.document_namespace)
+                .with_version("1.0.0")
+                .with_license(license),
+        );
+        spdx_doc
+    }
+
+    #[test]
+    fn test_spec_version_is_the_one_asked_for() {
+        for version in [
+            CycloneDxVersion::V1_4,
+            CycloneDxVersion::V1_5,
+            CycloneDxVersion::V1_6,
+            CycloneDxVersion::V1_7,
+        ] {
+            let bom = convert_spdx_to_cyclonedx(&single_package_document("MIT"), version);
+            assert_eq!(bom.spec_version, version.as_str());
+        }
+    }
+
+    #[test]
+    fn test_tools_take_the_shape_of_their_version() {
+        let legacy =
+            serde_json::to_value(CycloneDxBom::for_version(CycloneDxVersion::V1_4)).unwrap();
+        let tools = &legacy["metadata"]["tools"];
+        assert!(tools.is_array(), "1.4 lists tools directly: {tools}");
+        assert_eq!(tools[0]["name"], "feluda");
+        assert!(tools[0].get("type").is_none());
+
+        let nested =
+            serde_json::to_value(CycloneDxBom::for_version(CycloneDxVersion::V1_5)).unwrap();
+        let tools = &nested["metadata"]["tools"];
+        assert_eq!(tools["components"][0]["name"], "feluda");
+        assert_eq!(tools["components"][0]["type"], "application");
+    }
+
+    #[test]
+    fn test_acknowledgement_is_written_from_1_6() {
+        for (license, field) in [("MIT", "license"), ("MIT OR Apache-2.0", "expression")] {
+            let document = single_package_document(license);
+
+            for version in [CycloneDxVersion::V1_4, CycloneDxVersion::V1_5] {
+                let bom =
+                    serde_json::to_value(convert_spdx_to_cyclonedx(&document, version)).unwrap();
+                assert!(
+                    !bom.to_string().contains("acknowledgement"),
+                    "{} has no acknowledgement: {bom}",
+                    version.as_str()
+                );
+            }
+
+            for version in [CycloneDxVersion::V1_6, CycloneDxVersion::V1_7] {
+                let bom =
+                    serde_json::to_value(convert_spdx_to_cyclonedx(&document, version)).unwrap();
+                let entry = &bom["components"][0]["licenses"][0];
+                let acknowledgement = if field == "license" {
+                    &entry["license"]["acknowledgement"]
+                } else {
+                    &entry["acknowledgement"]
+                };
+                assert_eq!(acknowledgement, "declared", "{}: {entry}", version.as_str());
+            }
+        }
+    }
+
+    #[test]
+    fn test_noassertion_is_never_acknowledged() {
+        let bom = convert_spdx_to_cyclonedx(
+            &single_package_document("NOASSERTION"),
+            CycloneDxVersion::V1_6,
+        );
+        match &bom.components[0].licenses[..] {
+            [CycloneDxLicenseChoice::License { license }] => {
+                assert_eq!(license.name.as_deref(), Some("NOASSERTION"));
+                assert_eq!(license.acknowledgement, None);
+            }
+            other => panic!("expected a NOASSERTION license, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_a_concluded_only_license_says_so() {
+        let mut spdx_doc = single_package_document("MIT");
+        spdx_doc.packages[0].license_declared = None;
+
+        let bom = convert_spdx_to_cyclonedx(&spdx_doc, CycloneDxVersion::V1_6);
+        match &bom.components[0].licenses[..] {
+            [CycloneDxLicenseChoice::License { license }] => {
+                assert_eq!(license.acknowledgement.as_deref(), Some("concluded"));
+            }
+            other => panic!("expected one license, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_only_listed_ids_are_written_as_ids() {
+        let id_of = |license: &str| match convert_spdx_license_to_cyclonedx(license, None) {
+            CycloneDxLicenseChoice::License { license } => (license.id, license.name),
+            other => panic!("expected a license for {license}, got {other:?}"),
+        };
+
+        // The list's spelling, whatever case the package used.
+        assert_eq!(id_of("mit"), (Some("MIT".to_string()), None));
+        // Free form text and ids the list does not carry are names, which take any text.
+        for free_form in [
+            "SEE LICENSE IN LICENSE.txt",
+            "Custom-1.0",
+            "LicenseRef-acme",
+        ] {
+            assert_eq!(id_of(free_form), (None, Some(free_form.to_string())));
+        }
+    }
+
+    #[test]
+    fn test_an_expression_over_unlisted_licenses_is_a_name() {
+        match convert_spdx_license_to_cyclonedx("Apache License 2.0 OR MIT", Some("declared")) {
+            CycloneDxLicenseChoice::License { license } => {
+                assert_eq!(license.id, None);
+                assert_eq!(license.name.as_deref(), Some("Apache License 2.0 OR MIT"));
+                assert_eq!(license.acknowledgement.as_deref(), Some("declared"));
+            }
+            other => panic!("expected a named license, got {other:?}"),
         }
     }
 }

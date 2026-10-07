@@ -59,12 +59,64 @@ Choosing the Right Format
    * - Format
      - Use when
      - Contains
-   * - SPDX 2.3
+   * - SPDX 2.3 (or 2.2)
      - Sharing with open-source offices, regulators, or vulnerability scanners.
      - Dependency list, licenses, SPDX identifiers, and Feluda metadata.
-   * - CycloneDX v1.5
+   * - CycloneDX 1.6 (or 1.4, 1.5, 1.7)
      - Integrating with SBOM-first security tooling or commercial marketplaces.
      - Components, hashes, dependency graph hints, and license notes.
+
+----
+
+.. _sbom-versions:
+
+Spec Versions
+-------------
+
+Feluda writes SPDX 2.3 and CycloneDX 1.6 by default. 1.6 is what syft, Trivy and cdxgen write, so
+a Feluda BOM goes wherever theirs already do. When a consumer only accepts an older version, ask
+for it:
+
+.. code-block:: bash
+
+   feluda sbom spdx --spec-version 2.2
+   feluda sbom cyclonedx --spec-version 1.4
+
+   # Both formats at once
+   feluda sbom --spdx-version 2.2 --cyclonedx-version 1.5
+
+To pin versions for a project, set them in ``.feluda.toml``; a flag still wins over the file:
+
+.. code-block:: toml
+
+   [sbom]
+   spdx = "2.2"
+   cyclonedx = "1.4"
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Version
+     - What changes in the output
+   * - SPDX 2.3
+     - The default.
+   * - SPDX 2.2
+     - The PURL reference category is spelled ``PACKAGE_MANAGER``. ``licenseConcluded``,
+       ``licenseDeclared`` and ``copyrightText`` are always present, as 2.2 requires.
+   * - CycloneDX 1.7
+     - Same content as 1.6.
+   * - CycloneDX 1.6
+     - The default. Each license is marked ``"acknowledgement": "declared"``: the license the
+       package states in its manifest, registry entry or license file.
+   * - CycloneDX 1.5
+     - No ``acknowledgement``.
+   * - CycloneDX 1.4
+     - No ``acknowledgement``, and ``metadata.tools`` is the older plain list rather than
+       ``{"components": [...]}``.
+
+Reading is not tied to these versions: ``--sbom-input`` reads SPDX 2.2 and 2.3 and CycloneDX 1.2
+to 1.7 JSON. See :ref:`sbom-ingest`.
 
 ----
 

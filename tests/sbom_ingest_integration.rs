@@ -139,6 +139,60 @@ const CDXGEN_CYCLONEDX: &str = r#"{
   ]
 }"#;
 
+/// CycloneDX 1.6 and later mark each license as `declared` or `concluded`, and 1.7 lets license
+/// objects and an expression share one array. Neither changes what feluda reads.
+const ACKNOWLEDGED_CYCLONEDX: &str = r#"{
+  "bomFormat": "CycloneDX",
+  "specVersion": "SPEC_VERSION",
+  "version": 1,
+  "metadata": {
+    "tools": { "components": [{ "type": "application", "name": "syft", "version": "1.52.0" }] }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "serde",
+      "version": "1.0.219",
+      "purl": "pkg:cargo/serde@1.0.219",
+      "licenses": [{ "expression": "MIT OR Apache-2.0", "acknowledgement": "concluded" }]
+    },
+    {
+      "type": "library",
+      "name": "readline",
+      "version": "8.2",
+      "purl": "pkg:deb/debian/readline@8.2",
+      "licenses": [{ "license": { "id": "GPL-3.0-or-later", "acknowledgement": "declared" } }]
+    }
+  ]
+}"#;
+
+/// SPDX 2.2 spells the PURL reference category `PACKAGE_MANAGER`, where 2.3 writes
+/// `PACKAGE-MANAGER`.
+const SPDX_2_2: &str = r#"{
+  "spdxVersion": "SPDX-2.2",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "legacy",
+  "documentNamespace": "https://example.com/spdx/legacy",
+  "creationInfo": { "created": "2022-01-01T00:00:00Z", "creators": ["Tool: example-1.0"] },
+  "packages": [
+    {
+      "name": "lodash",
+      "SPDXID": "SPDXRef-Package-lodash",
+      "versionInfo": "4.17.21",
+      "downloadLocation": "NOASSERTION",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [{
+        "referenceCategory": "PACKAGE_MANAGER",
+        "referenceType": "purl",
+        "referenceLocator": "pkg:npm/lodash@4.17.21"
+      }]
+    }
+  ]
+}"#;
+
 /// Every test drives the binary with the ClearlyDefined fallback off: the fixtures are built so
 /// license resolution succeeds locally, and a network lookup would make the suite depend on a
 /// third party service being up.
@@ -342,4 +396,56 @@ fn watch_mode_rejects_sbom_input() {
     let output = feluda(&["--sbom-input", "sbom.json", "watch"]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("--sbom-input is not supported"));
+}
+
+/// Run `sbom validate --json` and return its report.
+fn validation_report(path: &str) -> Value {
+    let output = feluda(&["sbom", "validate", path, "--json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("validate emitted invalid JSON: {e}\n{stdout}"))
+}
+
+#[test]
+fn current_cyclonedx_versions_ingest_and_validate() {
+    let temp = tempfile::tempdir().unwrap();
+
+    for version in ["1.6", "1.7"] {
+        let document = ACKNOWLEDGED_CYCLONEDX.replace("SPEC_VERSION", version);
+        let path = write_fixture(temp.path(), &format!("syft-{version}.cdx.json"), &document);
+
+        let report = report(&feluda(&["--sbom-input", &path, "--json"]));
+        assert_eq!(report.len(), 2, "CycloneDX {version}");
+        assert_eq!(find(&report, "serde")["license"], "MIT OR Apache-2.0");
+        assert_eq!(
+            find(&report, "debian/readline")["license"],
+            "GPL-3.0-or-later"
+        );
+
+        // syft, Trivy and cdxgen write 1.6 by default; validating their output must not warn
+        // that the version is unknown.
+        let validation = validation_report(&path);
+        assert_eq!(validation["error_count"], 0, "{validation:#}");
+        assert!(
+            !validation.to_string().contains("specVersion"),
+            "CycloneDX {version}: {validation:#}"
+        );
+    }
+}
+
+#[test]
+fn spdx_2_2_documents_ingest_and_validate() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = write_fixture(temp.path(), "legacy.spdx.json", SPDX_2_2);
+
+    let report = report(&feluda(&["--sbom-input", &path, "--json"]));
+    let lodash = find(&report, "lodash");
+    assert_eq!(lodash["license"], "MIT");
+    assert_eq!(lodash["purl"], "pkg:npm/lodash@4.17.21");
+
+    let validation = validation_report(&path);
+    assert_eq!(validation["error_count"], 0, "{validation:#}");
+    assert!(!validation
+        .to_string()
+        .contains("may not be fully supported"));
 }

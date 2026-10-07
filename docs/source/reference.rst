@@ -99,8 +99,8 @@ Use this table to double-check flag behavior before scripting.
      - Generate NOTICE and THIRD_PARTY_LICENSES files.
      - Accepts ``--path``, ``--language``, ``--project-license``.
    * - ``feluda sbom [spdx|cyclonedx]``
-     - Generate SBOM in SPDX 2.3 or CycloneDX v1.5 format.
-     - Omit format to generate both; use ``--output`` to save, ``--filesystem`` to describe an installed tree, or ``--image-archive`` to describe an image.
+     - Generate SBOM in SPDX (2.3, or 2.2) or CycloneDX (1.6, or 1.4, 1.5, 1.7) format.
+     - Omit format to generate both; use ``--output`` to save, ``--filesystem`` to describe an installed tree, or ``--image-archive`` to describe an image. ``--spec-version`` picks the version, or ``--spdx-version`` / ``--cyclonedx-version`` when both are generated.
    * - ``feluda sbom validate <file>``
      - Validate an SBOM file against its specification.
      - Supports ``--json`` for machine-readable output.

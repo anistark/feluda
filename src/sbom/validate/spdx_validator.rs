@@ -102,18 +102,70 @@ fn validate_namespace(report: &mut ValidationReport, obj: &serde_json::Map<Strin
 fn validate_packages(report: &mut ValidationReport, obj: &serde_json::Map<String, JsonValue>) {
     let json_obj = JsonValue::Object(obj.clone());
 
+    // The `LicenseRef-` ids this document defines, which its license fields may use.
+    let defined_refs: Vec<String> = parser::get_array(&json_obj, "hasExtractedLicensingInfos")
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|info| parser::get_string(info, "licenseId"))
+        .collect();
+
     if let Some(packages) = parser::get_array(&json_obj, "packages") {
         if packages.is_empty() {
             report.add_issue(ValidationIssue::warning("No packages defined in SBOM"));
         }
 
         for (idx, package) in packages.iter().enumerate() {
-            validate_package(report, package, idx);
+            validate_package(report, package, idx, &defined_refs);
         }
     }
 }
 
-fn validate_package(report: &mut ValidationReport, package: &JsonValue, index: usize) {
+/// A license field holds `NOASSERTION`, `NONE`, or an expression over listed SPDX licenses and
+/// `LicenseRef-` ids the document defines. Anything else, such as a registry's title for the
+/// license, has to be defined as a `LicenseRef-` first.
+fn validate_license_field(
+    report: &mut ValidationReport,
+    package_name: &str,
+    field: &str,
+    license: &str,
+    defined_refs: &[String],
+) {
+    let license = license.trim();
+    if license.eq_ignore_ascii_case("NOASSERTION") || license.eq_ignore_ascii_case("NONE") {
+        return;
+    }
+
+    if crate::spdx::listed_expression(license).is_none() {
+        report.add_issue(
+            ValidationIssue::warning(format!(
+                "Package '{package_name}': {field} '{license}' is not an SPDX license expression; define other licenses as a LicenseRef- in hasExtractedLicensingInfos"
+            ))
+            .with_field(field),
+        );
+        return;
+    }
+
+    for id in license
+        .split(|c: char| c.is_whitespace() || c == '(' || c == ')')
+        .filter(|token| token.starts_with("LicenseRef-"))
+    {
+        if !defined_refs.iter().any(|defined| defined == id) {
+            report.add_issue(
+                ValidationIssue::warning(format!(
+                    "Package '{package_name}': {field} uses {id}, which hasExtractedLicensingInfos does not define"
+                ))
+                .with_field(field),
+            );
+        }
+    }
+}
+
+fn validate_package(
+    report: &mut ValidationReport,
+    package: &JsonValue,
+    index: usize,
+    defined_refs: &[String],
+) {
     if let Some(pkg_obj) = package.as_object() {
         let pkg_json = JsonValue::Object(pkg_obj.clone());
 
@@ -145,6 +197,12 @@ fn validate_package(report: &mut ValidationReport, package: &JsonValue, index: u
             );
         }
 
+        for field in ["licenseConcluded", "licenseDeclared"] {
+            if let Some(license) = parser::get_string(&pkg_json, field) {
+                validate_license_field(report, &package_name, field, &license, defined_refs);
+            }
+        }
+
         if !parser::has_key(&pkg_json, "filesAnalyzed") {
             report.add_issue(
                 ValidationIssue::info(format!(
@@ -153,5 +211,54 @@ fn validate_package(report: &mut ValidationReport, package: &JsonValue, index: u
                 .with_field("filesAnalyzed"),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn license_warnings(document: JsonValue) -> Vec<String> {
+        validate(&document)
+            .unwrap()
+            .issues
+            .into_iter()
+            .map(|issue| issue.message)
+            .filter(|message| message.contains("license") || message.contains("LicenseRef-"))
+            .collect()
+    }
+
+    fn package(name: &str, license: &str) -> JsonValue {
+        json!({
+            "name": name,
+            "SPDXID": format!("SPDXRef-{name}"),
+            "downloadLocation": "NOASSERTION",
+            "licenseConcluded": license,
+            "licenseDeclared": "NOASSERTION"
+        })
+    }
+
+    #[test]
+    fn test_license_fields_must_be_spdx_expressions() {
+        let warnings = license_warnings(json!({
+            "spdxVersion": "SPDX-2.3",
+            "packages": [
+                package("a", "MIT OR Apache-2.0"),
+                package("b", "NONE"),
+                package("c", "LicenseRef-defined AND MIT"),
+                package("d", "SEE LICENSE IN LICENSE.txt"),
+                package("e", "LicenseRef-missing"),
+            ],
+            "hasExtractedLicensingInfos": [
+                { "licenseId": "LicenseRef-defined", "extractedText": "Acme" }
+            ]
+        }));
+
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(
+            warnings[0].contains("'d'") && warnings[0].contains("not an SPDX license expression")
+        );
+        assert!(warnings[1].contains("'e'") && warnings[1].contains("does not define"));
     }
 }

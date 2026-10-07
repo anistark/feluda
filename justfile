@@ -73,6 +73,20 @@ sync-version:
     @grep -n "^release = " "{{DOCS_SOURCE}}/conf.py"
     @echo "✅ Docs version synced. Commit the change before publishing."
 
+SPDX_IDS := "config/spdx_license_ids.txt"
+SPDX_IDS_SOURCE := "https://raw.githubusercontent.com/CycloneDX/specification/master/schema/spdx.schema.json"
+
+# Refresh the SPDX license list SBOM writers check ids against (needs curl and jq)
+update-spdx-ids:
+    @echo "🔄 Fetching the SPDX license list from CycloneDX's schema..."
+    @tmp=$(mktemp) && trap 'rm -f "$tmp"' EXIT && \
+        grep '^#' "{{SPDX_IDS}}" > "$tmp" && \
+        curl -fsSL "{{SPDX_IDS_SOURCE}}" | jq -er '.enum[]' >> "$tmp" && \
+        echo "   $(grep -vc '^#' "{{SPDX_IDS}}") ids before, $(grep -vc '^#' "$tmp") after" && \
+        cp "$tmp" "{{SPDX_IDS}}"
+    @git diff --stat -- "{{SPDX_IDS}}"
+    @echo "✅ {{SPDX_IDS}} updated. Run 'just test' before committing it."
+
 # Publish the crate to crates.io
 publish RELEASE_TYPE="": build test-release package
     cargo publish

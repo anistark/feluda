@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
+use crate::sbom::SpdxVersion;
 
 /// Character validation for SPDX compliance
 ///
@@ -85,6 +86,68 @@ fn is_valid_spdx_license_format(license: &str) -> bool {
     !license.contains("..") && !license.contains("--") && !license.trim().is_empty()
 }
 
+/// Whether a license field's text says there is no usable license: empty, a placeholder some
+/// manifests carry (`null`, `n/a`), or a statement that it is not open (`UNLICENSED`).
+fn states_no_license(trimmed: &str) -> bool {
+    trimmed.is_empty()
+        || [
+            "null",
+            "undefined",
+            "none",
+            "unlicensed",
+            "proprietary",
+            "NOASSERTION",
+        ]
+        .iter()
+        .any(|word| trimmed.eq_ignore_ascii_case(word))
+        || trimmed == "-"
+        || trimmed == "n/a"
+}
+
+/// A license as the package stated it, kept when it is not an SPDX expression but is still plain
+/// text naming a license.
+///
+/// Registries hand back titles, and Maven Central's are full of commas: "The Apache Software
+/// License, Version 2.0". [`convert_to_spdx_license_expression`] rightly refuses those as
+/// expressions, but the title is still the license, and the writers can state it properly: SPDX
+/// as a `LicenseRef-` it defines, CycloneDX as a license `name`. Only plain text qualifies: ASCII
+/// letters, digits, spaces and the punctuation titles use. Quotes, backslashes, control
+/// characters, template and markup characters still give `None`, as do the words that say there
+/// is no license, and nothing is kept when `FELUDA_FORCE_NOASSERTION_LICENSES` is set.
+fn stated_license_title(license: &str) -> Option<String> {
+    let forced = std::env::var("FELUDA_FORCE_NOASSERTION_LICENSES")
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let title = license.trim();
+    let plain = title.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                ' ' | '.'
+                    | ','
+                    | ':'
+                    | ';'
+                    | '('
+                    | ')'
+                    | '['
+                    | ']'
+                    | '/'
+                    | '\''
+                    | '+'
+                    | '-'
+                    | '_'
+                    | '&'
+            )
+    });
+
+    (!forced
+        && plain
+        && !states_no_license(title)
+        && title.chars().any(|c| c.is_ascii_alphabetic())
+        && !title.contains("  "))
+    .then(|| title.to_string())
+}
+
 pub fn convert_to_spdx_license_expression(license: &str) -> String {
     // Check for force NOASSERTION environment variable
     let force_noassertion = std::env::var("FELUDA_FORCE_NOASSERTION_LICENSES")
@@ -100,16 +163,7 @@ pub fn convert_to_spdx_license_expression(license: &str) -> String {
     }
 
     let trimmed = license.trim();
-    if trimmed.is_empty()
-        || trimmed.eq_ignore_ascii_case("null")
-        || trimmed.eq_ignore_ascii_case("undefined")
-        || trimmed.eq_ignore_ascii_case("none")
-        || trimmed == "-"
-        || trimmed == "n/a"
-        || trimmed.eq_ignore_ascii_case("unlicensed")
-        || trimmed.eq_ignore_ascii_case("proprietary")
-        || !trimmed.is_ascii()
-    {
+    if states_no_license(trimmed) || !trimmed.is_ascii() {
         return "NOASSERTION".to_string();
     }
 
@@ -266,6 +320,30 @@ fn sanitize_spdx_identifier(input: &str) -> String {
     }
 }
 
+/// SPDX 2.x timestamps: `YYYY-MM-DDThh:mm:ssZ`, whole seconds in UTC.
+///
+/// chrono's default writes fractional seconds, which the SPDX tools reject outright.
+mod spdx_timestamp {
+    use chrono::{DateTime, SecondsFormat, Utc};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        time: &DateTime<Utc>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&time.to_rfc3339_opts(SecondsFormat::Secs, true))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<DateTime<Utc>, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        DateTime::parse_from_rfc3339(&text)
+            .map(|time| time.with_timezone(&Utc))
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 /// SPDX 2.3 compliant document structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -300,12 +378,156 @@ pub struct SpdxDocument {
     /// Annotations for non-standard data
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub annotations: Vec<Annotation>,
+
+    /// Licenses the SPDX list does not carry, which packages refer to by `LicenseRef-` id
+    #[serde(
+        rename = "hasExtractedLicensingInfos",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub has_extracted_licensing_infos: Vec<ExtractedLicensingInfo>,
+}
+
+/// A license outside the SPDX list, defined once in the document under a `LicenseRef-` id
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractedLicensingInfo {
+    pub license_id: String,
+    pub extracted_text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+/// What every `LicenseRef-` feluda defines says about itself: the text is the license as the
+/// package states it, not the license text, which feluda does not have.
+const LICENSE_REF_COMMENT: &str =
+    "Defined by Feluda: the license as the package states it. The license text was not available.";
+
+/// The `LicenseRef-` ids a document defines, so each license outside the SPDX list is defined
+/// once and two different licenses never share an id.
+#[derive(Debug, Clone, Default)]
+pub struct LicenseRefs {
+    /// Ids the document already defined before feluda touched it, with their text.
+    existing: Vec<(String, String)>,
+    defined: Vec<ExtractedLicensingInfo>,
+}
+
+impl LicenseRefs {
+    /// Start from the refs a document already defines, so new ones neither repeat nor collide
+    /// with them.
+    pub fn with_existing(existing: impl IntoIterator<Item = (String, String)>) -> Self {
+        Self {
+            existing: existing.into_iter().collect(),
+            defined: Vec::new(),
+        }
+    }
+
+    /// The `LicenseRef-` id for `license`, defining it when it is new.
+    pub fn define(&mut self, license: &str) -> String {
+        let text_of = |refs: &Self, id: &str| -> Option<String> {
+            refs.existing
+                .iter()
+                .find(|(existing, _)| existing == id)
+                .map(|(_, text)| text.clone())
+                .or_else(|| {
+                    refs.defined
+                        .iter()
+                        .find(|info| info.license_id == id)
+                        .map(|info| info.extracted_text.clone())
+                })
+        };
+
+        let readable = license_ref(license);
+        let id = match text_of(self, &readable) {
+            Some(text) if text == license => return readable,
+            // Punctuation folds into `-`, so two texts can share a readable id. The second one
+            // gets a hash of its text.
+            Some(_) => {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                license.hash(&mut hasher);
+                let id = format!("{readable}-{:016x}", hasher.finish());
+                if text_of(self, &id).is_some() {
+                    return id;
+                }
+                id
+            }
+            None => readable,
+        };
+
+        self.defined.push(ExtractedLicensingInfo {
+            license_id: id.clone(),
+            extracted_text: license.to_string(),
+            name: Some(license.to_string()),
+            comment: Some(LICENSE_REF_COMMENT.to_string()),
+        });
+        id
+    }
+
+    /// The refs defined since this started, in the order they were first used.
+    pub fn into_defined(self) -> Vec<ExtractedLicensingInfo> {
+        self.defined
+    }
+}
+
+/// The readable `LicenseRef-` id for a license outside the SPDX list.
+///
+/// SPDX allows letters, digits, `.` and `-` after the prefix, so everything else becomes `-`, and
+/// runs of it collapse so the id stays readable.
+pub fn license_ref(license: &str) -> String {
+    let slug: String = license
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = slug
+        .split('-')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.is_empty() {
+        "LicenseRef-feluda-unnamed".to_string()
+    } else {
+        format!("LicenseRef-feluda-{slug}")
+    }
+}
+
+/// A license as an SPDX license field can state it.
+///
+/// SPDX only accepts ids from its list, expressions over them, and `LicenseRef-` ids the document
+/// defines in `hasExtractedLicensingInfos`. Listed licenses keep their place in the list's
+/// spelling. An unlisted license inside a well formed expression becomes a ref of its own, so
+/// `Custom-1.0 OR MIT` stays a choice. Anything that is not an expression at all, a registry
+/// title or `SEE LICENSE IN LICENSE.txt`, becomes one ref for the whole text.
+pub fn spdx_license_field(license: &str, refs: &mut LicenseRefs) -> String {
+    let license = license.trim();
+    if license.eq_ignore_ascii_case("NOASSERTION") || license.eq_ignore_ascii_case("NONE") {
+        return license.to_ascii_uppercase();
+    }
+
+    // Refs are only kept when the whole expression is, so a rejected one defines nothing.
+    let mut trial = refs.clone();
+    if let Some(expression) = crate::spdx::rewrite_expression(license, |id| Some(trial.define(id)))
+    {
+        *refs = trial;
+        return expression;
+    }
+    refs.define(license)
 }
 
 /// SPDX creation information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreationInfo {
     /// Creation timestamp (required)
+    #[serde(with = "spdx_timestamp")]
     pub created: DateTime<Utc>,
 
     /// Creators (required, at least one)
@@ -390,6 +612,7 @@ pub struct Relationship {
 #[serde(rename_all = "camelCase")]
 pub struct Annotation {
     pub annotator: String,
+    #[serde(with = "spdx_timestamp")]
     pub annotation_date: DateTime<Utc>,
     pub annotation_type: String,
     #[serde(rename = "spdxIdentifierReference")]
@@ -415,6 +638,7 @@ impl SpdxDocument {
             packages: Vec::new(),
             relationships: Vec::new(),
             annotations: Vec::new(),
+            has_extracted_licensing_infos: Vec::new(),
         }
     }
 
@@ -538,6 +762,10 @@ impl SpdxPackage {
 
         let final_license = if spdx_license.trim().is_empty() {
             "NOASSERTION".to_string()
+        } else if spdx_license == "NOASSERTION" {
+            // Not an expression, but possibly still the license's name, which the writers can
+            // state without inventing an expression for it.
+            stated_license_title(&license).unwrap_or(spdx_license)
         } else {
             spdx_license
         };
@@ -825,7 +1053,8 @@ fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
             if license.trim().is_empty()
                 || spdx_charset::contains_forbidden_chars(license)
                 || !license.is_ascii()
-                || !is_valid_spdx_license_format(license)
+                || !(is_valid_spdx_license_format(license)
+                    || stated_license_title(license).is_some())
             {
                 *license = "NOASSERTION".to_string();
                 return true;
@@ -872,12 +1101,13 @@ fn validate_and_sanitize_spdx_package(package: &mut SpdxPackage) -> bool {
     needs_fix
 }
 
-pub fn generate_spdx_output(
-    spdx_doc: &SpdxDocument,
-    output_file: Option<String>,
-) -> FeludaResult<()> {
-    log(LogLevel::Info, "Generating SPDX 2.3 compliant output");
-
+/// The document as it will be written: every package sanitized, every license stated the way
+/// SPDX accepts (see [`spdx_license_field`]), then written down to `version`.
+///
+/// The model is SPDX 2.3. For 2.2 that means two things, both from the 2.2 JSON schema: the PURL
+/// reference category is spelled `PACKAGE_MANAGER`, and `licenseConcluded`, `licenseDeclared` and
+/// `copyrightText` are required, which sanitizing already guarantees by filling in `NOASSERTION`.
+fn prepare_spdx_document(spdx_doc: &SpdxDocument, version: SpdxVersion) -> SpdxDocument {
     let mut safe_doc = spdx_doc.clone();
 
     let mut total_fixes = 0;
@@ -893,6 +1123,55 @@ pub fn generate_spdx_output(
             &format!("Applied sanitization fixes to {total_fixes} packages"),
         );
     }
+
+    let mut refs = LicenseRefs::with_existing(
+        safe_doc
+            .has_extracted_licensing_infos
+            .iter()
+            .map(|info| (info.license_id.clone(), info.extracted_text.clone())),
+    );
+    for package in &mut safe_doc.packages {
+        for license in [
+            &mut package.license_declared,
+            &mut package.license_concluded,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *license = spdx_license_field(license, &mut refs);
+        }
+    }
+    safe_doc
+        .has_extracted_licensing_infos
+        .extend(refs.into_defined());
+
+    safe_doc.spdx_version = format!("SPDX-{}", version.as_str());
+    if version == SpdxVersion::V2_2 {
+        for reference in safe_doc
+            .packages
+            .iter_mut()
+            .flat_map(|package| package.external_refs.iter_mut())
+        {
+            if reference.reference_category == "PACKAGE-MANAGER" {
+                reference.reference_category = "PACKAGE_MANAGER".to_string();
+            }
+        }
+    }
+
+    safe_doc
+}
+
+pub fn generate_spdx_output(
+    spdx_doc: &SpdxDocument,
+    version: SpdxVersion,
+    output_file: Option<String>,
+) -> FeludaResult<()> {
+    log(
+        LogLevel::Info,
+        &format!("Generating SPDX {} compliant output", version.as_str()),
+    );
+
+    let safe_doc = prepare_spdx_document(spdx_doc, version);
 
     let json_output = serde_json::to_string_pretty(&safe_doc).map_err(|e| {
         FeludaError::Serialization(format!("Failed to serialize SPDX document: {e}"))
@@ -1766,6 +2045,256 @@ mod tests {
         assert_eq!(
             convert_to_spdx_license_expression(&malformed),
             "NOASSERTION"
+        );
+    }
+
+    #[test]
+    fn test_spdx_2_3_is_written_as_built() {
+        let mut doc = SpdxDocument::new("app");
+        doc.add_package(
+            SpdxPackage::new("lodash", &doc.document_namespace)
+                .with_version("4.17.21")
+                .with_purl("pkg:npm/lodash@4.17.21")
+                .with_license("MIT"),
+        );
+
+        let written = prepare_spdx_document(&doc, SpdxVersion::V2_3);
+
+        assert_eq!(written.spdx_version, "SPDX-2.3");
+        assert_eq!(
+            written.packages[0].external_refs[0].reference_category,
+            "PACKAGE-MANAGER"
+        );
+    }
+
+    #[test]
+    fn test_spdx_2_2_uses_its_own_spelling_and_required_fields() {
+        let mut doc = SpdxDocument::new("app");
+        doc.add_package(
+            SpdxPackage::new("lodash", &doc.document_namespace)
+                .with_version("4.17.21")
+                .with_purl("pkg:npm/lodash@4.17.21")
+                .with_license("MIT"),
+        );
+        // No license and no copyright: fields 2.3 lets a package leave out, and 2.2 does not.
+        let mut bare = SpdxPackage::new("mystery", &doc.document_namespace).with_version("1.0.0");
+        bare.copyright_text = None;
+        doc.add_package(bare);
+
+        let written = prepare_spdx_document(&doc, SpdxVersion::V2_2);
+
+        assert_eq!(written.spdx_version, "SPDX-2.2");
+        assert_eq!(
+            written.packages[0].external_refs[0].reference_category,
+            "PACKAGE_MANAGER"
+        );
+        let json = serde_json::to_value(&written).unwrap();
+        for package in json["packages"].as_array().unwrap() {
+            for field in ["licenseConcluded", "licenseDeclared", "copyrightText"] {
+                assert!(package[field].is_string(), "{field} missing: {package}");
+            }
+        }
+        // The source document is left as built.
+        assert_eq!(doc.spdx_version, "SPDX-2.3");
+    }
+
+    fn document_with_licenses(licenses: &[&str]) -> SpdxDocument {
+        let mut doc = SpdxDocument::new("app");
+        for (index, license) in licenses.iter().enumerate() {
+            doc.add_package(
+                SpdxPackage::new(format!("pkg{index}"), &doc.document_namespace)
+                    .with_version("1.0.0")
+                    .with_license(*license),
+            );
+        }
+        doc
+    }
+
+    #[test]
+    fn test_unlisted_licenses_are_written_as_defined_refs() {
+        let doc = document_with_licenses(&[
+            "SEE LICENSE IN LICENSE.txt",
+            "Custom-1.0 OR mit",
+            "MIT",
+            "SEE LICENSE IN LICENSE.txt",
+        ]);
+
+        let written = prepare_spdx_document(&doc, SpdxVersion::V2_3);
+        let declared: Vec<&str> = written
+            .packages
+            .iter()
+            .map(|package| package.license_declared.as_deref().unwrap())
+            .collect();
+        assert_eq!(
+            declared,
+            [
+                "LicenseRef-feluda-SEE-LICENSE-IN-LICENSE.txt",
+                // Only the unlisted license becomes a ref, so the choice survives.
+                "LicenseRef-feluda-Custom-1.0 OR MIT",
+                "MIT",
+                "LicenseRef-feluda-SEE-LICENSE-IN-LICENSE.txt",
+            ]
+        );
+        for package in &written.packages {
+            assert_eq!(package.license_concluded, package.license_declared);
+        }
+
+        // Each ref is defined once, however many packages use it.
+        let defined: Vec<(&str, &str)> = written
+            .has_extracted_licensing_infos
+            .iter()
+            .map(|info| (info.license_id.as_str(), info.extracted_text.as_str()))
+            .collect();
+        assert_eq!(
+            defined,
+            [
+                (
+                    "LicenseRef-feluda-SEE-LICENSE-IN-LICENSE.txt",
+                    "SEE LICENSE IN LICENSE.txt"
+                ),
+                ("LicenseRef-feluda-Custom-1.0", "Custom-1.0"),
+            ]
+        );
+
+        let json = serde_json::to_value(&written).unwrap();
+        assert_eq!(
+            json["hasExtractedLicensingInfos"][0]["licenseId"],
+            "LicenseRef-feluda-SEE-LICENSE-IN-LICENSE.txt"
+        );
+        assert!(json["hasExtractedLicensingInfos"][0]["comment"].is_string());
+        // The model keeps what the package stated; only the written copy uses refs.
+        assert_eq!(
+            doc.packages[0].license_declared.as_deref(),
+            Some("SEE LICENSE IN LICENSE.txt")
+        );
+    }
+
+    #[test]
+    fn test_a_document_of_listed_licenses_defines_nothing() {
+        let doc = document_with_licenses(&["MIT", "Apache-2.0 OR MIT", "NOASSERTION"]);
+        let written = prepare_spdx_document(&doc, SpdxVersion::V2_2);
+
+        assert!(written.has_extracted_licensing_infos.is_empty());
+        let json = serde_json::to_value(&written).unwrap();
+        assert!(json.get("hasExtractedLicensingInfos").is_none());
+        assert_eq!(
+            written.packages[2].license_declared.as_deref(),
+            Some("NOASSERTION")
+        );
+    }
+
+    #[test]
+    fn test_texts_that_fold_to_one_id_get_distinct_refs() {
+        let mut refs = LicenseRefs::default();
+        let first = refs.define("Acme License");
+        let second = refs.define("Acme  License!");
+        assert_eq!(first, "LicenseRef-feluda-Acme-License");
+        assert_ne!(first, second);
+        assert!(second.starts_with("LicenseRef-feluda-Acme-License-"));
+        // Asking again answers with the same id and defines nothing new.
+        assert_eq!(refs.define("Acme  License!"), second);
+        assert_eq!(refs.into_defined().len(), 2);
+
+        assert_eq!(license_ref("()"), "LicenseRef-feluda-unnamed");
+    }
+
+    #[test]
+    fn test_timestamps_are_whole_seconds_in_utc() {
+        let mut doc = document_with_licenses(&["MIT"]);
+        doc.add_annotation("SPDXRef-DOCUMENT", "note", "OTHER");
+        let json = serde_json::to_value(&doc).unwrap();
+
+        for time in [
+            json["creationInfo"]["created"].as_str().unwrap(),
+            json["annotations"][0]["annotationDate"].as_str().unwrap(),
+        ] {
+            assert!(
+                chrono::NaiveDateTime::parse_from_str(time, "%Y-%m-%dT%H:%M:%SZ").is_ok(),
+                "{time} is not YYYY-MM-DDThh:mm:ssZ"
+            );
+        }
+
+        let created = json["creationInfo"]["created"].clone();
+        let read = spdx_timestamp::deserialize(created).unwrap();
+        assert_eq!(read.timestamp(), doc.creation_info.created.timestamp());
+    }
+
+    #[test]
+    #[serial]
+    fn test_license_titles_are_kept_as_stated() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+        let stated = |license: &str| {
+            SpdxPackage::new("pkg", "https://example.com/test")
+                .with_version("1.0.0")
+                .with_license(license)
+                .license_declared
+                .unwrap()
+        };
+
+        // Real titles from Maven Central and PyPI.
+        for title in [
+            "The Apache Software License, Version 2.0",
+            "GNU Lesser General Public License, version 2.1",
+            "Eclipse Public License - v 1.0",
+            "CDDL + GPLv2 with classpath exception",
+            "The MIT License (MIT)",
+            "Public Domain, per Creative Commons CC0",
+            "https://www.apache.org/licenses/LICENSE-2.0.txt",
+        ] {
+            assert_eq!(stated(title), title);
+        }
+
+        // Expressions are still converted, not kept as titles.
+        assert_eq!(stated("MIT/Apache-2.0"), "MIT OR Apache-2.0");
+        // No license is still no license.
+        for empty in [
+            "",
+            "null",
+            "n/a",
+            "UNLICENSED",
+            "proprietary",
+            "-",
+            "NOASSERTION",
+        ] {
+            assert_eq!(stated(empty), "NOASSERTION", "{empty:?}");
+        }
+        // Text that is not plain stays out.
+        for unsafe_text in [
+            "MIT\"with-quotes",
+            "Apache\\with-backslash",
+            "MIT\nnewline",
+            "${LICENSE}",
+            "MIT{}",
+            "<b>MIT</b>",
+            "MIT`backtick",
+            "Licence publique générale",
+            "...",
+        ] {
+            assert_eq!(stated(unsafe_text), "NOASSERTION", "{unsafe_text:?}");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_license_titles_are_written_as_refs_and_forced_mode_still_wins() {
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+        let doc = document_with_licenses(&["The Apache Software License, Version 2.0"]);
+        let written = prepare_spdx_document(&doc, SpdxVersion::V2_3);
+        assert_eq!(
+            written.packages[0].license_declared.as_deref(),
+            Some("LicenseRef-feluda-The-Apache-Software-License-Version-2.0")
+        );
+        assert_eq!(
+            written.has_extracted_licensing_infos[0].extracted_text,
+            "The Apache Software License, Version 2.0"
+        );
+
+        std::env::set_var("FELUDA_FORCE_NOASSERTION_LICENSES", "true");
+        let forced = document_with_licenses(&["The Apache Software License, Version 2.0"]);
+        std::env::remove_var("FELUDA_FORCE_NOASSERTION_LICENSES");
+        assert_eq!(
+            forced.packages[0].license_declared.as_deref(),
+            Some("NOASSERTION")
         );
     }
 }

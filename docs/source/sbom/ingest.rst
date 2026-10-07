@@ -36,7 +36,8 @@ Reading a Document
 ------------------
 
 Pass a file path, or ``-`` for stdin. SPDX and CycloneDX JSON are both accepted, and the format is
-detected from the document itself.
+detected from the document itself. SPDX 2.2 and 2.3 and CycloneDX 1.2 to 1.7 all read the same
+way. SPDX 3.0, SPDX tag:value and CycloneDX XML are not read yet.
 
 .. code-block:: bash
 
@@ -128,9 +129,11 @@ Only components Feluda actually resolved are touched; everything else is reprodu
 arrived. In SPDX the resolved license lands in ``licenseConcluded``, which is precisely the field
 for a conclusion someone drew rather than something the package declared. A license that is not an
 SPDX id or expression is written as a ``LicenseRef-feluda-*`` reference and defined in
-``hasExtractedLicensingInfos``, so the result stays a valid document. In CycloneDX the component
-gains a ``licenses`` entry, using ``expression`` for a compound license, ``id`` for an SPDX id, and
-``name`` for anything else.
+``hasExtractedLicensingInfos``, so the result stays a valid document. A reference the document
+already defines for the same text is reused, never duplicated. In CycloneDX the component gains a
+``licenses`` entry, using ``expression`` for a compound license over listed SPDX ids, ``id`` for a
+listed SPDX id, and ``name`` for anything else. In a CycloneDX 1.6 or later document the entry is
+marked ``"acknowledgement": "concluded"``.
 
 ----
 

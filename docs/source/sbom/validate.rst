@@ -94,7 +94,11 @@ Feluda validates:
 
 - **Schema conformance** - Required fields, correct data types
 - **SPDX identifiers** - Valid license identifiers
-- **Format version** - SPDX 2.3 or CycloneDX v1.5 compliance
+- **Format version** - SPDX 2.2 or 2.3, CycloneDX 1.0 to 1.7. Any other version is flagged
+- **Component types** - CycloneDX ``type`` is one the spec defines, up to 1.6's ``cryptographic-asset``
+- **License ids** - A CycloneDX ``license.id`` is on the SPDX license list, spelled the list's way.
+  An SPDX ``licenseConcluded`` or ``licenseDeclared`` is ``NOASSERTION``, ``NONE``, or an expression
+  over listed licenses and ``LicenseRef-`` ids the document defines
 - **Document structure** - Proper nesting and relationships
 
 ----
