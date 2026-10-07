@@ -1146,40 +1146,18 @@ struct LicenseFilename {
 
 /// Content-based detection rule.
 ///
-/// The rule fires when **any** of its marker groups matches; see [`MarkerGroup`] for
-/// when a single group matches. List more-specific rules (more markers) before
-/// less-specific ones so the first match wins.
+/// The rule fires when **any** of its marker groups matches, where a group matches when
+/// **all** of its strings appear in the file content (OR-of-ANDs). List more-specific
+/// rules (more markers) before less-specific ones so the first match wins.
+///
+/// BSD-2-Clause and BSD-3-Clause are deliberately **not** in this table: a canonical BSD
+/// file need not contain the word "BSD" (issue #273), and substring markers cannot tell a
+/// canonical BSD text apart from its many `Redistribution and use` relatives without
+/// mis-resolving some of them to a permissive id. They are detected instead by
+/// [`match_canonical_bsd`], which compares the text against the canonical templates.
 struct LicenseContentRule {
     spdx_id: &'static str,
-    marker_groups: &'static [MarkerGroup],
-}
-
-/// One alternative way a [`LicenseContentRule`] can match.
-///
-/// A group matches when **all** of its `markers` appear in the file content **and**
-/// none of its `absent` markers do. Guarding on `absent` per group (rather than per
-/// rule) matters for the BSD rules: they carry both a group keyed on the literal word
-/// "BSD" and a fallback group that matches the canonical BSD text by its clause wording
-/// (the opensource.org / Pallets texts never say "BSD"). Only the clause-wording group
-/// needs to turn away BSD-4-Clause, whose advertising clause it would otherwise share;
-/// putting "All advertising materials" in that one group's `absent` leaves the
-/// "BSD"-word group free to keep matching a real BSD file that merely quotes a 4-clause
-/// advertising block in a bundled-component note.
-struct MarkerGroup {
-    /// Markers that must **all** be present for the group to match.
-    markers: &'static [&'static str],
-    /// Markers that must be **absent** for the group to match. Empty for most groups.
-    absent: &'static [&'static str],
-}
-
-impl MarkerGroup {
-    /// A group that matches whenever all of `markers` are present, with nothing to exclude.
-    const fn all(markers: &'static [&'static str]) -> Self {
-        MarkerGroup {
-            markers,
-            absent: &[],
-        }
-    }
+    marker_groups: &'static [&'static [&'static str]],
 }
 
 /// Canonical set of license filenames to probe, in priority order.
@@ -1242,150 +1220,205 @@ static LICENSE_CONTENT_RULES: &[LicenseContentRule] = &[
     // so they would otherwise match the GPL rules first.
     LicenseContentRule {
         spdx_id: "AGPL-3.0",
-        marker_groups: &[MarkerGroup::all(&[
-            "GNU AFFERO GENERAL PUBLIC LICENSE",
-            "Version 3",
-        ])],
+        marker_groups: &[&["GNU AFFERO GENERAL PUBLIC LICENSE", "Version 3"]],
     },
     LicenseContentRule {
         spdx_id: "LGPL-3.0",
-        marker_groups: &[MarkerGroup::all(&[
-            "GNU LESSER GENERAL PUBLIC LICENSE",
-            "Version 3",
-        ])],
+        marker_groups: &[&["GNU LESSER GENERAL PUBLIC LICENSE", "Version 3"]],
     },
     LicenseContentRule {
         spdx_id: "LGPL-2.1",
-        marker_groups: &[MarkerGroup::all(&[
-            "GNU LESSER GENERAL PUBLIC LICENSE",
-            "Version 2.1",
-        ])],
+        marker_groups: &[&["GNU LESSER GENERAL PUBLIC LICENSE", "Version 2.1"]],
     },
     LicenseContentRule {
         spdx_id: "GPL-3.0",
-        marker_groups: &[MarkerGroup::all(&[
-            "GNU GENERAL PUBLIC LICENSE",
-            "Version 3",
-        ])],
+        marker_groups: &[&["GNU GENERAL PUBLIC LICENSE", "Version 3"]],
     },
     LicenseContentRule {
         spdx_id: "GPL-2.0",
-        marker_groups: &[MarkerGroup::all(&[
-            "GNU GENERAL PUBLIC LICENSE",
-            "Version 2",
-        ])],
+        marker_groups: &[&["GNU GENERAL PUBLIC LICENSE", "Version 2"]],
     },
     LicenseContentRule {
         spdx_id: "Apache-2.0",
-        marker_groups: &[MarkerGroup::all(&["Apache License", "Version 2.0"])],
+        marker_groups: &[&["Apache License", "Version 2.0"]],
     },
     LicenseContentRule {
         spdx_id: "MPL-2.0",
-        marker_groups: &[MarkerGroup::all(&["Mozilla Public License", "Version 2.0"])],
+        marker_groups: &[&["Mozilla Public License", "Version 2.0"]],
     },
-    // BSD-3 must come before BSD-2: "Neither the name" distinguishes them.
+    // BSD-2-Clause and BSD-3-Clause are handled by match_canonical_bsd, not here: a
+    // canonical BSD file need not contain the word "BSD" (issue #273), and substring
+    // markers cannot separate it from its "Redistribution and use" relatives.
     //
-    // Each rule has a group keyed on the literal word "BSD" and a fallback group that
-    // matches the canonical text by its clause wording, since a standard BSD-2/BSD-3 file
-    // need not contain the word "BSD" (e.g. the opensource.org texts and the ones Pallets
-    // ships for Jinja2 and itsdangerous).
-    //
-    // The clause-wording group is anchored on the canonical BSD warranty line
-    // "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS", which the
-    // BSD-2 and BSD-3 templates carry verbatim. That anchor keeps the wider
-    // "Redistribution and use" family out: the named-holder disclaimers of ZPL-2.1,
-    // Sleepycat, PHP-3.01 and BSD-4-Clause, and Apache-1.1's bare "...AS IS" line, all
-    // fail it (previously ZPL-2.1 mis-resolved to BSD-2-Clause and the copyleft Sleepycat
-    // to BSD-3-Clause). The anchor is a template match, not a proof of family membership:
-    // a few close relatives such as BSD-2-Clause-Patent reproduce the same warranty line,
-    // so they still resolve to the plain BSD id — acceptable here since all are permissive,
-    // though the SPDX id is then the base one rather than the exact variant.
-    //
-    // "All advertising materials" is an `absent` marker on the clause-wording group only,
-    // to exclude BSD-4-Clause, whose advertising clause that group would otherwise share.
-    // It must NOT gate the whole rule: a genuine BSD file can quote a 4-clause advertising
-    // block in a bundled-component note or a concatenated `copyright`/vendored LICENSE
-    // file, and such a file still matches via the "BSD"-word group. "Apache" is left off
-    // for the same reason the anchor makes it unnecessary — Apache-1.1 already fails the
-    // warranty line, and a bare "Apache" marker would gate real BSD files that merely name
-    // Apache in a note.
-    LicenseContentRule {
-        spdx_id: "BSD-3-Clause",
-        marker_groups: &[
-            MarkerGroup::all(&["BSD", "Redistribution and use", "Neither the name"]),
-            MarkerGroup {
-                markers: &[
-                    "Redistribution and use",
-                    "Neither the name",
-                    "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS",
-                ],
-                absent: &["All advertising materials"],
-            },
-        ],
-    },
-    LicenseContentRule {
-        spdx_id: "BSD-2-Clause",
-        marker_groups: &[
-            MarkerGroup::all(&["BSD", "Redistribution and use"]),
-            MarkerGroup {
-                markers: &[
-                    "Redistribution and use",
-                    "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS",
-                ],
-                absent: &["All advertising materials"],
-            },
-        ],
-    },
     // OFL must come before MIT: the OFL grant text begins with "Permission is hereby
     // granted, free of charge" (the same opening as MIT), so OFL files would otherwise
     // match the MIT rule first.
     LicenseContentRule {
         spdx_id: "OFL-1.1",
         marker_groups: &[
-            MarkerGroup::all(&["SIL OPEN FONT LICENSE"]),
-            MarkerGroup::all(&["This Font Software is licensed under the SIL Open Font License"]),
+            &["SIL OPEN FONT LICENSE"],
+            &["This Font Software is licensed under the SIL Open Font License"],
         ],
     },
     LicenseContentRule {
         spdx_id: "MIT",
         marker_groups: &[
-            MarkerGroup::all(&["MIT License"]),
+            &["MIT License"],
             // "associated documentation files" is MIT-specific phrasing — it
             // disambiguates from OFL/ISC/etc. which share the permission preamble.
-            MarkerGroup::all(&[
+            &[
                 "Permission is hereby granted, free of charge",
                 "associated documentation files",
-            ]),
+            ],
         ],
     },
     LicenseContentRule {
         spdx_id: "ISC",
-        marker_groups: &[MarkerGroup::all(&["ISC License"])],
+        marker_groups: &[&["ISC License"]],
     },
     // Unlicense text is distinctive and shares no preamble with the licenses above,
     // so ordering relative to them does not matter.
     LicenseContentRule {
         spdx_id: "Unlicense",
         marker_groups: &[
-            MarkerGroup::all(&[
-                "This is free and unencumbered software released into the public domain",
-            ]),
-            MarkerGroup::all(&["unlicense.org"]),
+            &["This is free and unencumbered software released into the public domain"],
+            &["unlicense.org"],
         ],
     },
 ];
 
 /// Return the SPDX ID for the first content rule with a matching group, or `None`.
 fn match_license_content(content: &str) -> Option<&'static str> {
+    // BSD-2/BSD-3 are matched structurally against the canonical templates rather than by
+    // substring markers (issue #273); everything else by the substring rules.
+    if let Some(spdx) = match_canonical_bsd(content) {
+        return Some(spdx);
+    }
     for rule in LICENSE_CONTENT_RULES {
         for group in rule.marker_groups {
-            if group.absent.iter().any(|marker| content.contains(marker)) {
-                continue;
-            }
-            if group.markers.iter().all(|marker| content.contains(marker)) {
+            if group.iter().all(|marker| content.contains(marker)) {
                 return Some(rule.spdx_id);
             }
         }
+    }
+    None
+}
+
+/// The canonical BSD-3-Clause body, from the opening grant through the warranty disclaimer.
+/// `{holder}` marks the copyright-holder name in clause 3, which is matched as a wildcard.
+const CANONICAL_BSD_3_BODY: &str = "\
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+3. Neither the name of {holder} nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.";
+
+/// The canonical BSD-2-Clause body: the same as BSD-3 without clause 3 ("Neither the name
+/// of ... nor the names of its contributors"), so it carries no wildcard.
+const CANONICAL_BSD_2_BODY: &str = "\
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.";
+
+/// Strip a single leading list marker (`1.`, `2)`, `*`, `-`, `•`) from an already-trimmed
+/// line. The marker must be followed by whitespace (or end the line) so a token like `2.0`
+/// is left untouched.
+fn strip_leading_list_marker(line: &str) -> &str {
+    for bullet in ["* ", "- ", "• "] {
+        if let Some(rest) = line.strip_prefix(bullet) {
+            return rest.trim_start();
+        }
+    }
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    if digits > 0 && digits < line.len() {
+        let after = &line[digits..];
+        if let Some(rest) = after.strip_prefix('.').or_else(|| after.strip_prefix(')')) {
+            if rest.is_empty() || rest.starts_with(char::is_whitespace) {
+                return rest.trim_start();
+            }
+        }
+    }
+    line
+}
+
+/// Normalise a license body for template comparison: drop a leading list marker on each
+/// line, collapse every run of whitespace to a single space, and lowercase. This makes the
+/// comparison insensitive to line wrapping, indentation and clause numbering, per anistark's
+/// design on issue #273.
+fn normalize_license_body(s: &str) -> String {
+    let mut tokens: Vec<&str> = Vec::new();
+    for line in s.lines() {
+        for token in strip_leading_list_marker(line.trim()).split_whitespace() {
+            tokens.push(token);
+        }
+    }
+    tokens.join(" ").to_lowercase()
+}
+
+/// True when a normalised body equals the BSD-3 template, treating the copyright holder in
+/// clause 3 ("Neither the name of {holder}") as a wildcard.
+fn matches_bsd3_template(normalized_body: &str) -> bool {
+    let template = normalize_license_body(CANONICAL_BSD_3_BODY);
+    let Some((prefix, suffix)) = template.split_once("{holder}") else {
+        return false;
+    };
+    let prefix = prefix.trim();
+    let suffix = suffix.trim();
+    normalized_body.starts_with(prefix)
+        && normalized_body.ends_with(suffix)
+        && normalized_body.len() > prefix.len() + suffix.len()
+}
+
+/// Detect a canonical BSD-2-Clause or BSD-3-Clause text (issue #273).
+///
+/// A canonical BSD file need not contain the word "BSD" anywhere, and substring markers
+/// cannot separate it from its many `Redistribution and use` relatives — ZPL-2.1, Sleepycat,
+/// BSD-4-Clause, the use-restricted variants (No-Military, No-Nuclear, OpenWebUI, Attribution,
+/// LBNL) and BSD-2-Clause-Patent — without mis-resolving some of them to a permissive id.
+///
+/// Following the SPDX matching guidelines, the text is compared against the canonical
+/// template structurally:
+///
+/// 1. Before `Redistribution and use`: only copyright lines, "All rights reserved", or blank
+///    lines. A concatenated file (a GPL package quoting one bundled BSD block, or a Debian
+///    `copyright` aggregating several grants) carries other prose here and is rejected, so it
+///    is never resolved to a single permissive id.
+/// 2. From `Redistribution and use` to `SUCH DAMAGE.`: equal to the canonical body once
+///    whitespace, case and list markers are normalised, with the clause-3 holder as a
+///    wildcard. An added clause or paragraph fails this (BSD-3-Clause-OpenWebUI/-Attribution/
+///    -LBNL, BSD-2-Clause-Patent).
+/// 3. After `SUCH DAMAGE.`: whitespace only (BSD-3-Clause-No-Military-License,
+///    BSD-3-Clause-No-Nuclear-License-2014 append their restriction here).
+///
+/// When nothing matches the result is `None` — resolvable later through ClearlyDefined —
+/// rather than a wrong permissive id.
+fn match_canonical_bsd(content: &str) -> Option<&'static str> {
+    let lower = content.to_lowercase();
+    let start = lower.find("redistribution and use")?;
+    let end = start + lower[start..].find("such damage.")? + "such damage.".len();
+
+    // 1. Only copyright / "all rights reserved" / blank lines precede the grant.
+    let preamble_ok = lower[..start].lines().all(|line| {
+        let line = line.trim();
+        line.is_empty() || line.contains("copyright") || line.contains("all rights reserved")
+    });
+    if !preamble_ok {
+        return None;
+    }
+
+    // 3. Nothing but whitespace follows the disclaimer.
+    if !lower[end..].trim().is_empty() {
+        return None;
+    }
+
+    // 2. The body matches a canonical template.
+    let body = normalize_license_body(&lower[start..end]);
+    if matches_bsd3_template(&body) {
+        return Some("BSD-3-Clause");
+    }
+    if body == normalize_license_body(CANONICAL_BSD_2_BODY) {
+        return Some("BSD-2-Clause");
     }
     None
 }
@@ -2187,213 +2220,232 @@ mod tests {
         assert_eq!(detect_license_from_content("Some random content"), None);
     }
 
-    // The canonical BSD texts published by opensource.org (and shipped verbatim by, for
-    // example, Pallets for Jinja2/itsdangerous) do not contain the word "BSD". These
-    // guard issue #273: they must resolve by clause wording, while BSD-4-Clause and
-    // Apache-1.1 — which share the "Redistribution and use" opening — must not be
-    // mistaken for BSD-2 or BSD-3.
-    const CANONICAL_BSD_3_CLAUSE: &str = "\
-Copyright (c) <year> <owner>. All rights reserved.
+    // Issue #273: a canonical BSD-2/BSD-3 file (e.g. the opensource.org texts, and the ones
+    // Pallets ships for Jinja2 and itsdangerous) need not contain the word "BSD" anywhere.
+    // They are matched structurally against the canonical templates by match_canonical_bsd,
+    // which must still keep BSD-4-Clause, Apache-1.1, ZPL-2.1, Sleepycat and the
+    // use-restricted BSD variants out rather than resolve them to a permissive id.
+    const BSD_DISCLAIMER: &str = "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.";
 
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+    fn bsd3(holder: &str) -> String {
+        format!(
+            "Copyright (c) 2007 The Example Project. All rights reserved.\n\n\
+             Redistribution and use in source and binary forms, with or without modification, \
+             are permitted provided that the following conditions are met:\n\n\
+             1. Redistributions of source code must retain the above copyright notice, this \
+             list of conditions and the following disclaimer.\n\n\
+             2. Redistributions in binary form must reproduce the above copyright notice, this \
+             list of conditions and the following disclaimer in the documentation and/or other \
+             materials provided with the distribution.\n\n\
+             3. Neither the name of {holder} nor the names of its contributors may be used to \
+             endorse or promote products derived from this software without specific prior \
+             written permission.\n\n\
+             {BSD_DISCLAIMER}\n"
+        )
+    }
 
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.";
-
-    const CANONICAL_BSD_2_CLAUSE: &str = "\
-Copyright (c) <year> <owner>
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.";
-
-    const CANONICAL_BSD_4_CLAUSE: &str = "\
-Copyright (c) <year> <owner>. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-3. All advertising materials mentioning features or use of this software must display the following acknowledgement: This product includes software developed by the organization.
-
-4. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY COPYRIGHT HOLDER \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.";
-
-    const CANONICAL_APACHE_1_1: &str = "\
-The Apache Software License, Version 1.1
-
-Copyright (c) 2000 The Apache Software Foundation. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-4. The names \"Apache\" and \"Apache Software Foundation\" must not be used to endorse or promote products derived from this software without prior written permission.
-
-THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESSED OR IMPLIED WARRANTIES ARE DISCLAIMED.";
+    fn bsd2() -> String {
+        format!(
+            "Copyright (c) 2007 The Example Project\n\n\
+             Redistribution and use in source and binary forms, with or without modification, \
+             are permitted provided that the following conditions are met:\n\n\
+             1. Redistributions of source code must retain the above copyright notice, this \
+             list of conditions and the following disclaimer.\n\n\
+             2. Redistributions in binary form must reproduce the above copyright notice, this \
+             list of conditions and the following disclaimer in the documentation and/or other \
+             materials provided with the distribution.\n\n\
+             {BSD_DISCLAIMER}\n"
+        )
+    }
 
     #[test]
-    fn test_detect_bsd_texts_without_the_word_bsd() {
-        // Issue #273: a canonical BSD file need not say "BSD" anywhere.
-        assert!(!CANONICAL_BSD_3_CLAUSE.contains("BSD"));
-        assert!(!CANONICAL_BSD_2_CLAUSE.contains("BSD"));
+    fn test_canonical_bsd_without_the_word_bsd() {
+        // The whole point of #273: neither template mentions "BSD".
+        let three = bsd3("the copyright holder");
+        let two = bsd2();
+        assert!(!three.contains("BSD"));
+        assert!(!two.contains("BSD"));
         assert_eq!(
-            detect_license_from_content(CANONICAL_BSD_3_CLAUSE),
+            detect_license_from_content(&three),
             Some("BSD-3-Clause".to_string())
         );
         assert_eq!(
-            detect_license_from_content(CANONICAL_BSD_2_CLAUSE),
+            detect_license_from_content(&two),
             Some("BSD-2-Clause".to_string())
         );
     }
 
     #[test]
-    fn test_bsd_2_and_3_are_still_distinguished_without_the_word_bsd() {
-        // The "Neither the name" clause is what separates BSD-3 from BSD-2, and it still
-        // must, now that the "BSD" word is no longer required to match either.
-        assert!(CANONICAL_BSD_3_CLAUSE.contains("Neither the name"));
-        assert!(!CANONICAL_BSD_2_CLAUSE.contains("Neither the name"));
-        assert_ne!(
-            detect_license_from_content(CANONICAL_BSD_3_CLAUSE),
-            detect_license_from_content(CANONICAL_BSD_2_CLAUSE)
+    fn test_bsd3_holder_name_is_a_wildcard() {
+        // Clause 3 names the copyright holder; any holder must still resolve to BSD-3.
+        assert_eq!(
+            detect_license_from_content(&bsd3("Example Organization, Inc.")),
+            Some("BSD-3-Clause".to_string())
+        );
+        assert_eq!(
+            detect_license_from_content(&bsd3("the Regents of the University of Example")),
+            Some("BSD-3-Clause".to_string())
         );
     }
 
     #[test]
-    fn test_bsd_4_and_apache_1_1_are_not_mistaken_for_bsd() {
-        // The widened rules must not swallow the two licenses that share BSD's opening.
-        // BSD-4-Clause carries "Neither the name" under its advertising clause; Apache-1.1
-        // shares the "Redistribution and use" sentence and the "AS IS" warranty line.
-        assert_eq!(detect_license_from_content(CANONICAL_BSD_4_CLAUSE), None);
-        assert_eq!(detect_license_from_content(CANONICAL_APACHE_1_1), None);
+    fn test_bsd_matching_ignores_wrapping_numbering_and_bullets() {
+        // Normalisation collapses whitespace and drops list markers, so a reflowed file that
+        // renumbers the clauses as bullets still matches the template.
+        let reflowed = format!(
+            "Copyright (c) 2007 The Example Project. All rights reserved.\n\n\
+             Redistribution and use in source and binary forms,\nwith or without \
+             modification, are permitted provided\nthat the following conditions are met:\n\n\
+             * Redistributions of source code must retain the above copyright notice, this \
+             list of conditions and the following disclaimer.\n\n\
+             * Redistributions in binary form must reproduce the above copyright notice, this \
+             list of conditions and the following disclaimer in the documentation and/or other \
+             materials provided with the distribution.\n\n\
+             * Neither the name of the copyright holder nor the names of its contributors may \
+             be used to endorse or promote products derived from this software without \
+             specific prior written permission.\n\n\
+             {BSD_DISCLAIMER}\n"
+        );
+        assert_eq!(
+            detect_license_from_content(&reflowed),
+            Some("BSD-3-Clause".to_string())
+        );
     }
 
-    // The wider "Redistribution and use" family shares BSD's opening clauses but not its
-    // exact warranty line "...BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS". These two are
-    // the regressions the widened clause groups risked: ZPL-2.1 stops the warranty line
-    // at "...BY THE COPYRIGHT HOLDERS" (no "AND CONTRIBUTORS"), and the copyleft Sleepycat
-    // license even carries "Neither the name" yet names its own holder in the disclaimer.
-    // Both previously mis-resolved (ZPL-2.1 -> BSD-2-Clause, Sleepycat -> BSD-3-Clause);
-    // reporting a copyleft license as permissive would let `--fail-on-restrictive` pass.
-    const ZPL_2_1: &str = "\
-Zope Public License (ZPL) Version 2.1
+    #[test]
+    fn test_bsd4_clause_is_not_bsd() {
+        // BSD-4-Clause adds the advertising clause before the disclaimer; the extra clause
+        // fails the body comparison, so it resolves to None rather than BSD-3.
+        let bsd4 = format!(
+            "Copyright (c) 2007 The Example Project. All rights reserved.\n\n\
+             Redistribution and use in source and binary forms, with or without modification, \
+             are permitted provided that the following conditions are met:\n\n\
+             1. Redistributions of source code must retain the above copyright notice, this \
+             list of conditions and the following disclaimer.\n\n\
+             2. Redistributions in binary form must reproduce the above copyright notice, this \
+             list of conditions and the following disclaimer in the documentation and/or other \
+             materials provided with the distribution.\n\n\
+             3. All advertising materials mentioning features or use of this software must \
+             display the following acknowledgement: This product includes software developed \
+             by the Example Project.\n\n\
+             4. Neither the name of the copyright holder nor the names of its contributors may \
+             be used to endorse or promote products derived from this software without \
+             specific prior written permission.\n\n\
+             {BSD_DISCLAIMER}\n"
+        );
+        assert!(!bsd4.contains("BSD"));
+        assert_eq!(detect_license_from_content(&bsd4), None);
+    }
 
-Copyright (c) Zope Foundation and Contributors. All Rights Reserved.
+    #[test]
+    fn test_added_clause_before_disclaimer_is_not_bsd() {
+        // A use-restricted variant (e.g. BSD-3-Clause-OpenWebUI/-Attribution/-LBNL) adds a
+        // clause inside the body; the body no longer equals the template.
+        let openwebui = format!(
+            "Copyright (c) 2007 The Example Project. All rights reserved.\n\n\
+             Redistribution and use in source and binary forms, with or without modification, \
+             are permitted provided that the following conditions are met:\n\n\
+             1. Redistributions of source code must retain the above copyright notice, this \
+             list of conditions and the following disclaimer.\n\n\
+             2. Redistributions in binary form must reproduce the above copyright notice, this \
+             list of conditions and the following disclaimer in the documentation and/or other \
+             materials provided with the distribution.\n\n\
+             3. Neither the name of the copyright holder nor the names of its contributors may \
+             be used to endorse or promote products derived from this software without \
+             specific prior written permission.\n\n\
+             4. The software may not be used to remove or alter the branding displayed by the \
+             software.\n\n\
+             {BSD_DISCLAIMER}\n"
+        );
+        assert_eq!(detect_license_from_content(&openwebui), None);
+    }
 
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+    #[test]
+    fn test_restriction_after_disclaimer_is_not_bsd() {
+        // BSD-3-Clause-No-Military-License / -No-Nuclear-License-2014 append a use
+        // restriction after "SUCH DAMAGE."; rule 3 (whitespace only) rejects it.
+        let no_military = format!(
+            "{}\nYou agree not to use the Software for the design, development, production or \
+             use of any weapon of any kind.\n",
+            bsd3("the copyright holder").trim_end()
+        );
+        assert_eq!(detect_license_from_content(&no_military), None);
+    }
 
-1. Redistributions in source code must retain the accompanying copyright notice, this list of conditions, and the following disclaimer.
+    #[test]
+    fn test_bsd2_patent_grant_after_disclaimer_is_not_bsd() {
+        // BSD-2-Clause-Patent appends a patent grant after the disclaimer.
+        let patent = format!(
+            "{}\nSubject to the terms and conditions of this license, each copyright holder \
+             grants you a patent license under the licensed patents.\n",
+            bsd2().trim_end()
+        );
+        assert_eq!(detect_license_from_content(&patent), None);
+    }
 
-2. Redistributions in binary form must reproduce the accompanying copyright notice, this list of conditions, and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY EXPRESSED OR IMPLIED WARRANTIES ARE DISCLAIMED.";
-
-    const SLEEPYCAT: &str = "\
-The Sleepycat License
-
-Copyright (c) 1990-1999 Sleepycat Software. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-3. Redistributions in any form must be accompanied by information on how to obtain complete source code for the DB software and any accompanying software that uses the DB software.
-
-Neither the name of the University nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY SLEEPYCAT SOFTWARE ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.";
+    #[test]
+    fn test_concatenated_file_quoting_bsd_is_not_resolved() {
+        // A GPL package that quotes one bundled canonical BSD block carries other prose
+        // before the grant; rule 1 rejects it, so it is never reported as permissive.
+        let concatenated = format!(
+            "This program is free software: you can redistribute it and/or modify it under the \
+             terms of the GNU General Public License as published by the Free Software \
+             Foundation, either version 3 of the License, or (at your option) any later \
+             version.\n\n\
+             The bundled component foo is distributed under the following terms:\n\n\
+             {}",
+            bsd3("the copyright holder")
+        );
+        assert_eq!(detect_license_from_content(&concatenated), None);
+    }
 
     #[test]
     fn test_redistribution_family_is_not_mistaken_for_bsd() {
-        // The clause groups are anchored on the canonical BSD warranty line, so these
-        // resolve to None rather than a BSD SPDX id.
-        assert!(ZPL_2_1.contains("Redistribution and use"));
-        assert!(!ZPL_2_1
-            .contains("THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS"));
-        assert_eq!(detect_license_from_content(ZPL_2_1), None);
+        // ZPL-2.1, Sleepycat and Apache-1.1 all open with "Redistribution and use" but carry
+        // a license title before the copyright and/or extra clauses, so none equals a BSD
+        // template. Reporting the copyleft Sleepycat as permissive would let
+        // `--fail-on-restrictive` pass, so this is the important case.
+        let zpl = format!(
+            "Zope Public License (ZPL) Version 2.1\n\n\
+             Copyright (c) Zope Foundation and Contributors. All Rights Reserved.\n\n\
+             Redistribution and use in source and binary forms, with or without modification, \
+             are permitted provided that the following conditions are met:\n\n\
+             1. Redistributions in source code must retain the accompanying copyright notice, \
+             this list of conditions, and the following disclaimer.\n\n\
+             {BSD_DISCLAIMER}\n"
+        );
+        assert_eq!(detect_license_from_content(&zpl), None);
 
-        // Sleepycat is the important one: it carries "Neither the name", so only the
-        // warranty-line anchor keeps this copyleft license out of BSD-3-Clause.
-        assert!(SLEEPYCAT.contains("Redistribution and use"));
-        assert!(SLEEPYCAT.contains("Neither the name"));
-        assert!(!SLEEPYCAT
-            .contains("THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS"));
-        assert_eq!(detect_license_from_content(SLEEPYCAT), None);
-    }
+        let sleepycat = format!(
+            "The Sleepycat License\n\n\
+             Copyright (c) 1990-1999 Sleepycat Software. All rights reserved.\n\n\
+             Redistribution and use in source and binary forms, with or without modification, \
+             are permitted provided that the following conditions are met:\n\n\
+             1. Redistributions of source code must retain the above copyright notice, this \
+             list of conditions and the following disclaimer.\n\n\
+             2. Redistributions in any form must be accompanied by information on how to \
+             obtain complete source code for the DB software.\n\n\
+             3. Neither the name of the University nor the names of its contributors may be \
+             used to endorse or promote products derived from this software without specific \
+             prior written permission.\n\n\
+             {BSD_DISCLAIMER}\n"
+        );
+        assert!(sleepycat.contains("Neither the name"));
+        assert_eq!(detect_license_from_content(&sleepycat), None);
 
-    #[test]
-    fn test_bsd_with_bundled_apache_note_still_resolves() {
-        // A plain BSD-3 text that mentions Apache in a bundled-component note must still
-        // resolve to BSD-3-Clause: "Apache" is deliberately not an absent marker anywhere,
-        // and the warranty-line anchor already excludes the Apache-1.1 license itself.
-        let with_apache_note = format!(
-            "BSD 3-Clause License\n\n{CANONICAL_BSD_3_CLAUSE}\n\n\
-             This project bundles foo, which is licensed under the Apache License 2.0.",
+        let apache_1_1 = format!(
+            "The Apache Software License, Version 1.1\n\n\
+             Copyright (c) 2000 The Apache Software Foundation. All rights reserved.\n\n\
+             Redistribution and use in source and binary forms, with or without modification, \
+             are permitted provided that the following conditions are met:\n\n\
+             1. Redistributions of source code must retain the above copyright notice, this \
+             list of conditions and the following disclaimer.\n\n\
+             4. The names \"Apache\" and \"Apache Software Foundation\" must not be used to \
+             endorse or promote products derived from this software without prior written \
+             permission.\n\n\
+             {BSD_DISCLAIMER}\n"
         );
-        assert!(with_apache_note.contains("Apache"));
-        assert_eq!(
-            detect_license_from_content(&with_apache_note),
-            Some("BSD-3-Clause".to_string())
-        );
-    }
-
-    #[test]
-    fn test_bsd_quoting_a_4_clause_advertising_block_still_resolves() {
-        // A genuine BSD-3 file that also quotes a 4-clause BSD advertising clause — e.g. in
-        // a bundled-component note, or a concatenated Debian `copyright`/vendored LICENSE
-        // file that aggregates several upstream blocks — must still resolve to BSD-3-Clause.
-        // "All advertising materials" guards only the clause-wording fallback group (to keep
-        // BSD-4-Clause out); it must not gate the "BSD"-word group, which still matches here.
-        let with_advertising_block = format!(
-            "BSD 3-Clause License\n\n{CANONICAL_BSD_3_CLAUSE}\n\n\
-             This product also bundles bar, distributed under the following terms:\n\n\
-             3. All advertising materials mentioning features or use of this software must \
-             display the following acknowledgement: This product includes software developed \
-             by the organization.",
-        );
-        assert!(with_advertising_block.contains("BSD"));
-        assert!(with_advertising_block.contains("All advertising materials"));
-        assert_eq!(
-            detect_license_from_content(&with_advertising_block),
-            Some("BSD-3-Clause".to_string())
-        );
-
-        // The same holds for BSD-2 (no "Neither the name" clause).
-        let bsd2_with_advertising_block = format!(
-            "BSD 2-Clause License\n\n{CANONICAL_BSD_2_CLAUSE}\n\n\
-             Bundled dependency baz:\n\n\
-             3. All advertising materials mentioning features or use of this software must \
-             display the following acknowledgement.",
-        );
-        assert!(bsd2_with_advertising_block.contains("All advertising materials"));
-        assert_eq!(
-            detect_license_from_content(&bsd2_with_advertising_block),
-            Some("BSD-2-Clause".to_string())
-        );
-    }
-
-    #[test]
-    fn test_bsd_4_clause_still_excluded_when_word_bsd_is_absent() {
-        // The per-group guard must not have re-opened the BSD-4-Clause hole: a canonical
-        // BSD-4 text that never says "BSD" still fails the "BSD"-word group and is turned
-        // away from the clause-wording group by "All advertising materials".
-        assert!(!CANONICAL_BSD_4_CLAUSE.contains("BSD"));
-        assert!(CANONICAL_BSD_4_CLAUSE.contains("All advertising materials"));
-        assert_eq!(detect_license_from_content(CANONICAL_BSD_4_CLAUSE), None);
+        assert_eq!(detect_license_from_content(&apache_1_1), None);
     }
 
     #[test]
