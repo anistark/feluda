@@ -341,7 +341,8 @@ mod tests {
     #[test]
     fn test_the_shipped_license_says_which_bsd_the_classifier_meant() {
         // Jinja2's real metadata: a `BSD License` classifier, no License field, and the license
-        // itself in the PEP 639 subdirectory. Both wheel layouts appear in one stock image.
+        // itself in the PEP 639 subdirectory. Both wheel layouts appear in one stock image. The
+        // text is Pallets' canonical BSD-3, which never says "BSD" (#273).
         for directory in ["", "licenses"] {
             let temp = tempfile::tempdir().unwrap();
             let dist_info = temp.path().join("jinja2-3.1.6.dist-info");
@@ -360,11 +361,25 @@ mod tests {
                 dist_info.join(directory).join("LICENSE.txt"),
                 "Copyright 2007 Pallets\n\n\
                  Redistribution and use in source and binary forms, with or without modification, \
-                 are permitted provided that the following conditions are met:\n\
-                 1. Redistributions of source code must retain the above copyright notice.\n\
+                 are permitted provided that the following conditions are met:\n\n\
+                 1. Redistributions of source code must retain the above copyright notice, this \
+                 list of conditions and the following disclaimer.\n\n\
+                 2. Redistributions in binary form must reproduce the above copyright notice, \
+                 this list of conditions and the following disclaimer in the documentation \
+                 and/or other materials provided with the distribution.\n\n\
                  3. Neither the name of the copyright holder nor the names of its contributors \
-                 may be used to endorse or promote products derived from this software.\n\
-                 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS \"AS IS\" (BSD).\n",
+                 may be used to endorse or promote products derived from this software without \
+                 specific prior written permission.\n\n\
+                 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" \
+                 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE \
+                 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE \
+                 DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE \
+                 FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL \
+                 DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR \
+                 SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER \
+                 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, \
+                 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE \
+                 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n",
             )
             .unwrap();
 

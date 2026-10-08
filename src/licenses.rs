@@ -1371,6 +1371,10 @@ fn is_plausible_holder(holder: &str) -> bool {
     if holder.is_empty() || holder.len() > MAX_HOLDER_LEN {
         return false;
     }
+    // A name has no clause punctuation; "Jane Doe; you may not ..." is a restriction.
+    if holder.contains([';', ':']) {
+        return false;
+    }
     let tokens: Vec<&str> = holder.split_whitespace().collect();
     for (i, token) in tokens.iter().enumerate() {
         // A bare enumerator ("4.", "5)") is a list marker, never part of a name.
@@ -2345,7 +2349,7 @@ mod tests {
     #[test]
     fn test_holder_wildcard_rejects_injected_clauses() {
         // The clause-3 holder is a bounded wildcard: a restriction injected between the
-        // anchors must not resolve to BSD-3 (anistark's review, #277).
+        // anchors must not resolve to BSD-3 (#277).
         let injected = "the copyright holder. 4. This software may not be used in any \
              military or nuclear facility. 5. Neither the name of Jane Doe";
         let text = format!(
@@ -2353,12 +2357,19 @@ mod tests {
             bsd3_body(injected)
         );
         assert_eq!(detect_license_from_content(&text), None);
+
+        // A short restriction with no sentence break still is not a name.
+        let text = format!(
+            "Copyright (c) 2024 Example. All rights reserved.\n\n{}",
+            bsd3_body("Jane Doe; you may not use this software for military purposes")
+        );
+        assert_eq!(detect_license_from_content(&text), None);
     }
 
     #[test]
     fn test_preamble_rejects_loose_copyright_prose() {
         // Only a copyright line or "All rights reserved" may precede the grant; prose that
-        // merely contains "copyright" must not pass (anistark's review, #277).
+        // merely contains "copyright" must not pass (#277).
         let text = format!(
             "parts copyright Bar are under the terms below\n\n{}",
             CANONICAL_BSD_2_BODY
