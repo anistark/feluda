@@ -74,7 +74,7 @@ Action Inputs
      - Declare project license for compatibility checks
    * - ``sbom-input``
      - (none)
-     - Analyse an existing SPDX or CycloneDX JSON document instead of the project tree
+     - Analyse an existing SPDX (JSON, tag:value, 3.0) or CycloneDX (JSON, XML) document instead of the project tree
    * - ``filesystem``
      - (none)
      - Catalogue a root filesystem or install tree instead of the project tree

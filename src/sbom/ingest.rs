@@ -28,8 +28,9 @@ use crate::licenses::{
 };
 use crate::purl::{parse_purl, Ecosystem};
 use crate::sbom::cyclonedx::convert_spdx_license_to_cyclonedx;
+use crate::sbom::input::{read_sbom, Original, SbomDocument};
 use crate::sbom::spdx::{spdx_license_field, LicenseRefs};
-use crate::sbom::{detect_sbom_type_in, CycloneDxVersion, SbomType};
+use crate::sbom::{cyclonedx_xml, spdx3, tagvalue, CycloneDxVersion, SbomType};
 
 /// The source argument that means "read the document from stdin".
 const STDIN_SOURCE: &str = "-";
@@ -52,19 +53,18 @@ pub fn ingest_sbom(
     enriched_output: Option<&str>,
 ) -> FeludaResult<Vec<LicenseInfo>> {
     let content = read_source(source)?;
-    let document: JsonValue = serde_json::from_str(&content)
-        .map_err(|e| input_error(format!("Invalid JSON in SBOM input: {e}")))?;
-
-    let format = detect_sbom_type_in(&document)
-        .ok_or_else(|| input_error(SbomType::DETECTION_FAILURE.to_string()))?;
+    let document = read_sbom(&content).map_err(input_error)?;
     log(
         LogLevel::Info,
-        &format!("Ingesting {format:?} document from {source}"),
+        &format!(
+            "Ingesting {} document from {source}",
+            document.serialization.describe()
+        ),
     );
 
-    let (mut components, mut origins) = match format {
-        SbomType::Spdx => extract_spdx(&document),
-        SbomType::CycloneDx => extract_cyclonedx(&document),
+    let (mut components, mut origins) = match document.serialization.sbom_type() {
+        SbomType::Spdx => extract_spdx(&document.model),
+        SbomType::CycloneDx => extract_cyclonedx(&document.model),
     };
 
     log(
@@ -80,7 +80,7 @@ pub fn ingest_sbom(
     }
 
     if let Some(output_path) = enriched_output {
-        write_enriched(&document, format, &components, &origins, output_path)?;
+        write_enriched(&document, &components, &origins, output_path)?;
     }
 
     Ok(components)
@@ -301,7 +301,7 @@ fn extracted_licensing_info(document: &JsonValue) -> HashMap<String, String> {
 ///
 /// Refs are replaced longest id first, so `LicenseRef-1` cannot eat the prefix of `LicenseRef-10`.
 /// Substitution is textual because a ref can appear anywhere inside a compound expression.
-fn expand_license_refs(license: &str, extracted: &HashMap<String, String>) -> String {
+pub(super) fn expand_license_refs(license: &str, extracted: &HashMap<String, String>) -> String {
     if extracted.is_empty() || !license.contains("LicenseRef-") {
         return license.to_string();
     }
@@ -419,26 +419,104 @@ fn resolve_missing_licenses(components: &mut [LicenseInfo], origins: &mut [Origi
 // ENRICHED OUTPUT
 // =============================================================================
 
-/// Write the input document back out with the licenses feluda resolved.
+/// Write the input document back out with the licenses feluda resolved, in the serialization it
+/// arrived in.
 ///
 /// Only components feluda actually resolved are touched, so a document that already stated every
 /// license round-trips unchanged rather than being rewritten with feluda's opinion of it.
 fn write_enriched(
-    document: &JsonValue,
-    format: SbomType,
+    document: &SbomDocument,
     components: &[LicenseInfo],
     origins: &[Origin],
     output_path: &str,
 ) -> FeludaResult<()> {
-    let mut enriched = document.clone();
-    let key = match format {
-        SbomType::Spdx => "packages",
-        SbomType::CycloneDx => "components",
+    // What feluda resolved, by the position of the entry it came from.
+    let resolved: Vec<(usize, &str)> = components
+        .iter()
+        .zip(origins)
+        .filter_map(|(info, origin)| {
+            let license = info.license.as_deref().filter(|_| origin.resolved)?;
+            Some((origin.position, license))
+        })
+        .collect();
+
+    let serialize = |value: &JsonValue| {
+        serde_json::to_string_pretty(value).map_err(|e| {
+            FeludaError::Serialization(format!("Failed to serialize enriched SBOM: {e}"))
+        })
+    };
+    let written = match &document.original {
+        Original::Json => serialize(&enriched_json(
+            &document.model,
+            document.serialization.sbom_type(),
+            &resolved,
+        ))?,
+        // The resolved license is a conclusion feluda drew, not something the document declared,
+        // which is exactly the distinction `PackageLicenseConcluded` carries.
+        Original::TagValue { text, packages } => {
+            let mut refs = LicenseRefs::with_existing(existing_refs(&document.model));
+            let concluded: Vec<(usize, String)> = resolved
+                .iter()
+                .map(|(position, license)| (*position, spdx_license_field(license, &mut refs)))
+                .collect();
+            tagvalue::patch(text, packages, &concluded, &refs.into_defined())
+        }
+        Original::Xml(text) => {
+            let acknowledgement = acknowledgement(&document.model);
+            let licenses: Vec<_> = resolved
+                .iter()
+                .map(|(position, license)| {
+                    (
+                        *position,
+                        convert_spdx_license_to_cyclonedx(license, acknowledgement),
+                    )
+                })
+                .collect();
+            cyclonedx_xml::patch(text, &licenses).map_err(|e| {
+                FeludaError::Serialization(format!("Failed to write enriched SBOM: {e}"))
+            })?
+        }
+        // A 3.0 conclusion is a relationship to a license element, found by the package's id.
+        // Refs are scoped to the expression that maps them, so none can collide with the
+        // document's own.
+        Original::Spdx3(graph) => {
+            let mut refs = LicenseRefs::default();
+            let concluded: Vec<(String, String)> = resolved
+                .iter()
+                .filter_map(|(position, license)| {
+                    let id = document.model["packages"].get(*position)?["SPDXID"].as_str()?;
+                    Some((id.to_string(), spdx_license_field(license, &mut refs)))
+                })
+                .collect();
+            serialize(&spdx3::enrich(graph, &concluded, &refs.into_defined()))?
+        }
     };
 
-    let mut patched = 0;
-    // New refs must not repeat or collide with ones the document already defines.
-    let existing_refs = document
+    fs::write(output_path, written).map_err(|e| {
+        FeludaError::FileWrite(format!(
+            "Failed to write enriched SBOM to {output_path}: {e}"
+        ))
+    })?;
+
+    let patched = resolved.len();
+    log(
+        LogLevel::Info,
+        &format!(
+            "Wrote enriched {} to {output_path} with {patched} resolved licenses",
+            document.serialization.describe()
+        ),
+    );
+    // Stderr, so the enriched copy can be written during a `--json` run without landing in the
+    // report a pipeline is reading.
+    eprintln!("✓ Enriched SBOM written to {output_path} ({patched} licenses resolved)");
+
+    Ok(())
+}
+
+/// The `LicenseRef-` ids an SPDX 2.x document already defines, with their text, so new ones
+/// neither repeat nor collide with them.
+fn existing_refs(document: &JsonValue) -> Vec<(String, String)> {
+    document
         .get("hasExtractedLicensingInfos")
         .and_then(|value| value.as_array())
         .into_iter()
@@ -448,28 +526,38 @@ fn write_enriched(
                 string_field(info, "licenseId")?,
                 string_field(info, "extractedText").unwrap_or_default(),
             ))
-        });
-    let mut refs = LicenseRefs::with_existing(existing_refs);
-    // From 1.6 a CycloneDX license can say whether it was declared or concluded, and what feluda
-    // resolved is a conclusion, the same distinction `licenseConcluded` carries in SPDX.
-    let acknowledgement = string_field(document, "specVersion")
+        })
+        .collect()
+}
+
+/// From 1.6 a CycloneDX license can say whether it was declared or concluded, and what feluda
+/// resolved is a conclusion, the same distinction `licenseConcluded` carries in SPDX.
+fn acknowledgement(document: &JsonValue) -> Option<&'static str> {
+    string_field(document, "specVersion")
         .and_then(|version| <CycloneDxVersion as clap::ValueEnum>::from_str(&version, true).ok())
         .filter(|version| *version >= CycloneDxVersion::V1_6)
-        .map(|_| "concluded");
-    for (info, origin) in components.iter().zip(origins) {
-        let Some(license) = info.license.as_deref().filter(|_| origin.resolved) else {
-            continue;
-        };
+        .map(|_| "concluded")
+}
+
+/// A JSON document with the resolved licenses written into its entries.
+fn enriched_json(document: &JsonValue, format: SbomType, resolved: &[(usize, &str)]) -> JsonValue {
+    let mut enriched = document.clone();
+    let key = match format {
+        SbomType::Spdx => "packages",
+        SbomType::CycloneDx => "components",
+    };
+
+    let mut refs = LicenseRefs::with_existing(existing_refs(document));
+    let acknowledgement = acknowledgement(document);
+    for (position, license) in resolved {
         let Some(entry) = enriched
             .get_mut(key)
-            .and_then(|entries| entries.get_mut(origin.position))
+            .and_then(|entries| entries.get_mut(*position))
         else {
             continue;
         };
 
         match format {
-            // The resolved license is a conclusion feluda drew, not something the document
-            // declared, which is exactly the distinction `licenseConcluded` carries.
             // A license outside the SPDX list is written as a `LicenseRef-` the document defines.
             SbomType::Spdx => {
                 entry["licenseConcluded"] = json!(spdx_license_field(license, &mut refs));
@@ -482,7 +570,6 @@ fn write_enriched(
                 entry["licenses"] = json!([stated]);
             }
         }
-        patched += 1;
     }
 
     let extracted_refs: Vec<JsonValue> =
@@ -496,31 +583,35 @@ fn write_enriched(
             None => enriched["hasExtractedLicensingInfos"] = JsonValue::Array(extracted_refs),
         }
     }
-
-    let serialized = serde_json::to_string_pretty(&enriched).map_err(|e| {
-        FeludaError::Serialization(format!("Failed to serialize enriched SBOM: {e}"))
-    })?;
-    fs::write(output_path, serialized).map_err(|e| {
-        FeludaError::FileWrite(format!(
-            "Failed to write enriched SBOM to {output_path}: {e}"
-        ))
-    })?;
-
-    log(
-        LogLevel::Info,
-        &format!("Wrote enriched SBOM to {output_path} with {patched} resolved licenses"),
-    );
-    // Stderr, so the enriched copy can be written during a `--json` run without landing in the
-    // report a pipeline is reading.
-    eprintln!("✓ Enriched SBOM written to {output_path} ({patched} licenses resolved)");
-
-    Ok(())
+    enriched
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sbom::detect_sbom_type_in;
+    use crate::sbom::input::Serialization;
     use serde_json::json;
+
+    /// Write an enriched copy of a JSON document, as ingest does for a JSON input.
+    fn write_json(
+        document: &JsonValue,
+        format: SbomType,
+        components: &[LicenseInfo],
+        origins: &[Origin],
+        output_path: &str,
+    ) -> FeludaResult<()> {
+        let serialization = match format {
+            SbomType::Spdx => Serialization::SpdxJson,
+            SbomType::CycloneDx => Serialization::CycloneDxJson,
+        };
+        let document = SbomDocument {
+            serialization,
+            model: document.clone(),
+            original: Original::Json,
+        };
+        write_enriched(&document, components, origins, output_path)
+    }
 
     fn spdx_fixture() -> JsonValue {
         json!({
@@ -795,7 +886,7 @@ mod tests {
 
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("enriched.spdx.json");
-        write_enriched(
+        write_json(
             &document,
             SbomType::Spdx,
             &components,
@@ -822,7 +913,7 @@ mod tests {
 
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("enriched.cdx.json");
-        write_enriched(
+        write_json(
             &document,
             SbomType::CycloneDx,
             &components,
@@ -873,7 +964,7 @@ mod tests {
 
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("enriched.spdx.json");
-        write_enriched(
+        write_json(
             &document,
             SbomType::Spdx,
             &components,
@@ -908,7 +999,7 @@ mod tests {
 
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("enriched.cdx.json");
-        write_enriched(
+        write_json(
             &document,
             SbomType::CycloneDx,
             &components,
@@ -941,7 +1032,7 @@ mod tests {
             origins[2].resolved = true;
 
             let output = temp.path().join(format!("enriched-{version}.cdx.json"));
-            write_enriched(
+            write_json(
                 &document,
                 SbomType::CycloneDx,
                 &components,
@@ -978,7 +1069,7 @@ mod tests {
 
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("enriched.spdx.json");
-        write_enriched(
+        write_json(
             &document,
             SbomType::Spdx,
             &components,
@@ -1018,7 +1109,7 @@ mod tests {
 
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("enriched.cdx.json");
-        write_enriched(
+        write_json(
             &document,
             SbomType::CycloneDx,
             &components,

@@ -51,11 +51,11 @@ Use this table to double-check flag behavior before scripting.
      - Catalogue a container image from a ``docker save`` tarball or an OCI image layout.
      - Squashes the layers and runs the ``--filesystem`` catalogers over the result. ``--platform os/arch`` picks one image out of a multi platform archive. Cannot be combined with ``--repo``, ``--sbom-input`` or ``--filesystem``. See :ref:`cli-image-archive`.
    * - ``feluda --sbom-input <file>``
-     - Scan an SPDX or CycloneDX document instead of a project tree.
+     - Scan an SPDX (JSON, tag:value, 3.0) or CycloneDX (JSON, XML) document instead of a project tree.
      - ``-`` reads stdin, so ``syft image -o spdx-json | feluda --sbom-input -`` works. See :ref:`sbom-ingest`.
    * - ``feluda --sbom-enriched <file>``
      - Write the ingested SBOM back out with the licenses Feluda resolved.
-     - Requires ``--sbom-input``.
+     - Requires ``--sbom-input``. Written in the input's own serialization.
    * - ``feluda --no-local``
      - Skip local manifests and fetch data remotely.
      - Helpful when manifests are incomplete or stale.
@@ -99,11 +99,11 @@ Use this table to double-check flag behavior before scripting.
      - Generate NOTICE and THIRD_PARTY_LICENSES files.
      - Accepts ``--path``, ``--language``, ``--project-license``.
    * - ``feluda sbom [spdx|cyclonedx]``
-     - Generate SBOM in SPDX (2.3, or 2.2) or CycloneDX (1.6, or 1.4, 1.5, 1.7) format.
-     - Omit format to generate both; use ``--output`` to save, ``--filesystem`` to describe an installed tree, or ``--image-archive`` to describe an image. ``--spec-version`` picks the version, or ``--spdx-version`` / ``--cyclonedx-version`` when both are generated.
+     - Generate SBOM in SPDX (2.3, or 2.2, 3.0) or CycloneDX (1.6, or 1.4, 1.5, 1.7) format.
+     - Omit format to generate both; use ``--output`` to save, ``--filesystem`` to describe an installed tree, or ``--image-archive`` to describe an image. ``--spec-version`` picks the version, or ``--spdx-version`` / ``--cyclonedx-version`` when both are generated. ``--format tag-value`` on ``sbom spdx`` (``--spdx-format`` on ``sbom``) writes SPDX 2.x as tag:value; ``--format xml`` on ``sbom cyclonedx`` (``--cyclonedx-format`` on ``sbom``) writes CycloneDX as XML.
    * - ``feluda sbom validate <file>``
      - Validate an SBOM file against its specification.
-     - Supports ``--json`` for machine-readable output.
+     - SPDX JSON, tag:value or 3.0, CycloneDX JSON or XML. Supports ``--json`` for machine-readable output.
 
 ----
 

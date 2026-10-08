@@ -16,9 +16,10 @@ Overview
 
 Security teams expect an SBOM at every release, and Feluda can emit both SPDX and CycloneDX formats. SBOMs provide a comprehensive inventory of software components, their licenses, and dependencies.
 
-Feluda also reads them. An SPDX or CycloneDX document from syft, Trivy, cdxgen or a vendor can be
-analysed directly, which is how you cover a shipped container image rather than a source tree.
-See :ref:`sbom-ingest`.
+Feluda also reads them. An SPDX or CycloneDX document from syft, Trivy, cdxgen, Yocto or a vendor
+can be analysed directly, which is how you cover a shipped container image rather than a source
+tree. SPDX is read as JSON, tag:value or 3.0 JSON-LD, and CycloneDX as JSON or XML. See
+:ref:`sbom-ingest`.
 
 A filesystem or an image can be catalogued directly too, with no other tool involved:
 ``feluda sbom spdx --filesystem ./rootfs`` describes what an artifact ships rather than what its
@@ -59,10 +60,13 @@ Choosing the Right Format
    * - Format
      - Use when
      - Contains
-   * - SPDX 2.3 (or 2.2)
+   * - SPDX 2.3 (or 2.2, as JSON or tag:value)
      - Sharing with open-source offices, regulators, or vulnerability scanners.
      - Dependency list, licenses, SPDX identifiers, and Feluda metadata.
-   * - CycloneDX 1.6 (or 1.4, 1.5, 1.7)
+   * - SPDX 3.0
+     - A consumer that has moved to the SPDX 3 model, such as a Yocto based toolchain.
+     - The same inventory as a JSON-LD graph, licenses stated as relationships.
+   * - CycloneDX 1.6 (or 1.4, 1.5, 1.7, as JSON or XML)
      - Integrating with SBOM-first security tooling or commercial marketplaces.
      - Components, hashes, dependency graph hints, and license notes.
 
@@ -80,10 +84,16 @@ for it:
 .. code-block:: bash
 
    feluda sbom spdx --spec-version 2.2
+   feluda sbom spdx --spec-version 3.0
    feluda sbom cyclonedx --spec-version 1.4
+
+   # SPDX 2.x as tag:value, CycloneDX as XML
+   feluda sbom spdx --format tag-value --output sbom.spdx
+   feluda sbom cyclonedx --format xml --output sbom
 
    # Both formats at once
    feluda sbom --spdx-version 2.2 --cyclonedx-version 1.5
+   feluda sbom --spdx-format tag-value --cyclonedx-format xml
 
 To pin versions for a project, set them in ``.feluda.toml``; a flag still wins over the file:
 
@@ -99,6 +109,14 @@ To pin versions for a project, set them in ``.feluda.toml``; a flag still wins o
 
    * - Version
      - What changes in the output
+   * - SPDX 3.0
+     - Written as 3.0.1 JSON-LD: a ``@graph`` of ``software_Package`` elements, each license a
+       ``simplelicensing_LicenseExpression`` the package points to with ``hasDeclaredLicense`` and
+       ``hasConcludedLicense``. A license outside the SPDX list is a ``LicenseRef-feluda-*`` id
+       mapped to a ``simplelicensing_SimpleLicensingText``. ``NOASSERTION`` is no relationship at
+       all, which is how SPDX 3 says it. The SBOM element's ``software_sbomType`` is ``source``
+       for a project scan and ``analyzed`` for ``--filesystem`` or ``--image-archive``. There is no
+       tag:value for 3.0.
    * - SPDX 2.3
      - The default.
    * - SPDX 2.2
@@ -110,13 +128,15 @@ To pin versions for a project, set them in ``.feluda.toml``; a flag still wins o
      - The default. Each license is marked ``"acknowledgement": "declared"``: the license the
        package states in its manifest, registry entry or license file.
    * - CycloneDX 1.5
-     - No ``acknowledgement``.
+     - No ``acknowledgement``. From 1.5 on, ``metadata.lifecycles`` says when the BOM was made:
+       ``pre-build`` for a project scan, ``post-build`` for ``--filesystem`` or
+       ``--image-archive``, the same distinction SPDX 3.0 makes with ``software_sbomType``.
    * - CycloneDX 1.4
-     - No ``acknowledgement``, and ``metadata.tools`` is the older plain list rather than
-       ``{"components": [...]}``.
+     - No ``acknowledgement`` and no ``lifecycles``, and ``metadata.tools`` is the older plain list
+       rather than ``{"components": [...]}``.
 
-Reading is not tied to these versions: ``--sbom-input`` reads SPDX 2.2 and 2.3 and CycloneDX 1.2
-to 1.7 JSON. See :ref:`sbom-ingest`.
+Reading is not tied to these versions: ``--sbom-input`` and ``sbom validate`` read SPDX 2.2, 2.3
+and 3.0 and CycloneDX 1.2 to 1.7, in any of their serializations. See :ref:`sbom-ingest`.
 
 ----
 

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
-use crate::sbom::SpdxVersion;
+use crate::sbom::{SpdxFormat, SpdxVersion};
 
 /// Character validation for SPDX compliance
 ///
@@ -344,6 +344,25 @@ mod spdx_timestamp {
     }
 }
 
+/// What an SBOM was made from, in the terms SPDX 3's `software_sbomType` and CISA's SBOM types
+/// use. SPDX 2.x has no field for it, so only the 3.0 writer states it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SbomKind {
+    /// From a source tree's manifests and lockfiles.
+    Source,
+    /// From a built artifact: a root filesystem or a container image.
+    Analyzed,
+}
+
+impl SbomKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SbomKind::Source => "source",
+            SbomKind::Analyzed => "analyzed",
+        }
+    }
+}
+
 /// SPDX 2.3 compliant document structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -386,6 +405,10 @@ pub struct SpdxDocument {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub has_extracted_licensing_infos: Vec<ExtractedLicensingInfo>,
+
+    /// What the document describes was made from. Not an SPDX 2.x field.
+    #[serde(skip)]
+    pub sbom_type: Option<SbomKind>,
 }
 
 /// A license outside the SPDX list, defined once in the document under a `LicenseRef-` id
@@ -639,6 +662,7 @@ impl SpdxDocument {
             relationships: Vec::new(),
             annotations: Vec::new(),
             has_extracted_licensing_infos: Vec::new(),
+            sbom_type: None,
         }
     }
 
@@ -1164,33 +1188,55 @@ fn prepare_spdx_document(spdx_doc: &SpdxDocument, version: SpdxVersion) -> SpdxD
 pub fn generate_spdx_output(
     spdx_doc: &SpdxDocument,
     version: SpdxVersion,
+    format: SpdxFormat,
     output_file: Option<String>,
 ) -> FeludaResult<()> {
+    let tag_value = format == SpdxFormat::TagValue && version != SpdxVersion::V3_0;
     log(
         LogLevel::Info,
-        &format!("Generating SPDX {} compliant output", version.as_str()),
+        &format!(
+            "Generating SPDX {} compliant output as {}",
+            version.as_str(),
+            if tag_value { "tag:value" } else { "JSON" }
+        ),
     );
 
     let safe_doc = prepare_spdx_document(spdx_doc, version);
 
-    let json_output = serde_json::to_string_pretty(&safe_doc).map_err(|e| {
-        FeludaError::Serialization(format!("Failed to serialize SPDX document: {e}"))
-    })?;
+    let output = if tag_value {
+        super::tagvalue::write(&safe_doc)
+    } else {
+        let json_output = if version == SpdxVersion::V3_0 {
+            serde_json::to_string_pretty(&super::spdx3::write(&safe_doc))
+        } else {
+            serde_json::to_string_pretty(&safe_doc)
+        }
+        .map_err(|e| {
+            FeludaError::Serialization(format!("Failed to serialize SPDX document: {e}"))
+        })?;
 
-    if json_output.contains("\\n") || json_output.contains("\\r") {
-        return Err(FeludaError::InvalidData(
-            "SPDX JSON contains invalid escaped characters".to_string(),
-        ));
-    }
+        if json_output.contains("\\n") || json_output.contains("\\r") {
+            return Err(FeludaError::InvalidData(
+                "SPDX JSON contains invalid escaped characters".to_string(),
+            ));
+        }
+        json_output
+    };
 
     if let Some(file_path) = output_file {
-        let spdx_file = if file_path.ends_with(".json") {
+        let spdx_file = if tag_value {
+            if file_path.ends_with(".spdx") {
+                file_path
+            } else {
+                format!("{file_path}.spdx")
+            }
+        } else if file_path.ends_with(".json") {
             file_path
         } else {
             format!("{}.spdx.json", file_path.trim_end_matches(".spdx"))
         };
 
-        std::fs::write(&spdx_file, &json_output)
+        std::fs::write(&spdx_file, &output)
             .map_err(|e| FeludaError::FileWrite(format!("Failed to write SPDX file: {e}")))?;
 
         println!("SPDX SBOM written to: {spdx_file}");
@@ -1200,7 +1246,7 @@ pub fn generate_spdx_output(
         );
     } else {
         println!("=== SPDX SBOM ===");
-        println!("{json_output}");
+        println!("{output}");
     }
 
     Ok(())
