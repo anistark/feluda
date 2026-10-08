@@ -1,5 +1,13 @@
 [
   {
+    "title": "Licenses are for everyone, not just lawyers",
+    "speaker": "Kumar Anirudha",
+    "venue": "Open Source India 2026, Bengaluru",
+    "date": "2026-10-08",
+    "type": "slides",
+    "url": "https://anistark.github.io/talks/licenses-are-for-everyone/"
+  },
+  {
     "title": "From types to trust: safer API design in Rust",
     "speaker": "Farhaan Bukhsh",
     "venue": "Rust India 2025, Bengaluru",
