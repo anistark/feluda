@@ -172,4 +172,4 @@ Requests run concurrently, so a host's ``total_ms`` can be longer than the run i
 Benchmarks
 ^^^^^^^^^^
 
-The numbers on :doc:`../performance` come from the harness in ``bench/``: scripts that time a release build on a synthetic ladder and on pinned real repositories, with every cache state set per run, and that generate the page from the results. ``bench/README.md`` covers setup, running cells and regenerating the page. The page's prose lives in ``bench/report/performance.rst.tmpl``; edit that, not ``performance.rst``.
+The numbers on :doc:`../performance` come from the harness in ``bench/``: scripts that time a release build on a synthetic ladder and on pinned real repositories, with every cache state set per run, and that generate the page from the results. ``just bench-page`` rebuilds the page from the committed results without touching the network, ``just bench-cell <subject> <scenario>`` runs one cell and ``just bench`` runs the whole study; ``bench/README.md`` covers setup and the rest. The page's prose lives in ``bench/report/performance.rst.tmpl``; edit that, not ``performance.rst``.

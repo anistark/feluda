@@ -302,6 +302,8 @@ just clean          # Remove build artifacts
 just setup          # Configure git hooks
 just update-spdx-ids  # Refresh config/spdx_license_ids.txt from CycloneDX's schema
 just install        # Build + install to /usr/local/bin
+just bench-page     # Rebuild the Performance docs page from bench/results (no network)
+just bench          # Run the whole benchmark study (hours; needs BENCH_WORK, see bench/README.md)
 ```
 
 ### Building from Source
@@ -567,7 +569,7 @@ feluda --debug                            # Enable debug logging
 - **Configuration validation is strict.** Duplicate licenses in restrictive/ignore lists, empty license strings, and licenses appearing in both lists are caught. See `src/config.rs`.
 - **GitHub Action (`action.yml`)** uses the published crate, not a source build. Keep it in sync with CLI changes.
 - **`plan/` is gitignored.** Local planning only — never commit anything in it.
-- **The benchmark corpus is untrusted code.** `bench/` clones 38 public repositories; the harness never runs their scripts, build wrappers or tests (rules in `bench/README.md`), and a change to it must keep it that way. The synthetic ladder is committed as `bench/corpus/synthetic.tar.gz`, not as files, so its lockfiles stay out of GitHub's dependency graph; unpack it into `$BENCH_WORK`, never into the repository.
+- **The benchmark corpus is untrusted code.** `bench/` clones the public repositories pinned in `bench/corpus/repos.toml`; the harness never runs their scripts, build wrappers or tests (rules in `bench/README.md`), and a change to it must keep it that way. The synthetic ladder is committed as `bench/corpus/synthetic.tar.gz`, not as files, so its lockfiles stay out of GitHub's dependency graph; unpack it into `$BENCH_WORK`, never into the repository.
 
 ---
 

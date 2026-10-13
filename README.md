@@ -206,7 +206,7 @@ feluda --osi unknown        # Show licenses with unknown OSI status
 
 How long a scan takes depends mostly on the ecosystem. Rust answers locally from `cargo metadata`, so a repeat scan of 1,421 crates takes about a second. Node, Python, Go, .NET, R and C++ make roughly one registry call per dependency, so a first run of a few hundred dependencies takes from under a minute (Python) to several minutes (Go). Installed dependencies (`node_modules`, NuGet's cache) make later runs much faster. Peak memory stays under 1 GB on every repository measured.
 
-Timings for 38 real repositories and every supported language, with charts, are in the [Performance](https://feluda.readthedocs.io/en/latest/performance/) docs.
+Timings for 37 real repositories and every supported language, with charts, are in the [Performance](https://feluda.readthedocs.io/en/latest/performance/) docs.
 
 ### Local License Detection
 

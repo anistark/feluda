@@ -1,7 +1,7 @@
 # Feluda benchmark harness
 
 The harness behind the [Performance](https://feluda.readthedocs.io/en/latest/performance/) docs
-page. It times one feluda binary on a synthetic ladder of projects and on 38 real repositories
+page. It times one feluda binary on a synthetic ladder of projects and on 37 real repositories
 pinned to a commit, under controlled cache states, and writes the docs page from the results.
 
 The study's data is committed (`results/*.jsonl`), so the page can be regenerated without running
@@ -60,6 +60,21 @@ macOS for now (`/usr/bin/time -l`, APFS clones with `cp -c`); a Linux pass is pl
   license-checker-rseidelsohn (pip-licenses is installed per run)
 
 ## Running
+
+From the repository root, three recipes cover the usual cases:
+
+```sh
+export BENCH_WORK=/path/with/50GB/free   # outside this repository
+just bench                               # the whole study: setup, ladder, real, flags, polyglot, then the page
+just bench-cell python/requests warm --no-local   # one cell
+just bench-page                          # data, charts and docs page from results/ (no network)
+```
+
+`just bench` builds a release binary into `$BENCH_WORK/feluda` the first time and keeps it, so a resumed
+run measures the same build; delete it (or set `BENCH_BIN`) to benchmark a new one. The runs without a
+token and the other tools are left out, since they take three hours by design and need extra tools.
+
+The same steps by hand:
 
 ```sh
 export BENCH_WORK=/path/with/50GB/free     # outside this repository
@@ -127,10 +142,13 @@ export BENCH_PROXY=http://127.0.0.1:18888
 
 ## Regenerating the docs page
 
+`just bench-page` runs these in order, skipping the first two when `results/raw` is absent, and draws
+the charts with the pinned matplotlib through `uv`, so the same data gives the same SVGs:
+
 ```sh
 python3 -I bench/harness/collect.py        # results/raw -> results/runs.jsonl
 python3 -I bench/harness/tools_summary.py  # results/raw -> results/tools.jsonl
-python -I bench/harness/charts.py          # report/charts/*.svg (needs matplotlib)
+python -I bench/harness/charts.py          # report/charts/*.svg (needs matplotlib 3.11.2)
 python3 -I bench/harness/docs_page.py      # docs/source/performance.rst and its charts
 ```
 
@@ -141,7 +159,7 @@ that matches. A new chart in the template needs both.
 
 `collect.py` and `tools_summary.py` refuse to run without `results/raw`, so the committed data is
 never replaced by an empty set. With only the committed data, run `charts.py` and `docs_page.py`.
-Prose in the page is in `report/performance.rst.tmpl`; numbers, tables and lists come from the data.
+Every number on the page, in tables and in sentences, is computed from `results/` by `docs_page.py` (the `F` facts); the template, `report/performance.rst.tmpl`, holds only wording and `@@PLACEHOLDERS@@`. After a new run, the numbers update themselves; reread the sentences that interpret them ("barely change", "within the noise") in case the data now says otherwise. If a fact cannot be computed, for example a scenario that was not run, `docs_page.py` stops with an error rather than writing a stale number.
 Edit the template, never `performance.rst`, then check the docs with `just docs-check`.
 
 `tables.py` writes every table to `report/tables_all.md` for reading; it feeds nothing.

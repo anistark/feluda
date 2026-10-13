@@ -127,10 +127,46 @@ lint:
 check-all: format lint test
     @echo "🎉 All checks passed! Code is ready for submission."
 
-# Run benchmarks
+# Benchmark harness (bench/README.md). Charts pin matplotlib so the same data draws the same SVGs.
+BENCH_MATPLOTLIB := "matplotlib==3.11.2"
+
+# Run the whole benchmark: ladder, real repositories, flags, polyglot (hours; needs BENCH_WORK)
 bench:
-    @echo "⏱️ Running benchmarks..."
-    cargo bench
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${BENCH_WORK:?set BENCH_WORK to a scratch directory outside the repository (see bench/README.md)}"
+    mkdir -p "$BENCH_WORK"
+    # The binary under test stays fixed for the whole study, so a resumed run measures the same build.
+    if [ -z "${BENCH_BIN:-}" ] && [ ! -x "$BENCH_WORK/feluda" ]; then
+        echo "⏱️ Building the release binary to benchmark..."
+        cargo build --release
+        cp target/release/feluda "$BENCH_WORK/feluda"
+    fi
+    echo "⏱️ Benchmarking ${BENCH_BIN:-$BENCH_WORK/feluda} (delete it to benchmark a new build)"
+    bench/harness/setup.sh
+    bench/harness/envinfo.sh
+    for phase in ladder real flags polyglot; do
+        echo "⏱️ Phase: $phase"
+        python3 -I bench/harness/run_matrix.py "$phase"
+    done
+    just bench-page
+
+# Run one benchmark cell, e.g. `just bench-cell synthetic/ruby/n10 cold`
+bench-cell subject scenario *flags:
+    bench/harness/run_cell.sh {{subject}} {{scenario}} {{flags}}
+
+# Rebuild the benchmark data, charts and docs/source/performance.rst (no network)
+bench-page:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "$(ls -A bench/results/raw 2>/dev/null)" ]; then
+        python3 -I bench/harness/collect.py
+        python3 -I bench/harness/tools_summary.py
+    else
+        echo "📊 No bench/results/raw, using the committed results"
+    fi
+    uv run --quiet --no-project --with "{{BENCH_MATPLOTLIB}}" python -I bench/harness/charts.py > /dev/null
+    python3 -I bench/harness/docs_page.py
 
 # Run example projects for testing
 examples:
