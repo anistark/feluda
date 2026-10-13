@@ -89,8 +89,9 @@ Different language ecosystems require different approaches. Here are some exampl
 **C Module Features** (``src/languages/c.rs``):
 
 - Autotools support (``configure.ac``, ``configure.in``)
-- Makefile parsing
-- pkg-config integration
+- Makefile parsing (``-l`` flags at the start of a word, backticked ``pkg-config`` calls)
+- pkg-config integration for the requirements of declared libraries only; a build that declares
+  nothing reports nothing, never the host's installed libraries
 - System package resolution
 
 **C++ Module Features** (``src/languages/cpp.rs``):

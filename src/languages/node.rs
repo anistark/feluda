@@ -156,7 +156,7 @@ impl DependencyResolver {
         };
 
         let response =
-            reqwest::blocking::get(&url).map_err(|e| format!("Registry request failed: {e}"))?;
+            crate::http_stats::get(&url).map_err(|e| format!("Registry request failed: {e}"))?;
 
         if !response.status().is_success() {
             return Err(format!("Registry returned status: {}", response.status()));
@@ -1017,8 +1017,15 @@ fn parse_pnpm_lockfile(project_root: &Path) -> Option<HashMap<String, String>> {
 fn read_pnpm_lockfile(project_root: &Path) -> Result<Vec<(String, String)>, String> {
     let content = fs::read_to_string(project_root.join("pnpm-lock.yaml"))
         .map_err(|e| format!("failed to read: {e}"))?;
-    let lockfile: serde_yaml::Value =
-        serde_yaml::from_str(&content).map_err(|e| format!("not valid YAML: {e}"))?;
+    // Recent pnpm releases write the lockfile of the pnpm version a project pins as a first YAML
+    // document, then the project's own as the last; the last one is the answer.
+    let mut lockfile = None;
+    for document in serde_yaml::Deserializer::from_str(&content) {
+        lockfile = Some(
+            serde_yaml::Value::deserialize(document).map_err(|e| format!("not valid YAML: {e}"))?,
+        );
+    }
+    let lockfile = lockfile.ok_or("not valid YAML: empty file")?;
 
     let grammar = PnpmKeyGrammar::for_lockfile_version(lockfile.get("lockfileVersion"));
 
@@ -1256,18 +1263,25 @@ fn scan_workspace_pattern(
 ) -> Result<HashMap<String, String>, String> {
     let mut deps = HashMap::new();
 
+    // A workspace list may name the root itself (`"workspaces": [".", "streaming"]`). The root is
+    // what the caller is already analysing, and analysing it again from here never ends.
+    let is_root = |path: &Path| match (path.canonicalize(), project_root.canonicalize()) {
+        (Ok(path), Ok(root)) => path == root,
+        _ => path == project_root,
+    };
+
     let pattern_path = if let Some(stripped) = pattern.strip_suffix("/*") {
         project_root.join(stripped)
     } else {
         project_root.join(pattern)
     };
 
-    if pattern_path.exists() && pattern_path.is_dir() {
+    if pattern_path.exists() && pattern_path.is_dir() && !is_root(&pattern_path) {
         if pattern.ends_with("/*") {
             if let Ok(entries) = fs::read_dir(&pattern_path) {
                 for entry in entries.flatten() {
                     let workspace_path = entry.path();
-                    if workspace_path.is_dir() {
+                    if workspace_path.is_dir() && !is_root(&workspace_path) {
                         let workspace_package_json = workspace_path.join("package.json");
                         if workspace_package_json.exists() {
                             let workspace_deps_found = try_all_dependency_detection_methods(
@@ -1505,6 +1519,12 @@ fn parse_dependency_line(line: &str) -> Option<(String, String)> {
         .trim_start_matches("│   ")
         .trim_start_matches("    ");
 
+    // `npm list` marks a dependency that is not installed as "UNMET DEPENDENCY name@spec". It is
+    // not an installed package, and "UNMET DEPENDENCY name" is not its name.
+    if clean_line.starts_with("UNMET ") {
+        return None;
+    }
+
     if let Some(at_pos) = clean_line.rfind('@') {
         let name_part = &clean_line[..at_pos];
         let version_part = &clean_line[at_pos + 1..];
@@ -1685,19 +1705,40 @@ fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -
         return None;
     }
 
-    let output_str = String::from_utf8_lossy(&output.stdout);
+    license_from_npm_view_output(&String::from_utf8_lossy(&output.stdout))
+}
 
-    if let Ok(json) = serde_json::from_str::<Value>(&output_str) {
-        if let Some(license) = json.as_str() {
-            return Some(license.to_string());
+/// Read the license out of `npm view <spec> license --json`.
+///
+/// A spec that matches one version prints a string. A range such as `wrappy@1` prints an array
+/// with one entry per matching version, oldest first, so the last entry is the version npm would
+/// install. Legacy packages state `{ "type": "MIT" }`. JSON that is none of these is never kept as
+/// license text.
+fn license_from_npm_view_output(output: &str) -> Option<String> {
+    fn license_of(value: &Value) -> Option<String> {
+        match value {
+            Value::String(s) => Some(s.clone()),
+            Value::Object(map) => map.get("type").and_then(Value::as_str).map(str::to_owned),
+            Value::Array(entries) => entries.iter().rev().find_map(license_of),
+            _ => None,
         }
     }
 
-    let license = output_str.trim().trim_matches('"');
-    if !license.is_empty() && license != "undefined" {
-        Some(license.to_string())
-    } else {
+    let license = match serde_json::from_str::<Value>(output) {
+        Ok(json) => license_of(&json)?,
+        Err(_) => {
+            let text = output.trim().trim_matches('"');
+            if text.starts_with('[') || text.starts_with('{') {
+                return None;
+            }
+            text.to_string()
+        }
+    };
+    let license = license.trim();
+    if license.is_empty() || license == "undefined" {
         None
+    } else {
+        Some(license.to_string())
     }
 }
 
@@ -1723,7 +1764,7 @@ pub(crate) fn get_license_from_npm_registry_api(
             format!("https://registry.npmjs.org/{package_name}/{ver}")
         };
 
-        if let Ok(response) = reqwest::blocking::get(&url) {
+        if let Ok(response) = crate::http_stats::get(&url) {
             if response.status().is_success() {
                 if let Ok(json) = response.json::<Value>() {
                     let license_paths = [
@@ -2759,6 +2800,78 @@ snapshots:
     }
 
     #[test]
+    fn test_pnpm_lockfile_with_a_leading_environment_document() {
+        // Newer pnpm puts the lockfile of the pnpm it pins first, then the project's own.
+        let temp = lockfile(
+            "\
+---
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.3.4
+        version: 12.3.4
+
+packages:
+  '@pnpm/exe@12.3.4':
+    resolution: {integrity: sha512-deadbeef}
+
+---
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      ms:
+        specifier: 2.1.2
+        version: 2.1.2
+
+packages:
+  ms@2.1.2: {}
+",
+        );
+
+        assert_eq!(
+            read_pnpm_lockfile(temp.path()).unwrap(),
+            pairs(&[("ms", "2.1.2")])
+        );
+    }
+
+    #[test]
+    fn test_parse_dependency_line_skips_unmet_dependencies() {
+        assert_eq!(
+            parse_dependency_line("├── debug@4.4.0"),
+            Some(("debug".to_string(), "4.4.0".to_string()))
+        );
+        assert_eq!(
+            parse_dependency_line("├── UNMET DEPENDENCY after@0.8.2"),
+            None
+        );
+        assert_eq!(
+            parse_dependency_line("└── UNMET OPTIONAL DEPENDENCY fsevents@2.3.3"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_workspace_naming_the_root_does_not_recurse() {
+        // Mastodon lists "." among its workspaces; this used to overflow the stack.
+        let temp = TempDir::new().unwrap();
+        let package_json = temp.path().join("package.json");
+        fs::write(
+            &package_json,
+            r#"{"name": "app", "workspaces": [".", "./", "packages/*"], "dependencies": {}}"#,
+        )
+        .unwrap();
+
+        let found =
+            detect_workspace_dependencies(temp.path(), package_json.to_str().unwrap()).unwrap();
+        assert!(found.is_empty());
+    }
+
+    #[test]
     fn test_pnpm_lockfile_v6() {
         // pnpm 8: a leading slash, peers in parentheses on the key.
         let temp = lockfile(
@@ -2939,5 +3052,35 @@ packages:
         assert_eq!(license("debug", "4.3.4").as_deref(), Some("MIT"));
         assert_eq!(license("debug", "2.6.9").as_deref(), Some("ISC"));
         assert_eq!(license("debug", "1.0.0"), None);
+    }
+
+    #[test]
+    fn test_npm_view_output_for_a_range_takes_the_newest_match() {
+        // `npm view d@1 license --json`: one entry per matching version, oldest first.
+        assert_eq!(
+            license_from_npm_view_output("[\n  \"MIT\",\n  \"ISC\",\n  \"ISC\"\n]\n").as_deref(),
+            Some("ISC")
+        );
+        assert_eq!(
+            license_from_npm_view_output("\"WTFPL\"\n").as_deref(),
+            Some("WTFPL")
+        );
+        assert_eq!(
+            license_from_npm_view_output(r#"[{"type":"MIT"},{"type":"BSD-2-Clause"}]"#).as_deref(),
+            Some("BSD-2-Clause")
+        );
+        assert_eq!(
+            license_from_npm_view_output("MIT\n").as_deref(),
+            Some("MIT")
+        );
+    }
+
+    #[test]
+    fn test_npm_view_output_never_keeps_json_as_license_text() {
+        assert_eq!(license_from_npm_view_output("[]"), None);
+        assert_eq!(license_from_npm_view_output("{}"), None);
+        assert_eq!(license_from_npm_view_output("[\n  \"ISC\",\n"), None);
+        assert_eq!(license_from_npm_view_output(""), None);
+        assert_eq!(license_from_npm_view_output("undefined"), None);
     }
 }

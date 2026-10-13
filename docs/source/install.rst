@@ -62,8 +62,6 @@ Community Maintained
 
    .. tab-item:: 🐧 Arch Linux (AUR)
 
-      Maintained by `@adamperkowski <https://github.com/adamperkowski>`_
-
       Available in the `AUR <https://aur.archlinux.org/packages/feluda>`_.
 
       .. code-block:: bash

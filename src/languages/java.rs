@@ -785,7 +785,7 @@ fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) 
 
     log(LogLevel::Info, &format!("Fetching POM: {pom_url}"));
 
-    let response = reqwest::blocking::get(&pom_url).ok()?;
+    let response = crate::http_stats::get(&pom_url).ok()?;
     if !response.status().is_success() {
         return None;
     }
@@ -855,7 +855,7 @@ fn fetch_latest_version(group_id: &str, artifact_id: &str) -> Option<String> {
         "https://search.maven.org/solrsearch/select?q=g:{group_id}+AND+a:{artifact_id}&rows=1&wt=json"
     );
 
-    let response = reqwest::blocking::get(&url).ok()?;
+    let response = crate::http_stats::get(&url).ok()?;
     if !response.status().is_success() {
         return None;
     }
@@ -878,7 +878,7 @@ fn fetch_license_from_search_api(group_id: &str, artifact_id: &str) -> Option<St
         &format!("Querying Maven Central search for {group_id}:{artifact_id}"),
     );
 
-    let response = reqwest::blocking::get(&url).ok()?;
+    let response = crate::http_stats::get(&url).ok()?;
     if !response.status().is_success() {
         return None;
     }

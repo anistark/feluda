@@ -796,7 +796,7 @@ fn fetch_license_from_crates_io(name: &str, version: &str) -> Option<String> {
     rate_limit_delay();
 
     let api_url = format!("https://crates.io/api/v1/crates/{name}");
-    let response = client.get(&api_url).send().ok()?;
+    let response = crate::http_stats::send(&api_url, || client.get(&api_url).send()).ok()?;
 
     if !response.status().is_success() {
         log(
@@ -836,7 +836,7 @@ fn fetch_license_from_npm(name: &str, version: &str) -> Option<String> {
     rate_limit_delay();
 
     let api_url = format!("https://registry.npmjs.org/{name}/{version}");
-    let response = client.get(&api_url).send().ok()?;
+    let response = crate::http_stats::send(&api_url, || client.get(&api_url).send()).ok()?;
 
     if !response.status().is_success() {
         log(
@@ -883,7 +883,7 @@ fn fetch_license_from_pypi(name: &str, version: &str) -> Option<String> {
     rate_limit_delay();
 
     let api_url = format!("https://pypi.org/pypi/{name}/{version}/json");
-    let response = client.get(&api_url).send().ok()?;
+    let response = crate::http_stats::send(&api_url, || client.get(&api_url).send()).ok()?;
 
     if !response.status().is_success() {
         log(
@@ -1032,7 +1032,7 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
 
         log(LogLevel::Info, &format!("Trying to fetch: {api_url}"));
 
-        match client.get(&api_url).send() {
+        match crate::http_stats::send(&api_url, || client.get(&api_url).send()) {
             Ok(response) => {
                 if response.status().is_success() {
                     if let Ok(content_info) = response.json::<serde_json::Value>() {
@@ -1046,7 +1046,9 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
 
                             rate_limit_delay();
 
-                            match client.get(download_url).send() {
+                            match crate::http_stats::send(download_url, || {
+                                client.get(download_url).send()
+                            }) {
                                 Ok(license_response) => {
                                     if license_response.status().is_success() {
                                         if let Ok(license_content) = license_response.text() {

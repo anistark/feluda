@@ -1,0 +1,394 @@
+:description: How long a Feluda scan takes, per language and project size, on a first run and on later runs, with the full benchmark results.
+
+.. _performance:
+
+Performance
+===========
+
+.. rst-class:: lead
+
+   How long a scan takes, what makes it slow, and what makes the second run fast.
+
+Feluda was timed on 38 open source repositories and a synthetic ladder of projects from 10 to
+1,000 direct dependencies, across all ten supported languages, on a first run and on later runs.
+This page has the results, the charts, and what they mean for your CI.
+
+.. raw:: html
+
+   <div class="proof-strip">
+     <div class="proof-tile">
+       <span class="proof-value">1.2 s</span>
+       <span class="proof-label">Repeat scan, 1,421 Rust crates</span>
+     </div>
+     <div class="proof-tile">
+       <span class="proof-value">@@MEM_MEDIAN@@ MB</span>
+       <span class="proof-label">Median peak memory</span>
+     </div>
+     <div class="proof-tile">
+       <span class="proof-value">38</span>
+       <span class="proof-label">Real repositories timed</span>
+     </div>
+     <div class="proof-tile">
+       <span class="proof-value">@@CELLS@@</span>
+       <span class="proof-label">Measured cells</span>
+     </div>
+   </div>
+
+----
+
+At a glance
+-----------
+
+- **Rust is fast at any size.** Feluda reads ``cargo metadata`` and answers locally: a repeat scan of
+  1,421 crates takes 1.2 s, and zed goes from 271 s on a fresh machine to 1.9 s.
+- **Every other language pays per dependency.** Node, Python, Go, .NET, R and C++ make about one
+  registry call per dependency, at roughly 0.1 to 0.9 s each. Go is the slowest, at about 0.9 s per
+  module on a first run.
+- **A second run is faster only where the package manager keeps local state.** Installed
+  ``node_modules`` make Node 12 times faster at 100 dependencies and NuGet's package cache makes
+  .NET 5 times faster; Python gains 2.6 times, Go 1.4 times, and R and C++ hardly at all, because
+  Feluda does not cache registry answers yet.
+- **Several languages in one repository cost about as much as the slowest one**, not the sum: the
+  languages are scanned in parallel.
+- **Memory is modest.** The median scan peaks at @@MEM_MEDIAN@@ MB and the largest at @@MEM_MAX@@ MB, so a 2 GB CI
+  runner is enough.
+- **Very large Go repositories are too slow today.** Fresh scans of prometheus and kubernetes did not
+  finish within 20 minutes, and grafana (Go and Node) not within an hour.
+
+----
+
+How it was measured
+-------------------
+
+.. list-table::
+   :header-rows: 0
+   :widths: 25 75
+
+   * - Build
+     - Release builds of the development branch after 1.17.0. Every run records its binary's hash.
+   * - Machine
+     - Apple M1, 8 cores, 16 GB, macOS 15.3, on power. A Linux pass is planned.
+   * - Timing
+     - `hyperfine <https://github.com/sharkdp/hyperfine>`__, median of up to 10 samples per cell
+       (fewer for slow cells), with p10 and p90 recorded. Peak memory from ``time -l``. Requests counted
+       per host by Feluda's own counter (``FELUDA_REQUEST_STATS``, see :doc:`contributing/testing`).
+   * - Isolation
+     - Every cell had its own ``HOME`` and its own Cargo, Go, Maven, npm, pnpm, uv, NuGet, Gradle, gem
+       and R directories, reset as each scenario requires. Cloned repositories never ran their own
+       scripts.
+   * - Network
+     - A single network connection, through a local IPv4 proxy, since this network drops IPv6.
+       With a GitHub token, except in :ref:`performance-unauthenticated`.
+   * - Corpus
+     - A synthetic ladder of real, popular packages per ecosystem (locked where the ecosystem locks),
+       plus 38 real repositories pinned to a commit.
+   * - Harness
+     - `bench/ <https://github.com/anistark/feluda/tree/main/bench>`__ in the repository: the scripts,
+       the pinned corpus and the data behind this page, which is generated from it.
+   * - Caps
+     - 20 minutes per scan for large real repositories, 60 minutes for everything else. A scan that hit
+       the cap is reported as *did not finish*; its repeat runs were skipped.
+
+Feluda's speed depends on two kinds of state, and the scenarios below vary them separately:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 39 39
+
+   * - Scenario
+     - Feluda's cache (GitHub license table, ClearlyDefined answers)
+     - Package manager state (``node_modules``, Cargo and Go module caches, ...)
+   * - ``cold``
+     - empty
+     - empty
+   * - ``cold-installed``
+     - empty
+     - installed
+   * - ``warm-net``
+     - filled
+     - empty
+   * - ``warm``
+     - filled
+     - installed
+   * - ``offline``
+     - filled
+     - installed, network refused
+
+*Installed* means the dependencies were fetched without running any package code
+(``cargo fetch``, ``npm ci --ignore-scripts``, ``go mod download``, ``dotnet restore``).
+
+----
+
+Time against project size
+-------------------------
+
+Each line is one language, from 10 direct dependencies up to the largest rung run for it. The x
+axis counts distinct packages in the report, so transitive dependencies are included.
+
+.. tab-set::
+
+   .. tab-item:: First run (cold)
+
+      .. figure:: _static/benchmarks/time_vs_deps_cold.svg
+         :alt: Log log chart of scan time against dependencies on a first run, one line per language.
+         :width: 100%
+         :figclass: light-only
+
+      .. figure:: _static/benchmarks/time_vs_deps_cold_dark.svg
+         :alt: Log log chart of scan time against dependencies on a first run, one line per language.
+         :width: 100%
+         :figclass: dark-only
+
+   .. tab-item:: Repeat run (warm)
+
+      .. figure:: _static/benchmarks/time_vs_deps_warm.svg
+         :alt: Log log chart of scan time against dependencies on a repeat run, one line per language.
+         :width: 100%
+         :figclass: light-only
+
+      .. figure:: _static/benchmarks/time_vs_deps_warm_dark.svg
+         :alt: Log log chart of scan time against dependencies on a repeat run, one line per language.
+         :width: 100%
+         :figclass: dark-only
+
+.. list-table:: Cost per dependency at the largest rung, and how time grows
+   :header-rows: 1
+   :widths: 14 18 18 16 16 18
+
+   * - Language
+     - First run, s per dependency
+     - Repeat run, s per dependency
+     - Growth, first run
+     - Growth, repeat run
+     - Largest rung run
+@@LADDER_ROWS@@
+
+*Growth* is the exponent of a power law fit: 1 means time grows in proportion to dependencies, below
+1 means fixed costs dominate. Java was only run at 10 direct dependencies (433 resolved), because
+Maven Central's search API hangs on about half of its requests; see :ref:`performance-limits`.
+
+.. dropdown:: Synthetic ladder, every cell (median seconds)
+
+@@LADDER_TABLE@@
+
+----
+
+First run and later runs
+------------------------
+
+.. figure:: _static/benchmarks/cold_warm_ratio_n100.svg
+   :alt: Bar chart of first run time divided by repeat run time at 100 direct dependencies, per language.
+   :width: 100%
+   :figclass: light-only
+
+   First run time divided by repeat run time, at 100 direct dependencies.
+
+.. figure:: _static/benchmarks/cold_warm_ratio_n100_dark.svg
+   :alt: Bar chart of first run time divided by repeat run time at 100 direct dependencies, per language.
+   :width: 100%
+   :figclass: dark-only
+
+   First run time divided by repeat run time, at 100 direct dependencies.
+
+The gain on a second run comes almost entirely from the package manager's own state, not from
+Feluda's cache. At 100 direct dependencies:
+
+.. figure:: _static/benchmarks/scenarios_n100.svg
+   :alt: Grouped bar chart of the five scenarios for Rust, Node and Python at 100 direct dependencies.
+   :width: 100%
+   :figclass: light-only
+
+.. figure:: _static/benchmarks/scenarios_n100_dark.svg
+   :alt: Grouped bar chart of the five scenarios for Rust, Node and Python at 100 direct dependencies.
+   :width: 100%
+   :figclass: dark-only
+
+.. list-table:: Median seconds at 100 direct dependencies
+   :header-rows: 1
+   :widths: 40 20 20 20
+
+   * - Scenario
+     - Rust
+     - Node
+     - Python
+@@SCENARIO_ROWS@@
+
+- **Feluda's cache** saves a near constant 1.4 s (Rust), 1.7 s (Node) and 6.9 s (Python) at this
+  size: the GitHub license table and the OSI list.
+- **Installed dependencies** save 9.1 s (Rust), 48.6 s (Node) and 18.2 s (Python), because licenses
+  are then read from files on disk instead of fetched.
+- **Offline**, Rust scans fully in 0.5 s and Python reports all 104 dependencies in 2.5 s. Node with
+  ``node_modules`` installed took 424 s, because ``npm`` retries its registry calls before giving up.
+- **Python with uv on PATH** resolves through ``uv pip compile``, which reports exactly what uv would
+  install (104 dependencies at this size). Without uv, Feluda crawls PyPI instead: 123 dependencies,
+  269 requests, and no benefit from a repeat run.
+
+.. tip::
+
+   **For fast CI scans**, install dependencies before running Feluda and cache both the package
+   manager's directory and Feluda's cache directory (``~/.cache/feluda`` on Linux) between runs.
+   For Python, have ``uv`` on ``PATH``.
+
+----
+
+Projects with several languages
+-------------------------------
+
+.. figure:: _static/benchmarks/polyglot.svg
+   :alt: Bar chart comparing the actual time of multi language projects with the sum and the maximum of single language times.
+   :width: 100%
+   :figclass: light-only
+
+.. figure:: _static/benchmarks/polyglot_dark.svg
+   :alt: Bar chart comparing the actual time of multi language projects with the sum and the maximum of single language times.
+   :width: 100%
+   :figclass: dark-only
+
+Synthetic projects combining the 100 dependency projects of two, three, five and all ten languages:
+
+.. list-table:: Median seconds
+   :header-rows: 1
+   :widths: 30 14 14 21 21
+
+   * - Languages
+     - State
+     - Actual
+     - Sum of each alone
+     - Slowest alone
+@@POLYGLOT_ROWS@@
+
+The actual time is close to the slowest single language and well under the sum, because languages
+are analysed in parallel and the one time costs (license table, OSI list, vendored code scan) are
+paid once. Real repositories with several languages, first run then repeat run:
+@@REAL_POLYGLOT@@.
+
+----
+
+Real repositories
+-----------------
+
+Median seconds, each repository pinned to one commit. *Rows* is the report size; *first* and
+*repeat* are the ``cold`` and ``warm`` scenarios.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 8 9 10 10 9 9 21
+
+   * - Repository
+     - Size
+     - Rows
+     - First run
+     - Repeat run
+     - Ratio
+     - Peak MB
+     - Notes
+@@REAL_ROWS@@
+
+Notes on the table:
+
+- *install failed* means the package manager could not install that repository's dependencies on
+  this machine (a newer pnpm lockfile, a pinned yarn, an older Node engine, a missing .NET workload),
+  so its repeat run only had Feluda's own cache warm.
+- Java numbers are dominated by Maven Central's search API, which hangs on about half of its
+  requests until Feluda's 30 s timeout. Single scans of spring-petclinic, netty and jenkins took 882
+  to 942 s.
+
+----
+
+Flags
+-----
+
+.. figure:: _static/benchmarks/flag_deltas.svg
+   :alt: Chart of repeat run time with each opt out flag relative to the default scan.
+   :width: 100%
+   :figclass: light-only
+
+.. figure:: _static/benchmarks/flag_deltas_dark.svg
+   :alt: Chart of repeat run time with each opt out flag relative to the default scan.
+   :width: 100%
+   :figclass: dark-only
+
+Repeat runs on Rust, Node and Python repositories with each opt out flag, against the default scan:
+
+@@FLAG_ROWS@@
+
+None of these is a reliable speed win: differences of 10 to 30 percent are within the noise of a
+network bound scan. ``--no-vendor-scan`` is the only one that helps consistently on a large tree
+(vscode 11.6 s to 8.6 s), since it skips the walk for vendored code. Use the flags for what they
+change in the report, not for speed.
+
+----
+
+Memory and CPU
+--------------
+
+@@MEMORY@@ CPU time is small next to wall time for every language that waits on the network (Go at 100
+dependencies: 3.4 s of CPU in 122 s), except Node, which starts one ``npm view`` process per
+package (78 s of CPU in 17 s at 1,000 packages).
+
+.. _performance-unauthenticated:
+
+Without a GitHub token
+----------------------
+
+Three rounds an hour apart, on hyperfine (Rust), express (Node) and requests (Python), with no token.
+A first run spends 14 GitHub requests on the license table (28 when two analyzers run), so the
+unauthenticated limit of 60 requests an hour allows about four first runs an hour from one address.
+No request was refused. A later run with a filled cache spends none. Set ``GITHUB_TOKEN`` on shared
+CI runners, where many jobs share one address.
+
+----
+
+Compared with other tools
+-------------------------
+
+The same repositories were scanned with other tools. They do different jobs, so this is context,
+not a leaderboard: speed mostly reflects whether a tool looks licenses up at all.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 12 12 14 46
+
+   * - Tool
+     - Repositories
+     - Tool, median s
+     - Feluda, same repositories, median s
+     - What it does differently
+@@TOOL_ROWS@@
+
+Where a tool reported a license for a package, it agreed with Feluda in nearly every case once both
+were written as SPDX ids (trivy 92 of 93, cargo-deny 266 of 266, license-checker 294 of 300,
+pip-licenses 125 of 130, cdxgen every package it named). The remaining differences come from three
+places: the installed version against the version in the manifest (``minipass``, ``fast-uri``), a
+license file against registry metadata (``rison``, ``ieee754``), and free text license names.
+OWASP dep-scan (needs a 42 GB vulnerability database) and LicenseFinder (runs ``bundle install``,
+which builds native gem extensions) were not run.
+
+----
+
+.. _performance-limits:
+
+Known limits
+------------
+
+What the study found Feluda does slowly today, in order of how much it costs:
+
+#. **Registry answers are not cached.** A repeat run asks the registry again for every dependency it
+   cannot read from disk, so Go, Python, R and C++ repeat runs are 1.0 to 2.6 times faster at most
+   (.NET does better only because NuGet's own cache skips the restore). Go at 250 dependencies sends
+   298 requests on a repeat run.
+#. **Go, Python, .NET, R, C and C++ look dependencies up one at a time.** Rust, Node, Java and Ruby
+   run in parallel. This is why Go costs about 0.9 s per module, and why prometheus and kubernetes
+   exceed 20 minutes.
+#. **Node starts one** ``npm view`` **process per package** it cannot read from ``node_modules``,
+   including platform specific optional packages, at about 0.35 to 0.5 s each on a first run.
+#. **No connect timeout.** A registry address that never answers costs the full 30 s request
+   timeout, and Maven Central's search API does this for about half of its requests.
+   ``dotnet list package`` has no timeout at all.
+#. **What is reported depends on what is installed.** express reports 67 dependencies without
+   ``node_modules`` and 330 with it; a Python project reports what uv resolves when uv is on
+   ``PATH``. Scan the same way in CI and locally to compare reports.
+#. **License text is kept as the registry wrote it** for many Maven, CRAN, PyPI and NuGet packages
+   (for example "Apache License, Version 2.0" or "MIT + file LICENSE"), rather than as an SPDX id.
+   SBOM output maps most of these.
+#. **The OSI list is fetched on every run**, one request, and a failed fetch is silent.

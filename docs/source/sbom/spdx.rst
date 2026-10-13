@@ -15,7 +15,7 @@ Overview
 --------
 
 SPDX is an open standard for communicating software bill of material information, including components, licenses, copyrights, and security references. Feluda generates SPDX 2.3 compliant documents by default, and SPDX 2.2 or 3.0 on request. SPDX
-2.x is written as JSON or tag:value.
+2.x is written as JSON or tag\:value.
 
 ----
 
@@ -56,12 +56,12 @@ Feluda saves the SPDX document to ``sbom.spdx.json`` and logs the path.
    * - ``--spec-version <VERSION>``
      - SPDX version to write: ``2.3`` (default), ``2.2`` or ``3.0``. See :ref:`sbom-versions`
    * - ``--format <FORMAT>``
-     - ``json`` (default) or ``tag-value``. Tag:value is SPDX 2.x only
+     - ``json`` (default) or ``tag-value``. Tag\:value is SPDX 2.x only
 
 ----
 
-Tag:value
----------
+Tag\:value
+----------
 
 Some consumers still take SPDX's line based format. Ask for it with ``--format tag-value``:
 

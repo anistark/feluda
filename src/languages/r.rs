@@ -280,7 +280,7 @@ fn fetch_license_from_r_universe(name: &str) -> Option<String> {
         &format!("Fetching license from R-universe: {search_url}"),
     );
 
-    let response = reqwest::blocking::get(&search_url).ok()?;
+    let response = crate::http_stats::get(&search_url).ok()?;
     if !response.status().is_success() {
         log(
             LogLevel::Error,
@@ -301,7 +301,7 @@ fn fetch_license_from_r_universe(name: &str) -> Option<String> {
         &format!("Fetching package details from: {package_url}"),
     );
 
-    let pkg_json = reqwest::blocking::get(&package_url)
+    let pkg_json = crate::http_stats::get(&package_url)
         .ok()?
         .json::<Value>()
         .ok()?;

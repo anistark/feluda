@@ -204,7 +204,7 @@ OSI Integration Components
 
 1. **OSI API Integration** (``src/licenses.rs``):
 
-   - ``fetch_osi_licenses()``: Fetches approved licenses from `OSI API <https://api.opensource.org/licenses/>`_
+   - ``fetch_osi_licenses()``: Fetches approved licenses from `OSI API <https://opensource.org/api/licenses>`_, keyed by each entry's ``spdx_id``
    - ``OsiLicenseInfo`` struct: Represents OSI license data structure
    - Concurrent HTTP requests with tokio for performance
    - Handles API failures gracefully with fallback mechanisms

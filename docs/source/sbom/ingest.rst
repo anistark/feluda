@@ -46,7 +46,7 @@ the file is called:
      - Recognised by
    * - SPDX 2.2 and 2.3 JSON
      - ``spdxVersion``
-   * - SPDX 2.2 and 2.3 tag:value
+   * - SPDX 2.2 and 2.3 tag\:value
      - A first tag of ``SPDXVersion:``, which is what ``syft -o spdx-tag-value`` writes
    * - SPDX 3.0 JSON-LD
      - An ``@context`` naming ``spdx.org/rdf/3.0``. Yocto writes this by default since 5.1, and
@@ -110,7 +110,7 @@ missing license is looked up.
        as unstated. A ``LicenseRef-`` id is resolved through the document's
        ``hasExtractedLicensingInfos``: the extracted license text is run through Feluda's content
        detector, so a reference becomes a canonical SPDX id wherever the text is recognisable.
-       Tag:value is read the same way, ``PackageLicenseConcluded`` first.
+       Tag\:value is read the same way, ``PackageLicenseConcluded`` first.
    * - SPDX 3.0
      - Each ``software_Package``'s ``hasConcludedLicense`` relationship, falling back to
        ``hasDeclaredLicense``. The target can be a license expression, a listed license's IRI, or
@@ -155,7 +155,7 @@ serialization it arrived in.
    feluda --sbom-input sbom.spdx.json --sbom-enriched sbom.enriched.spdx.json
 
 Only components Feluda actually resolved are touched; everything else is reproduced exactly as it
-arrived. Tag:value and XML documents are patched as text, not rewritten: a resolved package's
+arrived. Tag\:value and XML documents are patched as text, not rewritten: a resolved package's
 ``PackageLicenseConcluded`` line is replaced (or added after its ``PackageName``), a resolved
 component's ``<licenses>`` is replaced (or inserted where the schema orders it), and every other
 byte stays where it was. In SPDX 3.0 a conclusion is a relationship, so the package gains a

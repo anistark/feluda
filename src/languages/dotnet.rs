@@ -346,11 +346,16 @@ fn parse_dotnet_list_output(output: &str) -> Result<Vec<(String, String)>, Strin
     let re =
         Regex::new(r">\s+(\S+)\s+(\S+)").map_err(|e| format!("Failed to compile regex: {e}"))?;
 
+    // The output repeats a package under every project of a solution and every target
+    // framework of a project, so keep each name and version once.
     let mut packages = Vec::new();
+    let mut seen = HashSet::new();
     for cap in re.captures_iter(output) {
         let name = cap[1].to_string();
         let version = cap[2].to_string();
-        packages.push((name, version));
+        if seen.insert((name.clone(), version.clone())) {
+            packages.push((name, version));
+        }
     }
 
     log(
@@ -418,9 +423,7 @@ fn fetch_from_nuget_api(name: &str, version: &str) -> Result<String, String> {
         &format!("Fetching from NuGet: {nuspec_url}"),
     );
 
-    let response = client
-        .get(&nuspec_url)
-        .send()
+    let response = crate::http_stats::send(&nuspec_url, || client.get(&nuspec_url).send())
         .map_err(|e| format!("Failed to fetch nuspec: {e}"))?;
 
     if !response.status().is_success() {
@@ -552,6 +555,44 @@ mod tests {
         assert_eq!(
             resolve_nuspec_license(nuspec, None),
             Some("MIT".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_dotnet_list_output_keeps_each_package_once() {
+        // Two projects of one solution, the first built for two frameworks.
+        let output = r#"Project 'RestSharp' has the following package references
+   [netstandard2.0]:
+   Top-level Package                 Requested   Resolved
+   > System.Text.Json                8.0.5       8.0.5
+
+   Transitive Package                Resolved
+   > System.Memory                   4.5.5
+
+   [net8.0]:
+   Top-level Package                 Requested   Resolved
+   > System.Text.Json                8.0.5       8.0.5
+
+Project 'RestSharp.Tests' has the following package references
+   [net8.0]:
+   Top-level Package                 Requested   Resolved
+   > xunit                           2.9.2       2.9.2
+
+   Transitive Package                Resolved
+   > System.Memory                   4.5.5
+   > System.Text.Json                9.0.0
+"#;
+
+        let packages = parse_dotnet_list_output(output).unwrap();
+
+        assert_eq!(
+            packages,
+            [
+                ("System.Text.Json".to_string(), "8.0.5".to_string()),
+                ("System.Memory".to_string(), "4.5.5".to_string()),
+                ("xunit".to_string(), "2.9.2".to_string()),
+                ("System.Text.Json".to_string(), "9.0.0".to_string()),
+            ]
         );
     }
 
