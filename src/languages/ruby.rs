@@ -295,7 +295,7 @@ fn fetch_license_latest(name: &str) -> Option<String> {
 /// SPDX string. Multiple licenses become an `A OR B` expression, which the
 /// compound-expression handling in `is_license_restrictive` understands.
 fn fetch_licenses_field(url: &str) -> Option<String> {
-    let response = reqwest::blocking::get(url).ok()?;
+    let response = crate::http_stats::get(url).ok()?;
     if !response.status().is_success() {
         return None;
     }

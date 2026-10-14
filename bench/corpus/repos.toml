@@ -1,0 +1,332 @@
+[[repo]]
+name = "sharkdp/hyperfine"
+url = "https://github.com/sharkdp/hyperfine"
+sha = "b33755fe1fca8bcc1f182c773ca3ab040bfe517d"
+languages = ["rust", "python"]
+subject = "rust/hyperfine"
+rows = 150
+tier = "M"
+
+[[repo]]
+name = "BurntSushi/ripgrep"
+url = "https://github.com/BurntSushi/ripgrep"
+sha = "3fce3b5bb0236da2df6d99672afb8a719642eca7"
+languages = ["rust"]
+subject = "rust/ripgrep"
+rows = 49
+tier = "S"
+
+[[repo]]
+name = "astral-sh/uv"
+url = "https://github.com/astral-sh/uv"
+sha = "5cc7f15c359b83eed2c68c5578c1000bfd27e0da"
+languages = ["rust", "python"]
+subject = "rust/uv"
+rows = 618
+tier = "L"
+
+[[repo]]
+name = "zed-industries/zed"
+url = "https://github.com/zed-industries/zed"
+sha = "93d745668805029476e6d7fbb19652116fed51de"
+languages = ["rust"]
+subject = "rust/zed"
+rows = 1523
+tier = "XL"
+
+[[repo]]
+name = "expressjs/express"
+url = "https://github.com/expressjs/express"
+sha = "a419aa7350389a275ab45fde2e849ed1f02449ef"
+languages = ["node"]
+subject = "node/express"
+rows = 67
+tier = "M"
+
+[[repo]]
+name = "excalidraw/excalidraw"
+url = "https://github.com/excalidraw/excalidraw"
+sha = "e65eca999e071503efb893d3379a29fb96ff37c4"
+languages = ["node"]
+subject = "node/excalidraw"
+rows = 960
+tier = "L"
+
+[[repo]]
+name = "facebook/docusaurus"
+url = "https://github.com/facebook/docusaurus"
+sha = "c245217563f6491fdb79bf5ac91bfa16536e5de9"
+languages = ["node"]
+subject = "node/docusaurus"
+rows = 2468
+tier = "XL"
+
+[[repo]]
+name = "microsoft/vscode"
+url = "https://github.com/microsoft/vscode"
+sha = "eef761e9628e777317a554114f0202a070e98f0b"
+languages = ["node"]
+subject = "node/vscode"
+rows = 202
+tier = "M"
+
+[[repo]]
+name = "spf13/cobra"
+url = "https://github.com/spf13/cobra"
+sha = "adbc8813901bba65827259daa8e22ff94ec1f30e"
+languages = ["go", "c"]
+subject = "go/cobra"
+rows = 11
+tier = "S"
+
+[[repo]]
+name = "gohugoio/hugo"
+url = "https://github.com/gohugoio/hugo"
+sha = "0732eadd5aead94d4bd4674d87e9bfc79aaf10a7"
+languages = ["go"]
+subject = "go/hugo"
+rows = 429
+tier = "L"
+
+[[repo]]
+name = "prometheus/prometheus"
+url = "https://github.com/prometheus/prometheus"
+sha = "fffc15f5b5a6c3ed50282d307e96db0e5f25bcb2"
+languages = ["go", "c"]
+subject = "go/prometheus"
+rows = -1
+tier = "?"
+
+[[repo]]
+name = "kubernetes/kubernetes"
+url = "https://github.com/kubernetes/kubernetes"
+sha = "137705d1d2709dbe645e26a5541827eec8c174f7"
+languages = ["go", "c"]
+subject = "go/kubernetes"
+rows = -1
+tier = "?"
+
+[[repo]]
+name = "psf/requests"
+url = "https://github.com/psf/requests"
+sha = "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60"
+languages = ["python", "c"]
+subject = "python/requests"
+rows = 61
+tier = "M"
+
+[[repo]]
+name = "fastapi/fastapi"
+url = "https://github.com/fastapi/fastapi"
+sha = "f5c6e9b4f9cadc1bf0f9a1fd672e621206b63007"
+languages = ["python"]
+subject = "python/fastapi"
+rows = 207
+tier = "M"
+
+[[repo]]
+name = "apache/superset"
+url = "https://github.com/apache/superset"
+sha = "e229ea4a543546b94bc3e751f611109d111cc8db"
+languages = ["python", "c"]
+subject = "python/superset"
+rows = 139
+tier = "M"
+
+[[repo]]
+name = "home-assistant/core"
+url = "https://github.com/home-assistant/core"
+sha = "4a1fe1293ab6dccbfe38b92936a20be5e4e0b84d"
+languages = ["python"]
+subject = "python/home-assistant"
+rows = 116
+tier = "M"
+
+[[repo]]
+name = "spring-projects/spring-petclinic"
+url = "https://github.com/spring-projects/spring-petclinic"
+sha = "500158f732419217507c7656904b8e6aa1bcc0d6"
+languages = ["java"]
+subject = "java/spring-petclinic"
+rows = 262
+tier = "M"
+
+[[repo]]
+name = "mybatis/mybatis-3"
+url = "https://github.com/mybatis/mybatis-3"
+sha = "34147d0bd2f5ed0016ef367c92b25e174149326b"
+languages = ["java"]
+subject = "java/mybatis-3"
+rows = 14
+tier = "S"
+
+[[repo]]
+name = "netty/netty"
+url = "https://github.com/netty/netty"
+sha = "014ef8d7031f9f1015020095421a659ced36cc8a"
+languages = ["java"]
+subject = "java/netty"
+rows = 156
+tier = "M"
+
+[[repo]]
+name = "jenkinsci/jenkins"
+url = "https://github.com/jenkinsci/jenkins"
+sha = "4386cf394a8e40b1cbbecc85d70b6d4abb529f67"
+languages = ["node", "java"]
+subject = "java/jenkins"
+rows = 276
+tier = "M"
+
+[[repo]]
+name = "jekyll/jekyll"
+url = "https://github.com/jekyll/jekyll"
+sha = "541d8b2ee75c8907de4744d4b87a7a6f1f997cae"
+languages = ["ruby"]
+subject = "ruby/jekyll"
+rows = 43
+tier = "S"
+
+[[repo]]
+name = "rubocop/rubocop"
+url = "https://github.com/rubocop/rubocop"
+sha = "12e56a5e3553be3a2444d7dffd41aa27151d6eca"
+languages = ["ruby"]
+subject = "ruby/rubocop"
+rows = 20
+tier = "S"
+
+[[repo]]
+name = "rails/rails"
+url = "https://github.com/rails/rails"
+sha = "bbaec1c668407502e6fd220e28275f914dda379c"
+languages = ["node", "ruby"]
+subject = "ruby/rails"
+rows = 802
+tier = "L"
+
+[[repo]]
+name = "discourse/discourse"
+url = "https://github.com/discourse/discourse"
+sha = "008b5fc4585ca178bf10642d3da1dcc39e2ace50"
+languages = ["node", "ruby"]
+subject = "polyglot/discourse"
+rows = 1974
+tier = "XL"
+
+[[repo]]
+name = "dotnet/eShop"
+url = "https://github.com/dotnet/eShop"
+sha = "dc7ea499cd356924fb6689b3702964a5869dbae9"
+languages = ["node", "dotnet"]
+subject = "dotnet/eShop"
+rows = 17
+tier = "S"
+
+[[repo]]
+name = "dotnet/BenchmarkDotNet"
+url = "https://github.com/dotnet/BenchmarkDotNet"
+sha = "61ebda8a50aea46484107c2f8d3e736cc31d15e5"
+languages = ["dotnet"]
+subject = "dotnet/BenchmarkDotNet"
+rows = 2698
+tier = "XL"
+
+[[repo]]
+name = "Humanizr/Humanizer"
+url = "https://github.com/Humanizr/Humanizer"
+sha = "4574b93883bf48e3f0f3bca73297054537317ab2"
+languages = ["dotnet"]
+subject = "dotnet/Humanizer"
+rows = 2
+tier = "S"
+
+[[repo]]
+name = "restsharp/RestSharp"
+url = "https://github.com/restsharp/RestSharp"
+sha = "64ee12995b8d7409a5863da7b71cddfa526ffb7a"
+languages = ["dotnet"]
+subject = "dotnet/RestSharp"
+rows = 4768
+tier = "XL"
+
+[[repo]]
+name = "tidyverse/ggplot2"
+url = "https://github.com/tidyverse/ggplot2"
+sha = "737be17f43bebac02ccb119753c1fee267572443"
+languages = ["r"]
+subject = "r/ggplot2"
+rows = 39
+tier = "S"
+
+[[repo]]
+name = "rstudio/r-manuals"
+url = "https://github.com/rstudio/r-manuals"
+sha = "af36e13ce94782142f96d70714e7780578dc7d54"
+languages = ["r"]
+subject = "r/r-manuals"
+rows = 19
+tier = "S"
+
+[[repo]]
+name = "curl/curl"
+url = "https://github.com/curl/curl"
+sha = "b8f71d6e1199701352c498467c17847237d1c43e"
+languages = ["c", "cpp"]
+subject = "c/curl"
+rows = 65
+tier = "M"
+
+[[repo]]
+name = "mapnik/mapnik"
+url = "https://github.com/mapnik/mapnik"
+sha = "84107b6f29bf785ea2d05faf1683d9990915c55b"
+languages = ["c", "cpp"]
+subject = "cpp/mapnik"
+rows = 905
+tier = "L"
+
+[[repo]]
+name = "KhronosGroup/OpenCL-SDK"
+url = "https://github.com/KhronosGroup/OpenCL-SDK"
+sha = "6090378a113db8dab20ae278c8fa57ab10b92300"
+languages = ["cpp"]
+subject = "cpp/OpenCL-SDK"
+rows = 10
+tier = "S"
+
+[[repo]]
+name = "mastodon/mastodon"
+url = "https://github.com/mastodon/mastodon"
+sha = "9e3fab2708b2f8ee2b513d3c816aac7e2e6786e7"
+languages = ["node", "ruby"]
+subject = "polyglot/mastodon"
+rows = 499
+tier = "L"
+
+[[repo]]
+name = "tauri-apps/tauri"
+url = "https://github.com/tauri-apps/tauri"
+sha = "5b23c82ea5ba6b9aec420dd71f60493edc486aa9"
+languages = ["rust", "node"]
+subject = "polyglot/tauri"
+rows = 1011
+tier = "L"
+
+[[repo]]
+name = "grafana/grafana"
+url = "https://github.com/grafana/grafana"
+sha = "891f7973f81c6e4e0a24bed3120cca3b3cc93ebc"
+languages = ["node", "go", "c"]
+subject = "polyglot/grafana"
+rows = -1
+tier = "?"
+
+[[repo]]
+name = "getsentry/sentry"
+url = "https://github.com/getsentry/sentry"
+sha = "035fd0e68c0a85be84eabe7c5cacbd88d9ae065e"
+languages = ["node", "python", "c"]
+subject = "polyglot/sentry"
+rows = 180
+tier = "M"

@@ -813,7 +813,7 @@ fn fetch_pkgsite_module_version(
     let wait_time = 12;
 
     while attempts < max_attempts {
-        match client.get(&api_url).send() {
+        match crate::http_stats::send(&api_url, || client.get(&api_url).send()) {
             Ok(response) => {
                 let status = response.status();
                 log(

@@ -95,11 +95,11 @@ Feluda currently supports projects written in these ecosystems:
      - ``package.json``, ``package-lock.json``, ``pnpm-lock.yaml``
      - npm, pnpm, yarn, bun; npm/yarn/pnpm workspaces supported
    * - C
-     - ``conanfile.txt``, ``conanfile.py``
-     - Conan package manager
+     - ``configure.ac``, ``configure.in``, ``Makefile``
+     - Libraries the build declares (``PKG_CHECK_MODULES``, ``AC_CHECK_LIB``, ``-l`` flags), plus what their pkg-config files require. A Makefile that links nothing reports nothing
    * - C++
-     - ``conanfile.txt``, ``conanfile.py``
-     - Conan package manager
+     - ``vcpkg.json``, ``conanfile.txt``, ``conanfile.py``, ``CMakeLists.txt``, ``MODULE.bazel``
+     - vcpkg, Conan, CMake, Bazel
    * - R
      - ``DESCRIPTION``, ``renv.lock``
      - CRAN packages

@@ -11,3 +11,14 @@ docs/.venv
 plan/
 .claude
 .pi
+examples/dotnet-example/obj/
+
+# Benchmark harness: committed are the scripts, corpus, template and results/*.jsonl; runs and reports stay local
+!bench/**/*.json
+bench/results/raw
+bench/results/*.log
+bench/results/*.done
+bench/results/PROGRESS.md
+bench/report/*
+!bench/report/performance.rst.tmpl
+__pycache__/

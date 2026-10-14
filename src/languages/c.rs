@@ -116,16 +116,8 @@ fn detect_c_dependencies(project_path: &str, config: &FeludaConfig) -> Vec<(Stri
         }
     }
 
-    if dependencies.is_empty() {
-        if let Ok(pkgconfig_deps) = parse_pkgconfig_dependencies(project_dir, config) {
-            log(
-                LogLevel::Info,
-                &format!("Found {} pkg-config dependencies", pkgconfig_deps.len()),
-            );
-            dependencies.extend(pkgconfig_deps);
-        }
-    }
-
+    // A build that declares nothing has no dependencies. Never fall back to what pkg-config
+    // knows about: that is the scanning machine's libraries, not the project's.
     dependencies
 }
 
@@ -496,7 +488,9 @@ fn parse_makefile_dependencies(
 fn parse_makefile_content(content: &str) -> Result<Vec<(String, String)>, String> {
     let mut dependencies = Vec::new();
 
-    let ldflags_regex = Regex::new(r"-l([a-zA-Z0-9_-]+)")
+    // `-l` only counts as a linker flag at the start of a word, so `golangci-lint`,
+    // `--locale` and `first-lastname` are not read as libraries.
+    let ldflags_regex = Regex::new(r#"(?:^|[\s"'=(])-l([a-zA-Z0-9_-]+)"#)
         .map_err(|e| format!("Failed to compile ldflags regex: {e}"))?;
 
     for cap in ldflags_regex.captures_iter(content) {
@@ -514,35 +508,6 @@ fn parse_makefile_content(content: &str) -> Result<Vec<(String, String)>, String
     for cap in pkgconfig_regex.captures_iter(content) {
         if let Some(pkg_name) = cap.get(1) {
             dependencies.push((pkg_name.as_str().to_string(), "system".to_string()));
-        }
-    }
-
-    Ok(dependencies)
-}
-
-fn parse_pkgconfig_dependencies(
-    project_dir: &Path,
-    _config: &FeludaConfig,
-) -> Result<Vec<(String, String)>, String> {
-    let output = Command::new("pkg-config")
-        .args(["--list-all"])
-        .current_dir(project_dir)
-        .output()
-        .map_err(|e| format!("Failed to run pkg-config: {e}"))?;
-
-    if !output.status.success() {
-        return Err("pkg-config command failed".to_string());
-    }
-
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let mut dependencies = Vec::new();
-
-    for line in stdout_str.lines().take(10) {
-        if let Some(space_pos) = line.find(' ') {
-            let pkg_name = &line[..space_pos];
-            if !pkg_name.is_empty() {
-                dependencies.push((pkg_name.to_string(), "system".to_string()));
-            }
         }
     }
 
@@ -674,6 +639,27 @@ test: test.o
     }
 
     #[test]
+    fn test_makefile_words_containing_dash_l_are_not_libraries() {
+        // From the Makefiles of spf13/cobra, getsentry/sentry and apache/superset.
+        let makefile_content = r#"
+lint:
+	golangci-lint run
+	$(MAKE) build-locale-catalogs --locale en
+	superset fab create-admin --firstname a --lastname b
+link:
+	$(CC) -o app app.o -lz "-lssl" LIBS=-lcrypto
+"#;
+
+        let names: Vec<String> = parse_makefile_content(makefile_content)
+            .unwrap()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+
+        assert_eq!(names, ["libz", "libssl", "libcrypto"]);
+    }
+
+    #[test]
     fn test_analyze_c_licenses_empty() {
         let temp_dir = TempDir::new().unwrap();
         let dummy_file = temp_dir.path().join("dummy");
@@ -682,8 +668,24 @@ test: test.o
         let config = FeludaConfig::default();
         let dependencies = detect_c_dependencies(dummy_file.to_str().unwrap(), &config);
 
-        // Should be empty or small since no autotools/makefile files exist
-        // pkg-config might return some system packages, so just check it doesn't crash
-        assert!(dependencies.len() <= 20);
+        // Nothing declared means nothing reported, whatever pkg-config knows about on this host.
+        assert!(dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_makefile_without_libraries_reports_nothing() {
+        // psf/requests: a Python project whose Makefile only runs tests and docs.
+        let temp_dir = TempDir::new().unwrap();
+        fs::write(
+            temp_dir.path().join("Makefile"),
+            "init:\n\tpython -m pip install -r requirements-dev.txt\ntest:\n\tpython -m pytest tests\n",
+        )
+        .unwrap();
+        let manifest = temp_dir.path().join("Makefile");
+
+        let config = FeludaConfig::default();
+        let dependencies = detect_c_dependencies(manifest.to_str().unwrap(), &config);
+
+        assert!(dependencies.is_empty());
     }
 }

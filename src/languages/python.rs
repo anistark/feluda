@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex, OnceLock};
 use toml::Value as TomlValue;
 
 use crate::config::FeludaConfig;
@@ -504,56 +505,98 @@ fn check_site_package_license_file(site_packages: &Path, package_name: &str) -> 
 }
 
 fn fetch_license_from_pypi(name: &str, version: &str) -> String {
-    let api_url = format!("https://pypi.org/pypi/{name}/{version}/json");
-    log(
-        LogLevel::Info,
-        &format!("Fetching license from PyPI: {api_url}"),
-    );
-
-    match reqwest::blocking::get(&api_url) {
-        Ok(response) => {
-            let status = response.status();
+    let Some(json) = fetch_pypi_json(name, version) else {
+        return String::from("Unknown");
+    };
+    match license_from_pypi_info(&json["info"]) {
+        Some(license) => {
             log(
                 LogLevel::Info,
-                &format!("PyPI API response status: {status}"),
+                &format!("License found for {name}: {license}"),
             );
-
-            if status.is_success() {
-                match response.json::<Value>() {
-                    Ok(json) => match json["info"]["license"].as_str() {
-                        Some(license_str) if !license_str.is_empty() => {
-                            log(
-                                LogLevel::Info,
-                                &format!("License found for {name}: {license_str}"),
-                            );
-                            license_str.to_string()
-                        }
-                        _ => {
-                            log(
-                                LogLevel::Warn,
-                                &format!("No license found for {name} ({version})"),
-                            );
-                            format!("Unknown license for {name}: {version}")
-                        }
-                    },
-                    Err(err) => {
-                        log_error(&format!("Failed to parse JSON for {name}: {version}"), &err);
-                        String::from("Unknown")
-                    }
-                }
-            } else {
-                log(
-                    LogLevel::Error,
-                    &format!("Failed to fetch metadata for {name}: HTTP {status}"),
-                );
-                String::from("Unknown")
-            }
+            license
         }
-        Err(err) => {
-            log_error(&format!("Failed to fetch metadata for {name}"), &err);
-            String::from("Unknown")
+        None => {
+            log(
+                LogLevel::Warn,
+                &format!("No license found for {name} ({version})"),
+            );
+            format!("Unknown license for {name}: {version}")
         }
     }
+}
+
+/// PyPI answers per package, kept for the run. Resolving transitive dependencies and looking up
+/// licenses read the same document, so each package is fetched once.
+static PYPI_JSON: OnceLock<Mutex<HashMap<String, Option<Arc<Value>>>>> = OnceLock::new();
+
+/// Fetch a package's PyPI JSON, for `version` when it names a release, else the latest one.
+///
+/// A transitive requirement carries a bound (`>=1.0`) or nothing, not a pin, so the bound is tried
+/// as a version and a miss falls back to the latest release rather than leaving the package
+/// unknown.
+fn fetch_pypi_json(name: &str, version: &str) -> Option<Arc<Value>> {
+    let key = format!("{name}@{version}");
+    let cache = PYPI_JSON.get_or_init(Default::default);
+    if let Some(cached) = cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
+        return cached;
+    }
+
+    let mut urls = Vec::new();
+    if !version.is_empty() && version != "latest" {
+        urls.push(format!("https://pypi.org/pypi/{name}/{version}/json"));
+    }
+    urls.push(format!("https://pypi.org/pypi/{name}/json"));
+
+    let json = urls.iter().find_map(|url| {
+        log(LogLevel::Info, &format!("Fetching from PyPI: {url}"));
+        let response = crate::http_stats::get(url)
+            .inspect_err(|err| log_error(&format!("Failed to fetch metadata for {name}"), err))
+            .ok()?;
+        let status = response.status();
+        if !status.is_success() {
+            log(
+                LogLevel::Info,
+                &format!("PyPI returned HTTP {status} for {url}"),
+            );
+            return None;
+        }
+        response
+            .json::<Value>()
+            .inspect_err(|err| log_error(&format!("Failed to parse JSON for {name}"), err))
+            .ok()
+            .map(Arc::new)
+    });
+
+    if let Ok(mut cache) = cache.lock() {
+        cache.insert(key, json.clone());
+    }
+    json
+}
+
+/// A package's license from PyPI's `info`: the PEP 639 `license_expression`, then the free text
+/// `license` field when it is a name rather than a pasted license text, then a trove classifier.
+fn license_from_pypi_info(info: &Value) -> Option<String> {
+    let field = |key: &str| {
+        info[key]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("UNKNOWN"))
+    };
+    if let Some(expression) = field("license_expression") {
+        return Some(expression.to_string());
+    }
+    if let Some(license) = field("license").filter(|l| !l.contains('\n') && l.len() <= 100) {
+        return Some(license.to_string());
+    }
+    info["classifiers"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|c| c.starts_with("License ::"))
+        .filter_map(|c| c.rsplit(" :: ").next())
+        .find(|title| *title != "OSI Approved")
+        .map(str::to_string)
 }
 
 /// Parse a requirement line from requirements.txt supporting various formats
@@ -673,9 +716,18 @@ fn resolve_with_uv(
         }
     }
 
-    // Try pip-compile style resolution using uv
+    // Try pip-compile style resolution using uv. It runs from the project directory, so it gets the
+    // file's name rather than a path that may be relative to somewhere else.
+    let file_name = Path::new(package_file_path)
+        .file_name()
+        .ok_or("Cannot determine dependency file name")?;
     if let Ok(output) = Command::new("uv")
-        .args(["pip", "compile", "--dry-run", package_file_path])
+        .args([
+            "pip".as_ref(),
+            "compile".as_ref(),
+            "--quiet".as_ref(),
+            file_name,
+        ])
         .current_dir(project_dir)
         .output()
     {
@@ -847,37 +899,28 @@ fn resolve_with_pypi(direct_deps: &[(String, String)], max_depth: u32) -> Vec<(S
 
 /// Fetch dependencies from PyPI for a specific package
 fn fetch_pypi_dependencies(name: &str, version: &str) -> Result<Vec<(String, String)>, String> {
-    let api_url = format!("https://pypi.org/pypi/{name}/{version}/json");
+    let Some(json) = fetch_pypi_json(name, version) else {
+        return Ok(Vec::new());
+    };
+    let deps = json["info"]["requires_dist"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|req| !needs_extra(req))
+        .filter_map(parse_pypi_requirement)
+        .collect();
+    Ok(deps)
+}
 
-    match reqwest::blocking::get(&api_url) {
-        Ok(response) => {
-            if response.status().is_success() {
-                if let Ok(json) = response.json::<Value>() {
-                    let mut deps = Vec::new();
-
-                    // Extract requires_dist information
-                    if let Some(requires_dist) = json["info"]["requires_dist"].as_array() {
-                        for req in requires_dist {
-                            if let Some(req_str) = req.as_str() {
-                                if let Some((dep_name, dep_version)) =
-                                    parse_pypi_requirement(req_str)
-                                {
-                                    deps.push((dep_name, dep_version));
-                                }
-                            }
-                        }
-                    }
-
-                    return Ok(deps);
-                }
-            }
-        }
-        Err(err) => {
-            log_error(&format!("Failed to fetch dependencies for {name}"), &err);
-        }
-    }
-
-    Ok(Vec::new())
+/// Whether a `requires_dist` entry only applies when an extra is asked for (`; extra == "dev"`).
+/// Nothing feluda reads asks for extras of a transitive dependency, so those are not installed.
+fn needs_extra(req: &str) -> bool {
+    req.split_once(';').is_some_and(|(_, marker)| {
+        marker
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|token| token == "extra")
+    })
 }
 
 /// Parse a PyPI requires_dist requirement string with full PEP 508 support
@@ -1596,5 +1639,52 @@ dependencies = ["click>=8.0"]
             temp.path().join("pyproject.toml").to_str().unwrap(),
         );
         assert!(attribution.is_empty());
+    }
+
+    #[test]
+    fn requirements_behind_an_extra_are_not_followed() {
+        assert!(needs_extra("PySocks!=1.5.7,>=1.5.6; extra == \"socks\""));
+        assert!(needs_extra(
+            "pytest; python_version >= '3.8' and extra=='test'"
+        ));
+        assert!(!needs_extra("charset_normalizer<4,>=2"));
+        assert!(!needs_extra(
+            "importlib-metadata>=3.6; python_version < \"3.10\""
+        ));
+        assert!(!needs_extra("extras-helper>=1.0"));
+    }
+
+    #[test]
+    fn pypi_license_prefers_the_pep_639_expression() {
+        let info = serde_json::json!({
+            "license": null,
+            "license_expression": "BSD-3-Clause",
+            "classifiers": ["License :: OSI Approved :: MIT License"]
+        });
+        assert_eq!(
+            license_from_pypi_info(&info).as_deref(),
+            Some("BSD-3-Clause")
+        );
+    }
+
+    #[test]
+    fn pypi_license_falls_back_to_the_field_then_a_classifier() {
+        let info = serde_json::json!({ "license": "Apache 2.0", "classifiers": [] });
+        assert_eq!(license_from_pypi_info(&info).as_deref(), Some("Apache 2.0"));
+
+        let info = serde_json::json!({
+            "license": "Copyright (c) 2020\nPermission is hereby granted...",
+            "classifiers": [
+                "Programming Language :: Python",
+                "License :: OSI Approved :: MIT License"
+            ]
+        });
+        assert_eq!(
+            license_from_pypi_info(&info).as_deref(),
+            Some("MIT License")
+        );
+
+        let info = serde_json::json!({ "license": "", "classifiers": ["License :: OSI Approved"] });
+        assert_eq!(license_from_pypi_info(&info), None);
     }
 }

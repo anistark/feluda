@@ -319,7 +319,12 @@ async fn fetch_licenses_concurrent(
 
     // First, get the list of available licenses
     let licenses_list_url = "https://api.github.com/licenses";
-    let response = match client.get(licenses_list_url).send().await {
+    let response = match crate::http_stats::send_async(
+        licenses_list_url,
+        client.get(licenses_list_url).send(),
+    )
+    .await
+    {
         Ok(response) => response,
         Err(err) => {
             log_error("Failed to fetch licenses list from GitHub API", &err);
@@ -372,7 +377,8 @@ async fn fetch_licenses_concurrent(
 
             let license_url = format!("https://api.github.com/licenses/{license_key}");
 
-            match client.get(&license_url).send().await {
+            match crate::http_stats::send_async(&license_url, client.get(&license_url).send()).await
+            {
                 Ok(license_response) => {
                     if license_response.status().is_success() {
                         match license_response.json::<serde_json::Value>().await {
@@ -499,6 +505,8 @@ async fn fetch_licenses_concurrent(
     licenses_map
 }
 
+const OSI_LICENSES_URL: &str = "https://opensource.org/api/licenses";
+
 /// Static cache for OSI approved licenses
 #[cfg(not(test))]
 static OSI_LICENSES: OnceLock<HashMap<String, OsiStatus>> = OnceLock::new();
@@ -522,13 +530,15 @@ pub fn fetch_osi_licenses() -> FeludaResult<HashMap<String, OsiStatus>> {
 
         indicator.update_progress("fetching OSI licenses");
 
-        let response = match client.get("https://api.opensource.org/licenses/").send() {
-            Ok(response) => response,
-            Err(err) => {
-                log_error("Failed to fetch OSI licenses from API", &err);
-                return HashMap::new();
-            }
-        };
+        let response =
+            match crate::http_stats::send(OSI_LICENSES_URL, || client.get(OSI_LICENSES_URL).send())
+            {
+                Ok(response) => response,
+                Err(err) => {
+                    log_error("Failed to fetch OSI licenses from API", &err);
+                    return HashMap::new();
+                }
+            };
 
         if !response.status().is_success() {
             log(
@@ -549,12 +559,7 @@ pub fn fetch_osi_licenses() -> FeludaResult<HashMap<String, OsiStatus>> {
         let total_licenses = osi_licenses.len();
         indicator.update_progress(&format!("found {total_licenses} OSI licenses"));
 
-        let mut osi_map = HashMap::new();
-        for license_data in osi_licenses {
-            if let Some(id) = license_data.get("id").and_then(|id| id.as_str()) {
-                osi_map.insert(id.to_string(), OsiStatus::Approved);
-            }
-        }
+        let osi_map = osi_approved_from_api(&osi_licenses);
 
         indicator.update_progress(&format!("processed {total_licenses} OSI licenses"));
         log(
@@ -566,6 +571,24 @@ pub fn fetch_osi_licenses() -> FeludaResult<HashMap<String, OsiStatus>> {
     });
 
     Ok(osi_map)
+}
+
+/// The approved licenses in an OSI API answer, keyed by SPDX id. The API's own `id` is a slug
+/// (`apache-2-0`), so it is used only for an entry without an SPDX id.
+fn osi_approved_from_api(licenses: &[serde_json::Value]) -> HashMap<String, OsiStatus> {
+    licenses
+        .iter()
+        .filter(|license| license.get("approved").and_then(|a| a.as_bool()) != Some(false))
+        .filter_map(|license| {
+            ["spdx_id", "id"].iter().find_map(|key| {
+                license
+                    .get(*key)
+                    .and_then(|v| v.as_str())
+                    .filter(|id| !id.is_empty())
+            })
+        })
+        .map(|id| (id.to_string(), OsiStatus::Approved))
+        .collect()
 }
 
 /// Get the OSI licenses map, loading it if not already cached
@@ -2785,5 +2808,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("notes.txt"), "SPDX-License-Identifier: MIT").unwrap();
         assert_eq!(detect_license_in_dir(dir.path()), None);
+    }
+
+    #[test]
+    fn osi_api_answer_is_keyed_by_spdx_id() {
+        let answer = serde_json::json!([
+            { "id": "apache-2-0", "spdx_id": "Apache-2.0", "approved": true },
+            { "id": "mit", "spdx_id": "MIT" },
+            { "id": "not-yet", "spdx_id": "Not-Yet-1.0", "approved": false },
+            { "id": "legacy-slug", "spdx_id": "" }
+        ]);
+        let map = osi_approved_from_api(answer.as_array().unwrap());
+        assert_eq!(map.get("Apache-2.0"), Some(&OsiStatus::Approved));
+        assert_eq!(map.get("MIT"), Some(&OsiStatus::Approved));
+        assert!(!map.contains_key("Not-Yet-1.0"));
+        assert!(!map.contains_key("apache-2-0"));
+        assert!(map.contains_key("legacy-slug"));
     }
 }

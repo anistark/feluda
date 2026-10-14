@@ -508,10 +508,7 @@ fn fetch_batch_once(batch: &[String], endpoint: &str) -> Option<HashMap<String, 
         })
         .ok()?;
 
-    let response = client
-        .post(endpoint)
-        .json(&batch)
-        .send()
+    let response = crate::http_stats::send(endpoint, || client.post(endpoint).json(&batch).send())
         .inspect_err(|e| {
             log(
                 LogLevel::Warn,

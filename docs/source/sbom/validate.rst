@@ -21,7 +21,7 @@ Run a quick conformance check against an existing SBOM file.
    feluda sbom validate sbom.spdx.json
 
 Feluda reads the file, validates it against the format, and reports pass/fail. SPDX is accepted as
-JSON, tag:value or 3.0 JSON-LD, and CycloneDX as JSON or XML; the serialization is detected from
+JSON, tag\:value or 3.0 JSON-LD, and CycloneDX as JSON or XML; the serialization is detected from
 the content, and the report's ``sbom_type`` names it.
 
 ----
@@ -111,7 +111,7 @@ Feluda validates:
   ``simplelicensing_customIdToUri`` maps. These are structural checks; the official
   ``spdx3-validate`` adds full SHACL validation
 
-Tag:value and CycloneDX XML are checked against the same rules as their JSON forms, since they
+Tag\:value and CycloneDX XML are checked against the same rules as their JSON forms, since they
 carry the same fields.
 
 ----

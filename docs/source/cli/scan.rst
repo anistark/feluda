@@ -115,7 +115,7 @@ every filter, output format and exit code exactly as it would to a source scan.
    * - Flag
      - Description
    * - ``--sbom-input <FILE>``
-     - SPDX (JSON, tag:value, 3.0) or CycloneDX (JSON, XML) document to analyse, or ``-`` for stdin
+     - SPDX (JSON, tag\:value, 3.0) or CycloneDX (JSON, XML) document to analyse, or ``-`` for stdin
    * - ``--sbom-enriched <FILE>``
      - Write the input document back out with the licenses Feluda resolved
 
@@ -201,7 +201,8 @@ attributed to the workspace package(s) that declare it.
 report lists exactly what pnpm installed, the same set ``pnpm list --depth Infinity`` shows. Two
 installed versions of one package are two rows, each with the license of its own version, and a
 package left in ``node_modules`` by an earlier install is not reported. ``pnpm list`` and the
-``node_modules`` scans are used only when the lockfile cannot be read.
+``node_modules`` scans are used only when the lockfile cannot be read. A lockfile with several YAML
+documents (recent pnpm releases put the lockfile of the pinned pnpm first) is read from its last document.
 
 **Go workspaces** — point Feluda at the directory containing ``go.work``.
 Feluda parses the ``use`` directives, scans each member module, and merges

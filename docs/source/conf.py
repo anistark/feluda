@@ -36,6 +36,10 @@ linkcheck_ignore = [
     r'https://crates\.io/',  # Bot protection causes false 404s
     r'https://api\.opensource\.org/',  # Frequent timeouts
 ]
+# GitHub renders heading anchors in the browser, so they are never in the fetched page
+linkcheck_anchors_ignore_for_url = [
+    r'https://github\.com/',
+]
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output

@@ -278,7 +278,7 @@ fn resolve_vcpkg_transitive(
         "https://raw.githubusercontent.com/microsoft/vcpkg/master/ports/{package_name}/vcpkg.json"
     );
 
-    if let Ok(response) = reqwest::blocking::get(&url) {
+    if let Ok(response) = crate::http_stats::get(&url) {
         if response.status().is_success() {
             if let Ok(json) = response.json::<Value>() {
                 let mut dependencies = Vec::new();
@@ -318,7 +318,7 @@ fn resolve_conan_transitive(
     // Try to fetch dependencies from Conan Center
     let url = format!("https://conan.io/center/api/packages/{package_name}/{version}");
 
-    if let Ok(response) = reqwest::blocking::get(&url) {
+    if let Ok(response) = crate::http_stats::get(&url) {
         if response.status().is_success() {
             if let Ok(json) = response.json::<Value>() {
                 let mut dependencies = Vec::new();
@@ -659,7 +659,7 @@ fn fetch_license_from_vcpkg_registry(package_name: &str) -> String {
         "https://raw.githubusercontent.com/microsoft/vcpkg/master/ports/{package_name}/vcpkg.json"
     );
 
-    if let Ok(response) = reqwest::blocking::get(&url) {
+    if let Ok(response) = crate::http_stats::get(&url) {
         if response.status().is_success() {
             if let Ok(json) = response.json::<Value>() {
                 if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
@@ -702,7 +702,7 @@ fn detect_license_in_vcpkg_install(vcpkg_root: &Path, port: &str) -> Option<Stri
 pub(crate) fn fetch_license_from_conan_center(package_name: &str, version: &str) -> String {
     let url = format!("https://conan.io/center/api/packages/{package_name}/{version}");
 
-    if let Ok(response) = reqwest::blocking::get(&url) {
+    if let Ok(response) = crate::http_stats::get(&url) {
         if response.status().is_success() {
             if let Ok(json) = response.json::<Value>() {
                 if let Some(license) = json.get("license").and_then(|l| l.as_str()) {

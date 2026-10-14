@@ -1,0 +1,1389 @@
+[
+ {
+  "id": "rust/hyperfine",
+  "kind": "real",
+  "repo": "sharkdp/hyperfine",
+  "sha": "b33755fe1fca8bcc1f182c773ca3ab040bfe517d",
+  "dir": "repos/sharkdp__hyperfine",
+  "primary": "rust",
+  "languages": [
+   "rust",
+   "python"
+  ],
+  "rows": 150,
+  "ecosystems": {
+   "cargo": 135,
+   "pypi": 15
+  },
+  "tier": "M"
+ },
+ {
+  "id": "rust/ripgrep",
+  "kind": "real",
+  "repo": "BurntSushi/ripgrep",
+  "sha": "3fce3b5bb0236da2df6d99672afb8a719642eca7",
+  "dir": "repos/BurntSushi__ripgrep",
+  "primary": "rust",
+  "languages": [
+   "rust"
+  ],
+  "rows": 49,
+  "ecosystems": {
+   "cargo": 49
+  },
+  "tier": "S"
+ },
+ {
+  "id": "rust/uv",
+  "kind": "real",
+  "repo": "astral-sh/uv",
+  "sha": "5cc7f15c359b83eed2c68c5578c1000bfd27e0da",
+  "dir": "repos/astral-sh__uv",
+  "primary": "rust",
+  "languages": [
+   "rust",
+   "python"
+  ],
+  "rows": 618,
+  "ecosystems": {
+   "cargo": 616,
+   "generic": 2
+  },
+  "tier": "L"
+ },
+ {
+  "id": "rust/zed",
+  "kind": "real",
+  "repo": "zed-industries/zed",
+  "sha": "93d745668805029476e6d7fbb19652116fed51de",
+  "dir": "repos/zed-industries__zed",
+  "primary": "rust",
+  "languages": [
+   "rust"
+  ],
+  "rows": 1523,
+  "ecosystems": {
+   "cargo": 1515,
+   "generic": 8
+  },
+  "tier": "XL"
+ },
+ {
+  "id": "node/express",
+  "kind": "real",
+  "repo": "expressjs/express",
+  "sha": "a419aa7350389a275ab45fde2e849ed1f02449ef",
+  "dir": "repos/expressjs__express",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rows": 67,
+  "ecosystems": {
+   "npm": 67
+  },
+  "tier": "M"
+ },
+ {
+  "id": "node/excalidraw",
+  "kind": "real",
+  "repo": "excalidraw/excalidraw",
+  "sha": "e65eca999e071503efb893d3379a29fb96ff37c4",
+  "dir": "repos/excalidraw__excalidraw",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rows": 960,
+  "ecosystems": {
+   "npm": 960
+  },
+  "tier": "L"
+ },
+ {
+  "id": "node/docusaurus",
+  "kind": "real",
+  "repo": "facebook/docusaurus",
+  "sha": "c245217563f6491fdb79bf5ac91bfa16536e5de9",
+  "dir": "repos/facebook__docusaurus",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rows": 2468,
+  "ecosystems": {
+   "npm": 2468
+  },
+  "tier": "XL"
+ },
+ {
+  "id": "node/vscode",
+  "kind": "real",
+  "repo": "microsoft/vscode",
+  "sha": "eef761e9628e777317a554114f0202a070e98f0b",
+  "dir": "repos/microsoft__vscode",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rows": 202,
+  "ecosystems": {
+   "npm": 199,
+   "generic": 3
+  },
+  "tier": "M"
+ },
+ {
+  "id": "go/cobra",
+  "kind": "real",
+  "repo": "spf13/cobra",
+  "sha": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+  "dir": "repos/spf13__cobra",
+  "primary": "go",
+  "languages": [
+   "go",
+   "c"
+  ],
+  "rows": 11,
+  "ecosystems": {
+   "golang": 7,
+   "generic": 4
+  },
+  "tier": "S"
+ },
+ {
+  "id": "go/hugo",
+  "kind": "real",
+  "repo": "gohugoio/hugo",
+  "sha": "0732eadd5aead94d4bd4674d87e9bfc79aaf10a7",
+  "dir": "repos/gohugoio__hugo",
+  "primary": "go",
+  "languages": [
+   "go"
+  ],
+  "rows": 429,
+  "ecosystems": {
+   "golang": 426,
+   "generic": 3
+  },
+  "tier": "L"
+ },
+ {
+  "id": "go/prometheus",
+  "kind": "real",
+  "repo": "prometheus/prometheus",
+  "sha": "fffc15f5b5a6c3ed50282d307e96db0e5f25bcb2",
+  "dir": "repos/prometheus__prometheus",
+  "primary": "go",
+  "languages": [
+   "go",
+   "c"
+  ],
+  "rows": null,
+  "ecosystems": {},
+  "tier": "L",
+  "tier_note": "set from go mod graph size; the Phase 1 scan was too slow to finish"
+ },
+ {
+  "id": "go/kubernetes",
+  "kind": "real",
+  "repo": "kubernetes/kubernetes",
+  "sha": "137705d1d2709dbe645e26a5541827eec8c174f7",
+  "dir": "repos/kubernetes__kubernetes",
+  "primary": "go",
+  "languages": [
+   "go",
+   "c"
+  ],
+  "rows": null,
+  "ecosystems": {},
+  "tier": "L",
+  "tier_note": "set from go mod graph size; the Phase 1 scan was too slow to finish"
+ },
+ {
+  "id": "python/requests",
+  "kind": "real",
+  "repo": "psf/requests",
+  "sha": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+  "dir": "repos/psf__requests",
+  "primary": "python",
+  "languages": [
+   "python",
+   "c"
+  ],
+  "rows": 61,
+  "ecosystems": {
+   "generic": 57,
+   "pypi": 4
+  },
+  "tier": "M"
+ },
+ {
+  "id": "python/fastapi",
+  "kind": "real",
+  "repo": "fastapi/fastapi",
+  "sha": "f5c6e9b4f9cadc1bf0f9a1fd672e621206b63007",
+  "dir": "repos/fastapi__fastapi",
+  "primary": "python",
+  "languages": [
+   "python"
+  ],
+  "rows": 207,
+  "ecosystems": {
+   "pypi": 207
+  },
+  "tier": "M"
+ },
+ {
+  "id": "python/superset",
+  "kind": "real",
+  "repo": "apache/superset",
+  "sha": "e229ea4a543546b94bc3e751f611109d111cc8db",
+  "dir": "repos/apache__superset",
+  "primary": "python",
+  "languages": [
+   "python",
+   "c"
+  ],
+  "rows": 139,
+  "ecosystems": {
+   "generic": 2,
+   "pypi": 137
+  },
+  "tier": "M"
+ },
+ {
+  "id": "python/home-assistant",
+  "kind": "real",
+  "repo": "home-assistant/core",
+  "sha": "4a1fe1293ab6dccbfe38b92936a20be5e4e0b84d",
+  "dir": "repos/home-assistant__core",
+  "primary": "python",
+  "languages": [
+   "python"
+  ],
+  "rows": 116,
+  "ecosystems": {
+   "pypi": 116
+  },
+  "tier": "M"
+ },
+ {
+  "id": "java/spring-petclinic",
+  "kind": "real",
+  "repo": "spring-projects/spring-petclinic",
+  "sha": "500158f732419217507c7656904b8e6aa1bcc0d6",
+  "dir": "repos/spring-projects__spring-petclinic",
+  "primary": "java",
+  "languages": [
+   "java"
+  ],
+  "rows": 262,
+  "ecosystems": {
+   "maven": 262
+  },
+  "tier": "M"
+ },
+ {
+  "id": "java/mybatis-3",
+  "kind": "real",
+  "repo": "mybatis/mybatis-3",
+  "sha": "34147d0bd2f5ed0016ef367c92b25e174149326b",
+  "dir": "repos/mybatis__mybatis-3",
+  "primary": "java",
+  "languages": [
+   "java"
+  ],
+  "rows": 14,
+  "ecosystems": {
+   "maven": 14
+  },
+  "tier": "S"
+ },
+ {
+  "id": "java/netty",
+  "kind": "real",
+  "repo": "netty/netty",
+  "sha": "014ef8d7031f9f1015020095421a659ced36cc8a",
+  "dir": "repos/netty__netty",
+  "primary": "java",
+  "languages": [
+   "java"
+  ],
+  "rows": 156,
+  "ecosystems": {
+   "maven": 152,
+   "generic": 4
+  },
+  "tier": "M"
+ },
+ {
+  "id": "java/jenkins",
+  "kind": "real",
+  "repo": "jenkinsci/jenkins",
+  "sha": "4386cf394a8e40b1cbbecc85d70b6d4abb529f67",
+  "dir": "repos/jenkinsci__jenkins",
+  "primary": "java",
+  "languages": [
+   "node",
+   "java"
+  ],
+  "rows": 276,
+  "ecosystems": {
+   "maven": 232,
+   "npm": 38,
+   "generic": 6
+  },
+  "tier": "M"
+ },
+ {
+  "id": "ruby/jekyll",
+  "kind": "real",
+  "repo": "jekyll/jekyll",
+  "sha": "541d8b2ee75c8907de4744d4b87a7a6f1f997cae",
+  "dir": "repos/jekyll__jekyll",
+  "primary": "ruby",
+  "languages": [
+   "ruby"
+  ],
+  "rows": 43,
+  "ecosystems": {
+   "gem": 43
+  },
+  "tier": "S"
+ },
+ {
+  "id": "ruby/rubocop",
+  "kind": "real",
+  "repo": "rubocop/rubocop",
+  "sha": "12e56a5e3553be3a2444d7dffd41aa27151d6eca",
+  "dir": "repos/rubocop__rubocop",
+  "primary": "ruby",
+  "languages": [
+   "ruby"
+  ],
+  "rows": 20,
+  "ecosystems": {
+   "gem": 20
+  },
+  "tier": "S"
+ },
+ {
+  "id": "ruby/rails",
+  "kind": "real",
+  "repo": "rails/rails",
+  "sha": "bbaec1c668407502e6fd220e28275f914dda379c",
+  "dir": "repos/rails__rails",
+  "primary": "ruby",
+  "languages": [
+   "node",
+   "ruby"
+  ],
+  "rows": 802,
+  "ecosystems": {
+   "npm": 567,
+   "gem": 233,
+   "generic": 2
+  },
+  "tier": "L"
+ },
+ {
+  "id": "polyglot/discourse",
+  "kind": "real",
+  "repo": "discourse/discourse",
+  "sha": "008b5fc4585ca178bf10642d3da1dcc39e2ace50",
+  "dir": "repos/discourse__discourse",
+  "primary": "polyglot",
+  "languages": [
+   "node",
+   "ruby"
+  ],
+  "rows": 1974,
+  "ecosystems": {
+   "npm": 1670,
+   "gem": 299,
+   "generic": 5
+  },
+  "tier": "XL"
+ },
+ {
+  "id": "dotnet/eShop",
+  "kind": "real",
+  "repo": "dotnet/eShop",
+  "sha": "dc7ea499cd356924fb6689b3702964a5869dbae9",
+  "dir": "repos/dotnet__eShop",
+  "primary": "dotnet",
+  "languages": [
+   "node",
+   "dotnet"
+  ],
+  "rows": 17,
+  "ecosystems": {
+   "npm": 1,
+   "nuget": 16
+  },
+  "tier": "S"
+ },
+ {
+  "id": "dotnet/BenchmarkDotNet",
+  "kind": "real",
+  "repo": "dotnet/BenchmarkDotNet",
+  "sha": "61ebda8a50aea46484107c2f8d3e736cc31d15e5",
+  "dir": "repos/dotnet__BenchmarkDotNet",
+  "primary": "dotnet",
+  "languages": [
+   "dotnet"
+  ],
+  "rows": 2698,
+  "ecosystems": {
+   "nuget": 2698
+  },
+  "tier": "XL"
+ },
+ {
+  "id": "dotnet/Humanizer",
+  "kind": "real",
+  "repo": "Humanizr/Humanizer",
+  "sha": "4574b93883bf48e3f0f3bca73297054537317ab2",
+  "dir": "repos/Humanizr__Humanizer",
+  "primary": "dotnet",
+  "languages": [
+   "dotnet"
+  ],
+  "rows": 2,
+  "ecosystems": {
+   "nuget": 2
+  },
+  "tier": "S"
+ },
+ {
+  "id": "dotnet/RestSharp",
+  "kind": "real",
+  "repo": "restsharp/RestSharp",
+  "sha": "64ee12995b8d7409a5863da7b71cddfa526ffb7a",
+  "dir": "repos/restsharp__RestSharp",
+  "primary": "dotnet",
+  "languages": [
+   "dotnet"
+  ],
+  "rows": 4768,
+  "ecosystems": {
+   "nuget": 4768
+  },
+  "tier": "XL"
+ },
+ {
+  "id": "r/ggplot2",
+  "kind": "real",
+  "repo": "tidyverse/ggplot2",
+  "sha": "737be17f43bebac02ccb119753c1fee267572443",
+  "dir": "repos/tidyverse__ggplot2",
+  "primary": "r",
+  "languages": [
+   "r"
+  ],
+  "rows": 39,
+  "ecosystems": {
+   "cran": 39
+  },
+  "tier": "S"
+ },
+ {
+  "id": "r/r-manuals",
+  "kind": "real",
+  "repo": "rstudio/r-manuals",
+  "sha": "af36e13ce94782142f96d70714e7780578dc7d54",
+  "dir": "repos/rstudio__r-manuals",
+  "primary": "r",
+  "languages": [
+   "r"
+  ],
+  "rows": 19,
+  "ecosystems": {
+   "cran": 19
+  },
+  "tier": "S"
+ },
+ {
+  "id": "c/curl",
+  "kind": "real",
+  "repo": "curl/curl",
+  "sha": "b8f71d6e1199701352c498467c17847237d1c43e",
+  "dir": "repos/curl__curl",
+  "primary": "c",
+  "languages": [
+   "c",
+   "cpp"
+  ],
+  "rows": 65,
+  "ecosystems": {
+   "generic": 65
+  },
+  "tier": "M"
+ },
+ {
+  "id": "cpp/mapnik",
+  "kind": "real",
+  "repo": "mapnik/mapnik",
+  "sha": "84107b6f29bf785ea2d05faf1683d9990915c55b",
+  "dir": "repos/mapnik__mapnik",
+  "primary": "cpp",
+  "languages": [
+   "c",
+   "cpp"
+  ],
+  "rows": 905,
+  "ecosystems": {
+   "generic": 905
+  },
+  "tier": "L"
+ },
+ {
+  "id": "cpp/OpenCL-SDK",
+  "kind": "real",
+  "repo": "KhronosGroup/OpenCL-SDK",
+  "sha": "6090378a113db8dab20ae278c8fa57ab10b92300",
+  "dir": "repos/KhronosGroup__OpenCL-SDK",
+  "primary": "cpp",
+  "languages": [
+   "cpp"
+  ],
+  "rows": 10,
+  "ecosystems": {
+   "generic": 10
+  },
+  "tier": "S"
+ },
+ {
+  "id": "polyglot/mastodon",
+  "kind": "real",
+  "repo": "mastodon/mastodon",
+  "sha": "9e3fab2708b2f8ee2b513d3c816aac7e2e6786e7",
+  "dir": "repos/mastodon__mastodon",
+  "primary": "polyglot",
+  "languages": [
+   "node",
+   "ruby"
+  ],
+  "rows": 499,
+  "ecosystems": {
+   "npm": 147,
+   "gem": 346,
+   "generic": 6
+  },
+  "tier": "L"
+ },
+ {
+  "id": "polyglot/tauri",
+  "kind": "real",
+  "repo": "tauri-apps/tauri",
+  "sha": "5b23c82ea5ba6b9aec420dd71f60493edc486aa9",
+  "dir": "repos/tauri-apps__tauri",
+  "primary": "polyglot",
+  "languages": [
+   "rust",
+   "node"
+  ],
+  "rows": 1011,
+  "ecosystems": {
+   "cargo": 1011
+  },
+  "tier": "L"
+ },
+ {
+  "id": "polyglot/grafana",
+  "kind": "real",
+  "repo": "grafana/grafana",
+  "sha": "891f7973f81c6e4e0a24bed3120cca3b3cc93ebc",
+  "dir": "repos/grafana__grafana",
+  "primary": "polyglot",
+  "languages": [
+   "node",
+   "go",
+   "c"
+  ],
+  "rows": null,
+  "ecosystems": {},
+  "tier": "XL",
+  "tier_note": "set from go mod graph size; the Phase 1 scan was too slow to finish"
+ },
+ {
+  "id": "polyglot/sentry",
+  "kind": "real",
+  "repo": "getsentry/sentry",
+  "sha": "035fd0e68c0a85be84eabe7c5cacbd88d9ae065e",
+  "dir": "repos/getsentry__sentry",
+  "primary": "polyglot",
+  "languages": [
+   "node",
+   "python",
+   "c"
+  ],
+  "rows": 180,
+  "ecosystems": {
+   "generic": 10,
+   "pypi": 170
+  },
+  "tier": "M"
+ },
+ {
+  "id": "synthetic/polyglot/p2",
+  "kind": "synthetic-polyglot",
+  "dir": "synthetic/polyglot/p2",
+  "primary": "polyglot",
+  "languages": [
+   "node",
+   "python"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "M"
+ },
+ {
+  "id": "synthetic/polyglot/p3",
+  "kind": "synthetic-polyglot",
+  "dir": "synthetic/polyglot/p3",
+  "primary": "polyglot",
+  "languages": [
+   "node",
+   "python",
+   "ruby"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "M"
+ },
+ {
+  "id": "synthetic/polyglot/p5",
+  "kind": "synthetic-polyglot",
+  "dir": "synthetic/polyglot/p5",
+  "primary": "polyglot",
+  "languages": [
+   "rust",
+   "node",
+   "go",
+   "python",
+   "ruby"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "M"
+ },
+ {
+  "id": "synthetic/polyglot/pall",
+  "kind": "synthetic-polyglot",
+  "dir": "synthetic/polyglot/pall",
+  "primary": "polyglot",
+  "languages": [
+   "rust",
+   "node",
+   "go",
+   "python",
+   "c",
+   "cpp",
+   "r",
+   "dotnet",
+   "java",
+   "ruby"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "M"
+ },
+ {
+  "id": "synthetic/c/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/c/n10",
+  "primary": "c",
+  "languages": [
+   "c"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/c/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/c/n100",
+  "primary": "c",
+  "languages": [
+   "c"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/c/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/c/n50",
+  "primary": "c",
+  "languages": [
+   "c"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/cpp/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/cpp/n10",
+  "primary": "cpp",
+  "languages": [
+   "cpp"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/cpp/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/cpp/n100",
+  "primary": "cpp",
+  "languages": [
+   "cpp"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/cpp/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/cpp/n250",
+  "primary": "cpp",
+  "languages": [
+   "cpp"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/cpp/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/cpp/n50",
+  "primary": "cpp",
+  "languages": [
+   "cpp"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/cpp/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/cpp/n500",
+  "primary": "cpp",
+  "languages": [
+   "cpp"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ },
+ {
+  "id": "synthetic/dotnet/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/dotnet/n10",
+  "primary": "dotnet",
+  "languages": [
+   "dotnet"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/dotnet/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/dotnet/n100",
+  "primary": "dotnet",
+  "languages": [
+   "dotnet"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/dotnet/n1000",
+  "kind": "synthetic",
+  "dir": "synthetic/dotnet/n1000",
+  "primary": "dotnet",
+  "languages": [
+   "dotnet"
+  ],
+  "rung": 1000,
+  "rows": null,
+  "tier": "n1000"
+ },
+ {
+  "id": "synthetic/dotnet/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/dotnet/n250",
+  "primary": "dotnet",
+  "languages": [
+   "dotnet"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/dotnet/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/dotnet/n50",
+  "primary": "dotnet",
+  "languages": [
+   "dotnet"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/dotnet/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/dotnet/n500",
+  "primary": "dotnet",
+  "languages": [
+   "dotnet"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ },
+ {
+  "id": "synthetic/go/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/go/n10",
+  "primary": "go",
+  "languages": [
+   "go"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/go/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/go/n100",
+  "primary": "go",
+  "languages": [
+   "go"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/go/n1000",
+  "kind": "synthetic",
+  "dir": "synthetic/go/n1000",
+  "primary": "go",
+  "languages": [
+   "go"
+  ],
+  "rung": 1000,
+  "rows": null,
+  "tier": "n1000"
+ },
+ {
+  "id": "synthetic/go/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/go/n250",
+  "primary": "go",
+  "languages": [
+   "go"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/go/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/go/n50",
+  "primary": "go",
+  "languages": [
+   "go"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/go/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/go/n500",
+  "primary": "go",
+  "languages": [
+   "go"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ },
+ {
+  "id": "synthetic/gradle/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/gradle/n10",
+  "primary": "gradle",
+  "languages": [
+   "java"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/gradle/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/gradle/n100",
+  "primary": "gradle",
+  "languages": [
+   "java"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/gradle/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/gradle/n250",
+  "primary": "gradle",
+  "languages": [
+   "java"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/gradle/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/gradle/n50",
+  "primary": "gradle",
+  "languages": [
+   "java"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/gradle/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/gradle/n500",
+  "primary": "gradle",
+  "languages": [
+   "java"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ },
+ {
+  "id": "synthetic/java/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/java/n10",
+  "primary": "java",
+  "languages": [
+   "java"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/java/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/java/n100",
+  "primary": "java",
+  "languages": [
+   "java"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/java/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/java/n250",
+  "primary": "java",
+  "languages": [
+   "java"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/java/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/java/n50",
+  "primary": "java",
+  "languages": [
+   "java"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/java/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/java/n500",
+  "primary": "java",
+  "languages": [
+   "java"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ },
+ {
+  "id": "synthetic/node/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/node/n10",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/node/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/node/n100",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/node/n1000",
+  "kind": "synthetic",
+  "dir": "synthetic/node/n1000",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rung": 1000,
+  "rows": null,
+  "tier": "n1000"
+ },
+ {
+  "id": "synthetic/node/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/node/n250",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/node/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/node/n50",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/node/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/node/n500",
+  "primary": "node",
+  "languages": [
+   "node"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ },
+ {
+  "id": "synthetic/python/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/python/n10",
+  "primary": "python",
+  "languages": [
+   "python"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/python/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/python/n100",
+  "primary": "python",
+  "languages": [
+   "python"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/python/n1000",
+  "kind": "synthetic",
+  "dir": "synthetic/python/n1000",
+  "primary": "python",
+  "languages": [
+   "python"
+  ],
+  "rung": 1000,
+  "rows": null,
+  "tier": "n1000"
+ },
+ {
+  "id": "synthetic/python/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/python/n250",
+  "primary": "python",
+  "languages": [
+   "python"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/python/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/python/n50",
+  "primary": "python",
+  "languages": [
+   "python"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/python/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/python/n500",
+  "primary": "python",
+  "languages": [
+   "python"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ },
+ {
+  "id": "synthetic/r/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/r/n10",
+  "primary": "r",
+  "languages": [
+   "r"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/r/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/r/n100",
+  "primary": "r",
+  "languages": [
+   "r"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/r/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/r/n250",
+  "primary": "r",
+  "languages": [
+   "r"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/r/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/r/n50",
+  "primary": "r",
+  "languages": [
+   "r"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/r/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/r/n500",
+  "primary": "r",
+  "languages": [
+   "r"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ },
+ {
+  "id": "synthetic/ruby/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/ruby/n10",
+  "primary": "ruby",
+  "languages": [
+   "ruby"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/ruby/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/ruby/n100",
+  "primary": "ruby",
+  "languages": [
+   "ruby"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/ruby/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/ruby/n250",
+  "primary": "ruby",
+  "languages": [
+   "ruby"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/ruby/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/ruby/n50",
+  "primary": "ruby",
+  "languages": [
+   "ruby"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/ruby/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/ruby/n500",
+  "primary": "ruby",
+  "languages": [
+   "ruby"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ },
+ {
+  "id": "synthetic/rust/n10",
+  "kind": "synthetic",
+  "dir": "synthetic/rust/n10",
+  "primary": "rust",
+  "languages": [
+   "rust"
+  ],
+  "rung": 10,
+  "rows": null,
+  "tier": "n10"
+ },
+ {
+  "id": "synthetic/rust/n100",
+  "kind": "synthetic",
+  "dir": "synthetic/rust/n100",
+  "primary": "rust",
+  "languages": [
+   "rust"
+  ],
+  "rung": 100,
+  "rows": null,
+  "tier": "n100"
+ },
+ {
+  "id": "synthetic/rust/n1000",
+  "kind": "synthetic",
+  "dir": "synthetic/rust/n1000",
+  "primary": "rust",
+  "languages": [
+   "rust"
+  ],
+  "rung": 1000,
+  "rows": null,
+  "tier": "n1000"
+ },
+ {
+  "id": "synthetic/rust/n250",
+  "kind": "synthetic",
+  "dir": "synthetic/rust/n250",
+  "primary": "rust",
+  "languages": [
+   "rust"
+  ],
+  "rung": 250,
+  "rows": null,
+  "tier": "n250"
+ },
+ {
+  "id": "synthetic/rust/n50",
+  "kind": "synthetic",
+  "dir": "synthetic/rust/n50",
+  "primary": "rust",
+  "languages": [
+   "rust"
+  ],
+  "rung": 50,
+  "rows": null,
+  "tier": "n50"
+ },
+ {
+  "id": "synthetic/rust/n500",
+  "kind": "synthetic",
+  "dir": "synthetic/rust/n500",
+  "primary": "rust",
+  "languages": [
+   "rust"
+  ],
+  "rung": 500,
+  "rows": null,
+  "tier": "n500"
+ }
+]

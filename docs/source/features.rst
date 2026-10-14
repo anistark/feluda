@@ -209,7 +209,7 @@ you can hand to a customer, an auditor, or a procurement questionnaire.
       :link-type: doc
 
       Point Feluda at an SBOM someone else produced and scan it as a source, no
-      original repository needed. JSON, tag:value, SPDX 3.0 and CycloneDX XML alike.
+      original repository needed. JSON, tag\:value, SPDX 3.0 and CycloneDX XML alike.
 
    .. grid-item-card:: :iconify:`lucide:check-check` Validate before you send it
       :class-card: glassmorphic

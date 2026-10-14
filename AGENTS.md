@@ -68,7 +68,7 @@ src/reporter.rs — format output (text/JSON/YAML/CI/gist)
 | **Rust** | `Cargo.toml` | `src/languages/rust.rs` | `Cargo.toml` license field |
 | **Node.js** | `package.json`, `pnpm-lock.yaml` | `src/languages/node.rs` | `node_modules/.pnpm/<name>@<version>` store entry, then `node_modules/*/LICENSE` files |
 | **Go** | `go.mod`, `go.work` | `src/languages/go.rs` | — |
-| **Python** | `requirements.txt`, `Pipfile.lock`, `pip_freeze.txt`, `pyproject.toml` | `src/languages/python.rs` | — |
+| **Python** | `requirements.txt`, `Pipfile.lock`, `pip_freeze.txt`, `pyproject.toml` | `src/languages/python.rs` | — (dependencies resolved by `uv` when it is on `PATH`) |
 | **C** | `configure.ac`, `configure.in`, `Makefile` | `src/languages/c.rs` | — |
 | **C++** | `vcpkg.json`, `conanfile.txt`, `conanfile.py`, `CMakeLists.txt`, `MODULE.bazel` | `src/languages/cpp.rs` | — |
 | **R** | `DESCRIPTION`, `renv.lock` | `src/languages/r.rs` | — |
@@ -136,6 +136,7 @@ Feluda is a single Rust binary with a Sphinx documentation site:
 | **License Matrix** | TOML | `config/` | License compatibility rules |
 | **Documentation** | Sphinx (RST) | `docs/` | User-facing documentation |
 | **Examples** | Multi-language | `examples/` | Test projects for each supported language |
+| **Benchmarks** | Bash + Python | `bench/` | Timing harness, pinned corpus and results behind the Performance docs page |
 | **GitHub Action** | YAML | `action.yml` | CI/CD integration for GitHub |
 | **Claude Code Skill** | Markdown | `skills/feluda/SKILL.md` | Publishable skill for license checks in any project |
 
@@ -157,6 +158,7 @@ src/
 ├── vendor_scan.rs       # Vendored/unmanaged dependency findings (default scan)
 ├── clearlydefined.rs    # Last-resort license lookup for unresolved findings
 ├── cache.rs             # GitHub license table + ClearlyDefined answer caching
+├── http_stats.rs        # Counted HTTP requests: `get` with feluda's User-Agent, FELUDA_REQUEST_STATS tally
 ├── reporter.rs          # Text/JSON/YAML/CI/gist output formatting
 ├── table.rs             # TUI mode (ratatui)
 ├── generate.rs          # NOTICE / THIRD_PARTY_LICENSES file generation
@@ -234,6 +236,8 @@ src/
 - **Five serializations in, two shapes inside.** `input::read_sbom` detects SPDX JSON, SPDX tag:value (first tag `SPDXVersion:`), SPDX 3.0 JSON-LD (an `@context` naming `spdx.org/rdf/3.`), CycloneDX JSON and CycloneDX XML (a `bom` root in the CycloneDX namespace) from the content, and maps each onto its family's JSON shape, which is all `extract_spdx`, `extract_cyclonedx` and the 2.x and CycloneDX validators ever read. SPDX 3.0 is normalized to 2.x packages (licenses followed through relationships, custom ids expanded, each package's `spdxId` kept as `SPDXID`) and has its own structural validator. The original travels alongside as `Original`, because `--sbom-enriched` writes back in the serialization that came in: tag:value and XML are patched as text (a package's `PackageLicenseConcluded` line, a component's `<licenses>` placed where the schema's sequence puts it), so every byte feluda did not resolve stays put; 3.0 gains a `CreationInfo` of feluda's own, expression elements and `hasConcludedLicense` relationships, or has an explicit "no assertion" conclusion repointed. A new serialization is a reader into one of the two shapes plus a write-back, never a third shape.
 - **SBOM license fields only state what the spec accepts.** `config/spdx_license_ids.txt` is the SPDX license list (the enum in CycloneDX's `spdx.schema.json`, embedded at build time); `spdx::listed_id` and `spdx::rewrite_expression` answer from it in the list's spelling. CycloneDX validates `license.id` against that list case sensitively, so `convert_spdx_license_to_cyclonedx` writes a listed id as `id`, a compound expression over listed licenses as `expression`, and anything else (a registry title, an id newer than the list) as `name`. SPDX accepts listed ids, expressions over them and `LicenseRef-` ids the document defines, so `sbom::spdx::spdx_license_field` turns an unlisted license into a `LicenseRef-feluda-*` defined once in `hasExtractedLicensingInfos` through `LicenseRefs` (inside an expression only the unlisted id is replaced, so `Custom-1.0 OR MIT` stays a choice; texts that fold to one id get a hash suffix). The SPDX writer applies it in `prepare_spdx_document`, on the written copy only, so CycloneDX, converted from the model, still sees the stated text. `feluda sbom`, `--sbom-enriched` and `sbom validate` all go through these functions; don't reintroduce a character set check in their place. Refresh the list with `just update-spdx-ids`, never by hand. Upstream of all this, `SpdxPackage::with_license` keeps a license `convert_to_spdx_license_expression` refuses as long as `stated_license_title` calls it plain text (ASCII letters, digits, spaces, `.,:;()[]/'+-_&`), so Maven titles with commas reach the writers instead of becoming `NOASSERTION`; quotes, backslashes, control characters, `$ { } < >` and backticks still do. Keep `convert_to_spdx_license_expression` strict: it decides what is an expression, not what is a license.
 - **Registry lookups have one home each.** `languages::resolve_license_for(ecosystem, name, version)` dispatches to the lookup its analyzer already uses. Add a new registry client to the language module, not to the dispatcher.
+- **Every outgoing request goes through `src/http_stats.rs`.** Use `http_stats::get(url)` where you would write `reqwest::blocking::get`: a bare `get` sends no User-Agent, and Maven Central's search API answers that with a 403. A request built on a client of its own is wrapped in `http_stats::send(url, || ...)` (or `send_async`), which keeps the client's settings and only counts. With `FELUDA_REQUEST_STATS=<path>` set, `main` writes a per host tally (requests, statuses, transport errors, time to headers) to that path as JSON when the run ends; unset, counting costs one `OnceLock` check. This is how request counts are measured, so a new request that bypasses it makes the counts wrong.
+- **A Python project resolves through uv first.** `resolve_with_uv` runs `uv lock --dry-run` (then reads `uv.lock`) or `uv pip compile <file>` from the project directory, so the report is what uv would install. Only when uv is missing or fails does Feluda crawl PyPI itself, to a fixed depth: it skips `requires_dist` entries behind `extra ==` (nothing asks for a transitive package's extras), asks for an exact version only when it has one, and fetches each `name@version` once per run (`PYPI_JSON`). A package's license is PEP 639's `license_expression`, then `info.license` when it is a name rather than a pasted text, then a `License ::` classifier. With and without uv the same project can report a different set, so say which one a result came from.
 - **ClearlyDefined is the exception, and deliberately not a language module.** It answers for every ecosystem at once, so it lives in `src/clearlydefined.rs` and runs as a pass over finished findings rather than inside an analyzer: `resolve_unknown_licenses(&mut findings, strict)` picks out what is still unresolved, maps it onto a ClearlyDefined coordinate, asks in one batch, and reclassifies what it fills in. Each scan source calls it once where its findings are final — the SBOM ingest before it writes the enriched copy, `scan_filesystem` after `classify_findings`, and `analyze_dependencies` at the end of the manifest branch. It returns the indices it changed, which is how the enriched SBOM knows what to write back. Only `licensed.declared` is read; the per-file scan results in the same document describe fixtures and vendored code inside the package. `[clearlydefined] definitions` swaps the service for a JSON file of definitions (the API's own shape, or bare license strings) for air gapped builds; when set, neither the endpoint nor the answer cache is touched. `--update-definitions` writes that file: the file answers first, the service answers the rest, and afterwards every finding with a coordinate is merged back in (registry answers too, since an air gapped run loses the registries as well), with service misses recorded as `NOASSERTION` placeholders. An entry that already names a license is never overwritten, and a file that exists but does not parse is left alone.
 - **A pnpm project is its lockfile.** `read_pnpm_lockfile` reads `pnpm-lock.yaml` with `serde_yaml` and takes the keys of `packages` (lockfile 5.x `/name/version`, 6.0 `/name@version(peers)`, 9.0 `name@version`), preferring an entry's own `name`/`version` for packages from outside the registry. When it parses, it is the whole answer: `pnpm list` and the `node_modules` scans only run when it does not, since they count orphans from earlier installs (#98). Node dependencies are `(name, version)` pairs, so two installed versions are two rows, and `get_license_from_pnpm_metadata` answers from that exact version's store directory (scope `/` spelled `+`) before the version blind hoisted lookup.
 - **Caching.** Two files in the user cache directory (`~/Library/Caches/feluda`, `$XDG_CACHE_HOME/feluda`, `%LOCALAPPDATA%\feluda`): `github_licenses.json` for the GitHub license table (30 days) and `clearlydefined.json` for ClearlyDefined answers (7 days, misses cached too). Both go through the generic `load_cache`/`save_cache` pair in `src/cache.rs`; `feluda cache` reports both and `--clear` removes both.
@@ -255,6 +259,8 @@ docs/
 ```
 
 Documentation is hosted on ReadTheDocs. When updating docs, place content in `docs/source/` and follow RST formatting.
+
+`docs/source/performance.rst` and its charts in `docs/source/_static/benchmarks/` are generated by `bench/harness/docs_page.py` from `bench/results/`. Each chart comes in a light and a `_dark` variant, shown through Shibuya's `light-only` / `dark-only` classes. Change the page's prose in `bench/report/performance.rst.tmpl` and regenerate; an edit to `performance.rst` itself is lost on the next run. `bench/README.md` covers the harness.
 
 ---
 
@@ -296,6 +302,8 @@ just clean          # Remove build artifacts
 just setup          # Configure git hooks
 just update-spdx-ids  # Refresh config/spdx_license_ids.txt from CycloneDX's schema
 just install        # Build + install to /usr/local/bin
+just bench-page     # Rebuild the Performance docs page from bench/results (no network)
+just bench          # Run the whole benchmark study (hours; needs BENCH_WORK, see bench/README.md)
 ```
 
 ### Building from Source
@@ -487,6 +495,7 @@ feluda --debug                            # Enable debug logging
 | `justfile` | All development task commands |
 | `.feluda.toml` | User configuration (restrictive overrides, ignores, custom licenses, ClearlyDefined toggle, SBOM spec versions) |
 | `skills/feluda/SKILL.md` | Claude Code skill — install in any project to get auto license checks |
+| `bench/README.md` | Benchmark harness: setup, running cells, regenerating the Performance page |
 
 ---
 
@@ -549,6 +558,9 @@ feluda --debug                            # Enable debug logging
 - **License expressions in SBOMs have no length limit.** Neither SPDX nor CycloneDX sets one, and a long expression is usually a package bundling many licensed components. The old 100 and 200 character caps replaced real expressions with `NOASSERTION` (#257); don't add a length check back to `convert_to_spdx_license_expression` or the package validation in `src/sbom/spdx.rs`.
 - **SPDX timestamps are whole seconds.** SPDX 2.x requires `YYYY-MM-DDThh:mm:ssZ`, and the reference SPDX tools reject chrono's default fractional seconds outright. `DateTime` fields in `src/sbom/spdx.rs` go through `#[serde(with = "spdx_timestamp")]`; a new one has to as well. Check SPDX output with `pyspdxtools -i` (from `pip install spdx-tools`), which also catches undefined `LicenseRef-` ids that a JSON schema cannot.
 - **Top level errors print only under `--debug`.** `FeludaError::log` goes through the debug logger, so an error returned from `run()` exits 1 silently. Validation that a user needs to see prints its own `❌` line on stderr before returning (see `input_error` in `src/sbom/ingest.rs`, `usage_error` in `src/clearlydefined.rs`).
+- **A C or C++ project reports only what its build declares.** Host tools (`pkg-config`, dpkg, `/usr/share/doc`) may answer questions about a package the build names, such as its license or its `Requires`, but never supply the list itself: the old `pkg-config --list-all` fallback for a Makefile that declares nothing reported the scanning machine's libraries as the project's dependencies. A `-l` linker flag counts only at the start of a word, so `golangci-lint`, `--locale` and `--lastname` are not libraries.
+- **`dotnet list package` repeats packages.** At a solution root it lists each package once per project and once per target framework (RestSharp: 4,768 lines for 351 packages). `parse_dotnet_list_output` keeps each name and version once; keep it that way, or every repeat is looked up again.
+- **`npm view <name>@<range> license --json` can answer with an array**, one entry per matching version, oldest first. `license_from_npm_view_output` takes the last (newest) entry and also reads an object's `type`; JSON text is never a license.
 - **The `--debug` flag controls logging.** All `log()`, `log_debug()`, `log_error()` calls in `src/debug.rs` are no-ops unless `--debug` is active.
 - **`reqwest` is in blocking mode.** Despite `tokio` being a dependency, HTTP calls use `reqwest::blocking`. This is intentional for CLI simplicity.
 - **The ClearlyDefined API needs HTTP/1.1.** It accepts an HTTP/2 POST and never answers it, so its client sets `http1_only()`. It also intermittently hangs on HTTP/1.1 (accepts the request, never responds), which is why that client has a short timeout, one retry on a fresh connection, and gives up on the run after a batch fails twice. Don't remove either without testing against the live service.
@@ -557,6 +569,7 @@ feluda --debug                            # Enable debug logging
 - **Configuration validation is strict.** Duplicate licenses in restrictive/ignore lists, empty license strings, and licenses appearing in both lists are caught. See `src/config.rs`.
 - **GitHub Action (`action.yml`)** uses the published crate, not a source build. Keep it in sync with CLI changes.
 - **`plan/` is gitignored.** Local planning only — never commit anything in it.
+- **The benchmark corpus is untrusted code.** `bench/` clones the public repositories pinned in `bench/corpus/repos.toml`; the harness never runs their scripts, build wrappers or tests (rules in `bench/README.md`), and a change to it must keep it that way. The synthetic ladder is committed as `bench/corpus/synthetic.tar.gz`, not as files, so its lockfiles stay out of GitHub's dependency graph; unpack it into `$BENCH_WORK`, never into the repository.
 
 ---
 

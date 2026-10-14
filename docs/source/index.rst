@@ -210,6 +210,7 @@ Have a session to share? `Open a PR <https://github.com/anistark/feluda/edit/mai
    contributing/index
    contributing/setup
    contributing/testing
+   performance
    contributing/architecture
    contributing/license-matrix
    contributing/adding-languages

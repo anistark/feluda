@@ -252,7 +252,7 @@ fn crates_io_license(
     url: &str,
     path: &[&str],
 ) -> Option<String> {
-    let response = client.get(url).send().ok()?;
+    let response = crate::http_stats::send(url, || client.get(url).send()).ok()?;
     if !response.status().is_success() {
         return None;
     }

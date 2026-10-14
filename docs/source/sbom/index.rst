@@ -18,7 +18,7 @@ Security teams expect an SBOM at every release, and Feluda can emit both SPDX an
 
 Feluda also reads them. An SPDX or CycloneDX document from syft, Trivy, cdxgen, Yocto or a vendor
 can be analysed directly, which is how you cover a shipped container image rather than a source
-tree. SPDX is read as JSON, tag:value or 3.0 JSON-LD, and CycloneDX as JSON or XML. See
+tree. SPDX is read as JSON, tag\:value or 3.0 JSON-LD, and CycloneDX as JSON or XML. See
 :ref:`sbom-ingest`.
 
 A filesystem or an image can be catalogued directly too, with no other tool involved:
@@ -60,7 +60,7 @@ Choosing the Right Format
    * - Format
      - Use when
      - Contains
-   * - SPDX 2.3 (or 2.2, as JSON or tag:value)
+   * - SPDX 2.3 (or 2.2, as JSON or tag\:value)
      - Sharing with open-source offices, regulators, or vulnerability scanners.
      - Dependency list, licenses, SPDX identifiers, and Feluda metadata.
    * - SPDX 3.0
@@ -116,7 +116,7 @@ To pin versions for a project, set them in ``.feluda.toml``; a flag still wins o
        mapped to a ``simplelicensing_SimpleLicensingText``. ``NOASSERTION`` is no relationship at
        all, which is how SPDX 3 says it. The SBOM element's ``software_sbomType`` is ``source``
        for a project scan and ``analyzed`` for ``--filesystem`` or ``--image-archive``. There is no
-       tag:value for 3.0.
+       tag\:value for 3.0.
    * - SPDX 2.3
      - The default.
    * - SPDX 2.2

@@ -5,6 +5,7 @@ mod config;
 mod debug;
 mod filesystem;
 mod generate;
+mod http_stats;
 mod image;
 mod init;
 mod languages;
@@ -84,12 +85,11 @@ fn main() {
         return;
     }
 
-    match run() {
-        Ok(_) => {}
-        Err(e) => {
-            e.log();
-            process::exit(1);
-        }
+    let result = run();
+    http_stats::write();
+    if let Err(e) = result {
+        e.log();
+        process::exit(1);
     }
 }
 
@@ -800,6 +800,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
                 LogLevel::Warn,
                 "Exiting with non-zero status due to license issues",
             );
+            http_stats::write();
             process::exit(1);
         }
     }
