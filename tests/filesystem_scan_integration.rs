@@ -157,6 +157,25 @@ fn opensuse_rootfs() -> tempfile::TempDir {
     temp
 }
 
+/// A RHEL 8 era root filesystem, which keeps its rpm database in the Berkeley DB the image ships.
+fn rocky_rootfs() -> tempfile::TempDir {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    write(
+        temp.path(),
+        "etc/os-release",
+        "NAME=\"Rocky Linux\"\nID=\"rocky\"\nVERSION_ID=\"8.9\"\n",
+    );
+
+    let database = temp.path().join("var/lib/rpm");
+    fs::create_dir_all(&database).expect("failed to create rpm directory");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rpm/Packages"),
+        database.join("Packages"),
+    )
+    .expect("failed to copy the rpm fixture");
+    temp
+}
+
 /// A Debian root filesystem with a dpkg database and the copyright files it points at.
 fn debian_rootfs() -> tempfile::TempDir {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
@@ -793,11 +812,32 @@ fn opensuse_rootfs_is_cataloged_from_the_ndb_store() {
 }
 
 #[test]
-fn an_unsupported_rpm_backend_names_itself() {
-    // A CentOS 7 image. Reporting nothing installed would read as a clean scan of a machine with
-    // several hundred packages on it, which is the failure this message exists to prevent.
+fn rocky_rootfs_is_cataloged_from_the_berkeley_db_store() {
+    let temp = rocky_rootfs();
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+
+    // Nine headers, less the gpg-pubkey pseudo package the image's signing key becomes.
+    assert_eq!(report.len(), 8);
+    assert!(!report.iter().any(|entry| entry["name"]
+        .as_str()
+        .is_some_and(|name| name.contains("gpg-pubkey"))));
+
+    let libzstd = find(&report, "rocky/libzstd");
+    assert_eq!(libzstd["ecosystem"], "rpm");
+    assert_eq!(libzstd["version"], "1.4.4-1.el8");
+    assert_eq!(libzstd["purl"], "pkg:rpm/rocky/libzstd@1.4.4-1.el8?arch=aarch64&distro=rocky-8.9&upstream=zstd-1.4.4-1.el8.src.rpm");
+    // RHEL 8 era packages still spell their licenses the old way, and a bare `BSD` is left as the
+    // package stated it.
+    assert_eq!(libzstd["license"], "BSD AND GPL-2.0-only");
+}
+
+#[test]
+fn a_corrupt_rpm_database_names_its_backend() {
+    // Reporting nothing installed would read as a clean scan of a machine with several hundred
+    // packages on it, which is the failure this message exists to prevent.
     let temp = tempfile::tempdir().unwrap();
-    write(temp.path(), "etc/os-release", "ID=centos\n");
+    write(temp.path(), "etc/os-release", "ID=rocky\n");
     write(
         temp.path(),
         "var/lib/rpm/Packages",
@@ -808,7 +848,7 @@ fn an_unsupported_rpm_backend_names_itself() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Berkeley DB") && stderr.contains("sqlite") && stderr.contains("ndb"),
+        stderr.contains("Packages") && stderr.contains("Berkeley DB"),
         "unexpected stderr: {stderr}"
     );
 }

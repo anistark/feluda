@@ -262,10 +262,11 @@ RPM Database Backends
 ---------------------
 
 rpm keeps its packages in a binary store, and which store depends on the rpm that built the image.
-Feluda reads two of the three: sqlite, which rpm has defaulted to since 4.16 and which every Fedora
-and RHEL derived distribution still in support uses, and ndb, rpm's own format and the one SUSE
-builds with. Both hold the same package headers, so a SUSE image and a Fedora image come out the
-same way.
+Feluda reads all three: sqlite, which rpm has defaulted to since 4.16 and which every Fedora and
+RHEL derived distribution still in support uses; ndb, rpm's own format and the one SUSE builds
+with; and Berkeley DB, which RHEL 8, Rocky Linux 8, AlmaLinux 8 and the ``ubi8`` images ship.
+They hold the same package headers, so a SUSE image, a Fedora image and a RHEL 8 image come out
+the same way.
 
 .. list-table::
    :header-rows: 1
@@ -282,7 +283,7 @@ same way.
      - Read, covering SUSE Linux Enterprise and openSUSE
    * - ``Packages``
      - Berkeley DB
-     - Reported by name, used by CentOS 7, RHEL 8 and Amazon Linux 2
+     - Read, covering RHEL 8, Rocky Linux 8, AlmaLinux 8 and the ``ubi8`` images
 
 The rpm directory is ``/var/lib/rpm``, or ``/usr/lib/sysimage/rpm`` on distributions that have moved
 it under ``/usr`` and left a symlink behind. Both are looked in, so a tree copied without its
@@ -341,9 +342,9 @@ The same source feeds the document writers:
 Not Yet Covered
 ---------------
 
-Installed Ruby gemspecs and jars are not catalogued yet, and neither is the Berkeley DB rpm backend
-above. :ref:`cli-containers` lists both gaps and where they show up. Until they are
-closed, pipe syft's output through :ref:`sbom-ingest` for those cases:
+Installed Ruby gemspecs and jars are not catalogued yet. :ref:`cli-containers` lists that gap and
+where it shows up. Until it is closed, pipe syft's output through :ref:`sbom-ingest` for those
+cases:
 
 .. code-block:: bash
 
