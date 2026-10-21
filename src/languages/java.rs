@@ -628,11 +628,6 @@ pub(crate) fn fetch_maven_license(group_id: &str, artifact_id: &str, version: &s
         return license;
     }
 
-    // Fallback: Maven Central search API
-    if let Some(license) = fetch_license_from_search_api(group_id, artifact_id) {
-        return license;
-    }
-
     // Local fallback: read the license text bundled inside the cached jar.
     if let Some(license) = fetch_license_from_local_jar(group_id, artifact_id, version) {
         return license;
@@ -865,29 +860,6 @@ fn fetch_latest_version(group_id: &str, artifact_id: &str) -> Option<String> {
         .as_array()?
         .first()
         .and_then(|doc| doc["latestVersion"].as_str())
-        .map(String::from)
-}
-
-fn fetch_license_from_search_api(group_id: &str, artifact_id: &str) -> Option<String> {
-    let url = format!(
-        "https://search.maven.org/solrsearch/select?q=g:{group_id}+AND+a:{artifact_id}&rows=1&wt=json"
-    );
-
-    log(
-        LogLevel::Info,
-        &format!("Querying Maven Central search for {group_id}:{artifact_id}"),
-    );
-
-    let response = crate::http_stats::get(&url).ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-
-    let json: serde_json::Value = response.json().ok()?;
-    json["response"]["docs"]
-        .as_array()?
-        .first()
-        .and_then(|doc| doc["p"].as_str().or(doc["packaging"].as_str()))
         .map(String::from)
 }
 
@@ -1505,5 +1477,46 @@ dependencies {
             "31.1-jre"
         );
         assert_eq!(resolve_gradle_variable("1.0.0", &props), "1.0.0");
+    }
+
+    #[test]
+    fn test_fetch_maven_license_falls_through_to_local_jar() {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+
+        let temp_dir = TempDir::new().unwrap();
+        let jar_dir = temp_dir.path().join("com/example/nolocalpom/1.0.0");
+        fs::create_dir_all(&jar_dir).unwrap();
+        let jar_path = jar_dir.join("nolocalpom-1.0.0.jar");
+        let file = fs::File::create(&jar_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("META-INF/LICENSE", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"MIT License\n\nCopyright (c) 2024 Example")
+            .unwrap();
+        zip.finish().unwrap();
+
+        temp_env::with_var(
+            "MAVEN_REPO_LOCAL",
+            Some(temp_dir.path().to_str().unwrap()),
+            || {
+                let license = fetch_maven_license("com.example", "nolocalpom", "1.0.0");
+                assert_eq!(license, "MIT");
+            },
+        );
+    }
+
+    #[test]
+    fn test_fetch_maven_license_unknown_when_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        temp_env::with_var(
+            "MAVEN_REPO_LOCAL",
+            Some(temp_dir.path().to_str().unwrap()),
+            || {
+                let license =
+                    fetch_maven_license("com.example.nonexistent", "nonexistent-pkg", "1.0.0");
+                assert_eq!(license, "Unknown");
+            },
+        );
     }
 }
