@@ -812,10 +812,11 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
 fn handle_cache_command(clear: bool) -> FeludaResult<()> {
     if clear {
-        cache::clear_github_licenses_cache()?;
+        cache::clear_all_caches()?;
         println!("✓ Cache cleared successfully\n");
     } else {
         cache::get_cache_status()?.print_status();
+        cache::get_osi_cache_status()?.print_status();
         cache::get_clearlydefined_cache_status()?.print_status();
     }
     Ok(())
