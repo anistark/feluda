@@ -110,13 +110,18 @@ fn prepare(home: &std::path::Path) -> String {
 }
 
 fn feluda(home: &std::path::Path, sbom: &str, endpoint: &str, stats: &str) -> Output {
+    std::fs::write(
+        home.join(".feluda.toml"),
+        format!("[osi]\nendpoint = {endpoint:?}\n"),
+    )
+    .expect("failed to write OSI endpoint config");
     Command::new(env!("CARGO_BIN_EXE_feluda"))
         .args(["--sbom-input", sbom, "--json"])
+        .current_dir(home)
         .env("HOME", home)
         .env("XDG_CACHE_HOME", home.join("cache"))
         .env("LOCALAPPDATA", home.join("cache"))
         .env("FELUDA_CLEARLYDEFINED_ENABLED", "false")
-        .env("FELUDA_OSI_LICENSES_ENDPOINT", endpoint)
         .env("FELUDA_REQUEST_STATS", stats)
         .output()
         .expect("failed to run feluda")
@@ -190,7 +195,6 @@ fn a_failed_fetch_without_cache_warns_and_keeps_json_output_valid() {
     assert!(stderr.contains("Could not load OSI license data"));
     assert!(stderr.contains("503 Service Unavailable"));
     assert!(stderr.contains("may read Unknown"));
-    assert_eq!(stderr.lines().count(), 1);
     assert_eq!(stub.request_count(), 1);
 }
 
@@ -206,12 +210,64 @@ fn a_failed_refresh_uses_the_stale_cache() {
     );
     let stub = Stub::start("503 Service Unavailable", "unavailable");
     let stats = temp.path().join("stats.json");
+    let retry_stats = temp.path().join("retry-stats.json");
 
     let output = feluda(temp.path(), &sbom, &stub.endpoint, &stats.to_string_lossy());
     assert_eq!(report(&output)[0]["osi_status"], "Approved");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("using the stale cache"));
-    assert_eq!(stderr.lines().count(), 1);
+    assert_eq!(stub.request_count(), 1);
+
+    let retry = feluda(
+        temp.path(),
+        &sbom,
+        &stub.endpoint,
+        &retry_stats.to_string_lossy(),
+    );
+    assert_eq!(report(&retry)[0]["osi_status"], "Approved");
+    assert_eq!(total_requests(&retry_stats), 0);
+    assert_eq!(stub.request_count(), 1);
+}
+
+#[test]
+fn an_empty_successful_response_is_not_cached() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let sbom = prepare(temp.path());
+    let stub = Stub::start("200 OK", "[]");
+    let stats = temp.path().join("stats.json");
+
+    let output = feluda(temp.path(), &sbom, &stub.endpoint, &stats.to_string_lossy());
+    assert_eq!(report(&output)[0]["osi_status"], "Unknown");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("no approved licenses"));
+    assert_eq!(stub.request_count(), 1);
+    assert!(!cache_dir(temp.path()).join("osi_licenses.json").exists());
+}
+
+#[test]
+fn a_successful_refresh_replaces_the_stale_cache() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let sbom = prepare(temp.path());
+    let stale_timestamp = now_secs() - THIRTY_ONE_DAYS;
+    write_cache(
+        temp.path(),
+        "osi_licenses.json",
+        json!({"EPL-2.0": "NotApproved"}),
+        stale_timestamp,
+    );
+    let stub = Stub::start("200 OK", OSI_RESPONSE);
+    let stats = temp.path().join("stats.json");
+
+    let output = feluda(temp.path(), &sbom, &stub.endpoint, &stats.to_string_lossy());
+    assert_eq!(report(&output)[0]["osi_status"], "Approved");
+    assert_eq!(stub.request_count(), 1);
+
+    let cache: Value = serde_json::from_slice(
+        &std::fs::read(cache_dir(temp.path()).join("osi_licenses.json"))
+            .expect("refreshed OSI cache is missing"),
+    )
+    .expect("refreshed OSI cache is invalid JSON");
+    assert_eq!(cache["data"]["EPL-2.0"], "Approved");
+    assert!(cache["timestamp"].as_u64().unwrap() > stale_timestamp);
 }
 
 #[test]

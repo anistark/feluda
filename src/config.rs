@@ -72,6 +72,8 @@ pub struct FeludaConfig {
     #[serde(default)]
     pub clearlydefined: ClearlyDefinedConfig,
     #[serde(default)]
+    pub osi: OsiConfig,
+    #[serde(default)]
     pub sbom: SbomConfig,
     #[serde(default)]
     pub strict: bool,
@@ -145,6 +147,29 @@ impl Default for ClearlyDefinedConfig {
     }
 }
 
+/// Configuration for the Open Source Initiative approval-list lookup.
+///
+/// `endpoint` can point at a mirror or proxy instead of the public OSI API. As with the rest of
+/// Feluda's configuration, `FELUDA_OSI_ENDPOINT` overrides `.feluda.toml`.
+///
+/// ```toml
+/// [osi]
+/// endpoint = "https://opensource.org/api/licenses"
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OsiConfig {
+    #[serde(default = "default_osi_endpoint")]
+    pub endpoint: String,
+}
+
+impl Default for OsiConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: default_osi_endpoint(),
+        }
+    }
+}
+
 /// Which spec version `feluda sbom` writes when no flag names one.
 ///
 /// ```toml
@@ -169,6 +194,10 @@ fn default_true() -> bool {
 
 fn default_clearlydefined_endpoint() -> String {
     "https://api.clearlydefined.io/definitions".to_string()
+}
+
+fn default_osi_endpoint() -> String {
+    "https://opensource.org/api/licenses".to_string()
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -719,6 +748,34 @@ max_depth = 5"#,
     }
 
     #[test]
+    fn test_osi_endpoint_from_toml_and_env() {
+        temp_env::with_var("FELUDA_OSI_ENDPOINT", None::<&str>, || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.osi.endpoint, "https://opensource.org/api/licenses");
+
+            fs::write(
+                ".feluda.toml",
+                "[osi]\nendpoint = \"https://osi.example.test/licenses\"\n",
+            )
+            .unwrap();
+            let config = load_config().unwrap();
+            assert_eq!(config.osi.endpoint, "https://osi.example.test/licenses");
+
+            temp_env::with_var(
+                "FELUDA_OSI_ENDPOINT",
+                Some("https://osi-env.example.test/licenses"),
+                || {
+                    let config = load_config().unwrap();
+                    assert_eq!(config.osi.endpoint, "https://osi-env.example.test/licenses");
+                },
+            );
+        });
+    }
+
+    #[test]
     fn test_unsupported_sbom_version_is_rejected() {
         temp_env::with_var("FELUDA_SBOM_SPDX", None::<&str>, || {
             let dir = setup();
@@ -946,6 +1003,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
     fn test_config_serialization() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            osi: OsiConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
@@ -1301,6 +1359,7 @@ match_all = ["Cal.com, Inc."]
     fn test_feluda_config_validation_success() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            osi: OsiConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
@@ -1320,6 +1379,7 @@ match_all = ["Cal.com, Inc."]
     fn test_feluda_config_validation_license_failure() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            osi: OsiConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
@@ -1344,6 +1404,7 @@ match_all = ["Cal.com, Inc."]
     fn test_feluda_config_validation_dependency_failure() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            osi: OsiConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
@@ -1778,6 +1839,7 @@ reason = "All versions ignored"
     fn test_feluda_config_with_dependency_ignore() {
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
+            osi: OsiConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {

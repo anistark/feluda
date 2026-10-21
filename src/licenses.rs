@@ -505,8 +505,6 @@ async fn fetch_licenses_concurrent(
     licenses_map
 }
 
-const OSI_LICENSES_URL: &str = "https://opensource.org/api/licenses";
-const OSI_LICENSES_ENDPOINT_ENV: &str = "FELUDA_OSI_LICENSES_ENDPOINT";
 const BUILTIN_OSI_LICENSE_IDS: &[&str] = &[
     "MIT",
     "Apache-2.0",
@@ -525,28 +523,27 @@ const BUILTIN_OSI_LICENSE_IDS: &[&str] = &[
 static OSI_LICENSES: OnceLock<HashMap<String, OsiStatus>> = OnceLock::new();
 
 fn builtin_osi_licenses() -> HashMap<String, OsiStatus> {
-    BUILTIN_OSI_LICENSE_IDS
-        .iter()
-        .map(|id| ((*id).to_string(), OsiStatus::Approved))
-        .collect()
+    with_builtin_osi_licenses(HashMap::new())
 }
 
-fn osi_licenses_endpoint() -> String {
-    std::env::var(OSI_LICENSES_ENDPOINT_ENV)
-        .ok()
-        .filter(|endpoint| !endpoint.is_empty())
-        .unwrap_or_else(|| OSI_LICENSES_URL.to_string())
+fn with_builtin_osi_licenses(
+    mut licenses: HashMap<String, OsiStatus>,
+) -> HashMap<String, OsiStatus> {
+    for id in BUILTIN_OSI_LICENSE_IDS {
+        licenses.insert((*id).to_string(), OsiStatus::Approved);
+    }
+    licenses
 }
 
 /// Load OSI approved licenses from cache or refresh them from the official API.
-pub fn fetch_osi_licenses() -> FeludaResult<HashMap<String, OsiStatus>> {
+pub fn fetch_osi_licenses() -> HashMap<String, OsiStatus> {
     let stale = match cache::load_osi_licenses_from_cache() {
         Ok(Some(cache::CacheLookup::Fresh(licenses))) => {
             log(
                 LogLevel::Info,
                 &format!("Using cached OSI licenses ({})", licenses.len()),
             );
-            return Ok(licenses);
+            return with_builtin_osi_licenses(licenses);
         }
         Ok(Some(cache::CacheLookup::Stale(licenses))) => Some(licenses),
         Ok(None) => None,
@@ -559,22 +556,32 @@ pub fn fetch_osi_licenses() -> FeludaResult<HashMap<String, OsiStatus>> {
         }
     };
 
-    match fetch_osi_licenses_from_api() {
+    match cli::with_spinner("Fetching OSI license data", |_| {
+        fetch_osi_licenses_from_api()
+    }) {
         Ok(licenses) => {
+            let licenses = with_builtin_osi_licenses(licenses);
             if let Err(err) = cache::save_osi_licenses_to_cache(&licenses) {
                 log(
                     LogLevel::Warn,
                     &format!("Failed to save OSI license cache: {err}"),
                 );
             }
-            Ok(licenses)
+            licenses
         }
         Err(err) => {
             let fallback = match stale {
                 Some(licenses) => {
+                    let licenses = with_builtin_osi_licenses(licenses);
                     eprintln!(
                         "⚠️ Could not refresh OSI license data ({err}); using the stale cache, so some OSI statuses may be outdated or Unknown."
                     );
+                    if let Err(cache_err) = cache::defer_osi_refresh(&licenses) {
+                        log(
+                            LogLevel::Warn,
+                            &format!("Failed to defer the next OSI refresh: {cache_err}"),
+                        );
+                    }
                     licenses
                 }
                 None => {
@@ -584,7 +591,7 @@ pub fn fetch_osi_licenses() -> FeludaResult<HashMap<String, OsiStatus>> {
                     builtin_osi_licenses()
                 }
             };
-            Ok(fallback)
+            fallback
         }
     }
 }
@@ -592,7 +599,7 @@ pub fn fetch_osi_licenses() -> FeludaResult<HashMap<String, OsiStatus>> {
 /// Fetch OSI approved licenses from the configured API (single request, no async needed).
 fn fetch_osi_licenses_from_api() -> FeludaResult<HashMap<String, OsiStatus>> {
     log(LogLevel::Info, "Fetching OSI approved licenses");
-    let endpoint = osi_licenses_endpoint();
+    let endpoint = config::load_config()?.osi.endpoint;
     let client = reqwest::blocking::Client::builder()
         .user_agent("feluda-license-checker/1.0")
         .timeout(Duration::from_secs(30))
@@ -640,11 +647,7 @@ fn get_osi_licenses() -> &'static HashMap<String, OsiStatus> {
         if cfg!(test) {
             builtin_osi_licenses()
         } else {
-            fetch_osi_licenses().unwrap_or_else(|e| {
-                log(LogLevel::Warn, &format!("Failed to load OSI licenses: {e}"));
-                log(LogLevel::Warn, "Continuing without OSI license information");
-                HashMap::new()
-            })
+            fetch_osi_licenses()
         }
     })
 }
@@ -663,7 +666,6 @@ fn get_osi_status_single(license_id: &str) -> OsiStatus {
     }
 
     match normalized_id.as_str() {
-        id if BUILTIN_OSI_LICENSE_IDS.contains(&id) => OsiStatus::Approved,
         "No License" => OsiStatus::NotApproved,
         _ => OsiStatus::Unknown,
     }

@@ -95,7 +95,7 @@ Feluda's speed depends on two kinds of state, and the scenarios below vary them 
    :widths: 22 39 39
 
    * - Scenario
-     - Feluda's cache (GitHub and OSI license tables, ClearlyDefined answers)
+     - Feluda's cache (GitHub license table and ClearlyDefined answers)
      - Package manager state (``node_modules``, Cargo and Go module caches, ...)
    * - ``cold``
      - empty
@@ -213,7 +213,7 @@ Feluda's cache. At 100 direct dependencies:
 @@SCENARIO_ROWS@@
 
 - **Feluda's cache** saves a near constant @@CACHE_SAVE_RUST@@ s (Rust), @@CACHE_SAVE_NODE@@ s (Node) and @@CACHE_SAVE_PYTHON@@ s (Python)
-  at this size: the GitHub and OSI license tables.
+  at this size: the GitHub license table.
 - **Installed dependencies** save @@INSTALL_SAVE_RUST@@ s (Rust), @@INSTALL_SAVE_NODE@@ s (Node) and @@INSTALL_SAVE_PYTHON@@ s (Python),
   because licenses are then read from files on disk instead of fetched.
 - **Offline**, Rust scans fully in @@OFFLINE_RUST@@ s and Python reports all @@OFFLINE_PY_DEPS@@ dependencies in @@OFFLINE_PY@@ s.

@@ -16,6 +16,7 @@ const CACHE_SUBDIR: &str = "feluda";
 const GITHUB_LICENSES_CACHE_FILE: &str = "github_licenses.json";
 const OSI_LICENSES_CACHE_FILE: &str = "osi_licenses.json";
 const CACHE_TTL_SECS: u64 = 30 * 24 * 60 * 60; // 30 days
+const OSI_REFRESH_RETRY_SECS: u64 = 6 * 60 * 60; // 6 hours
 
 /// ClearlyDefined answers are cached separately and expire sooner: the GitHub table is the SPDX
 /// license list, which barely moves, while ClearlyDefined definitions gain curations continuously.
@@ -167,12 +168,20 @@ fn load_cache<T: serde::de::DeserializeOwned>(
 }
 
 fn save_cache<T: serde::Serialize>(path: &Path, data: &HashMap<String, T>) -> FeludaResult<()> {
-    ensure_cache_dir()?;
-
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+
+    save_cache_with_timestamp(path, data, timestamp)
+}
+
+fn save_cache_with_timestamp<T: serde::Serialize>(
+    path: &Path,
+    data: &HashMap<String, T>,
+    timestamp: u64,
+) -> FeludaResult<()> {
+    ensure_cache_dir()?;
 
     let json = match serde_json::to_string_pretty(&serde_json::json!({
         "version": CACHE_VERSION,
@@ -215,6 +224,19 @@ pub(crate) fn load_osi_licenses_from_cache() -> FeludaResult<Option<CacheLookup<
 
 pub fn save_osi_licenses_to_cache(licenses: &HashMap<String, OsiStatus>) -> FeludaResult<()> {
     save_cache(&osi_cache_path()?, licenses)
+}
+
+/// Keep a stale OSI table usable for a short retry window after a failed refresh.
+///
+/// The entry remains old enough to become stale again after six hours, rather than postponing the
+/// next refresh for the full 30-day cache lifetime.
+pub(crate) fn defer_osi_refresh(licenses: &HashMap<String, OsiStatus>) -> FeludaResult<()> {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let timestamp = now.saturating_sub(CACHE_TTL_SECS - OSI_REFRESH_RETRY_SECS);
+    save_cache_with_timestamp(&osi_cache_path()?, licenses, timestamp)
 }
 
 /// Declared licenses ClearlyDefined answered with, keyed by coordinate.
