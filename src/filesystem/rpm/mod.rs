@@ -8,17 +8,20 @@
 //! |---|---|---|
 //! | `rpmdb.sqlite` | sqlite | Fedora 33+, RHEL 9+, and everything built from them |
 //! | `Packages.db` | ndb | SUSE and openSUSE |
-//! | `Packages` | Berkeley DB | CentOS 7, RHEL 8, Amazon Linux 2 |
+//! | `Packages` | Berkeley DB | CentOS 7, RHEL 8 and its rebuilds, Amazon Linux 2 |
 //!
-//! sqlite and ndb are read. sqlite is the rpm default since 4.16 and covers every Fedora and RHEL
-//! derived distribution still in support; ndb is what SUSE builds with. Both hand back the same
-//! header blobs, so only the storage layer differs and `header.rs` serves both. Berkeley DB is
-//! detected and reported by name rather than as an empty scan, so an image this cannot read never
-//! looks like an image with nothing installed.
+//! sqlite, ndb and Berkeley DB are read. sqlite is the rpm default since 4.16 and covers every
+//! Fedora and RHEL derived distribution still in support; ndb is what SUSE builds with; Berkeley DB
+//! is what RHEL 8 and its rebuilds ship — and what CentOS 7 and Amazon Linux 2 still ship on rpm
+//! 4.11 — which is why it is read rather than reported. All three hand
+//! back the same header blobs, so only the storage layer differs and `header.rs` serves all of them.
+//! A database in a backend this cannot read is reported by name rather than as an empty scan, so an
+//! image it cannot read never looks like an image with nothing installed.
 //!
 //! The license side is easier than dpkg's: an rpm header carries a `License` tag, so there is no
 //! copyright file to find and nothing to match against free text.
 
+mod bdb;
 mod header;
 mod license;
 mod ndb;
@@ -99,15 +102,7 @@ pub fn catalog(root: &Path, namespace: Option<&str>) -> FeludaResult<Option<Cata
             sqlite::Database::open(&file)?.column_values(PACKAGES_TABLE, BLOB_COLUMN)?
         }
         Backend::Ndb => ndb::Database::open(&file)?.blobs()?,
-        Backend::BerkeleyDb => {
-            return Err(backend_error(format!(
-                "The rpm database at {} uses the {} backend, which feluda cannot read \
-                 (the sqlite and ndb backends are supported). Catalog this image with syft and \
-                 scan the result with --sbom-input instead.",
-                file.display(),
-                backend.name()
-            )));
-        }
+        Backend::BerkeleyDb => bdb::Database::open(&file)?.blobs()?,
     };
     let vendor = namespace.map(vendor);
     let catalog = build(&blobs, vendor.as_deref());
@@ -243,6 +238,12 @@ mod tests {
         fixture_rootfs("Packages.db")
     }
 
+    /// A Berkeley DB store rpm itself wrote inside `rockylinux:8`: six headers written, two of them
+    /// erased, so four packages are left.
+    fn rocky_rootfs() -> tempfile::TempDir {
+        fixture_rootfs("Packages")
+    }
+
     #[test]
     fn test_vendor_namespace() {
         assert_eq!(vendor("rhel"), "redhat");
@@ -332,13 +333,87 @@ mod tests {
     }
 
     #[test]
-    fn test_berkeley_db_names_its_backend() {
-        // A CentOS 7 image. Reporting nothing would look like a clean scan.
+    fn test_a_corrupt_berkeley_db_names_its_backend() {
+        // A database that cannot be read must not read as a clean scan of an empty machine.
         let temp = rootfs("Packages", b"\x00\x05\x16\x61 not really bdb");
         let error = catalog(temp.path(), Some("centos")).unwrap_err();
         assert!(
             error.to_string().contains("Berkeley DB"),
             "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn test_reads_the_berkeley_db_fixture() {
+        let temp = rocky_rootfs();
+        let catalog = catalog(temp.path(), Some("rocky"))
+            .unwrap()
+            .expect("database is present");
+
+        // Four packages: six headers were written into the store and two were erased from it.
+        assert_eq!(catalog.packages.len(), 4);
+        assert!(
+            !catalog
+                .packages
+                .iter()
+                .any(|package| package.name.contains("gpg-pubkey")),
+            "gpg-pubkey should not be reported as a package"
+        );
+
+        let gzip = catalog
+            .packages
+            .iter()
+            .find(|package| package.name == "rocky/gzip")
+            .expect("gzip missing");
+        assert_eq!(gzip.version, "1.9-15.el8_10");
+        // EL8 writes its licenses the old way. Only the operator is rewritten, and the second
+        // license of a compound expression survives as rpm stated it.
+        assert_eq!(gzip.license.as_deref(), Some("GPL-3.0-or-later AND GFDL"));
+        assert_eq!(
+            gzip.purl().as_deref(),
+            Some(
+                "pkg:rpm/rocky/gzip@1.9-15.el8_10?arch=aarch64&upstream=gzip-1.9-15.el8_10.src.rpm"
+            )
+        );
+
+        for package in &catalog.packages {
+            assert!(package.license.is_some(), "{} has no license", package.name);
+        }
+    }
+
+    #[test]
+    fn test_a_berkeley_db_license_expression_survives() {
+        let temp = rocky_rootfs();
+        let catalog = catalog(temp.path(), Some("rocky")).unwrap().unwrap();
+        let wheel = catalog
+            .packages
+            .iter()
+            .find(|package| package.name == "rocky/python3-pip-wheel")
+            .expect("python3-pip-wheel missing");
+        // Grouping is kept, because flattening it would offer a different set of licenses than the
+        // package states.
+        assert_eq!(
+            wheel.license.as_deref(),
+            Some(
+                "MIT AND Python-2.0 AND Apache-2.0 AND BSD AND ISC AND LGPL-2.0-only AND MPL-2.0 \
+                 AND (Apache-2.0 OR BSD)"
+            )
+        );
+    }
+
+    #[test]
+    fn test_berkeley_db_headers_carry_their_file_lists() {
+        // The ownership dedupe needs the file list, and it comes out of the same header parser
+        // whichever store the blob came from, overflow chain and all.
+        let temp = rocky_rootfs();
+        let catalog = catalog(temp.path(), Some("rocky")).unwrap().unwrap();
+        assert!(
+            catalog
+                .owned
+                .iter()
+                .any(|path| path.ends_with("usr/bin/gzip")),
+            "no artifact metadata claimed: {:?}",
+            catalog.owned
         );
     }
 

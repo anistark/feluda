@@ -124,8 +124,9 @@ an image, a rootfs or an existing SBOM.
 feluda --filesystem ./rootfs --restrictive 2>&1; echo "FELUDA_EXIT:$?"
 ```
 
-Reads apk, dpkg and rpm databases, installed Python and Node artifacts, and the
-build info in every Go binary, so a distroless Go image still reports its modules.
+Reads the apk, dpkg and rpm databases (sqlite, ndb and Berkeley DB alike), installed
+Python and Node artifacts, and the build info in every Go binary, so a distroless Go
+image still reports its modules.
 
 **A container image, with no registry and no daemon in the loop:**
 
@@ -147,16 +148,16 @@ feluda --image-archive app.tar --platform linux/arm64 --restrictive
 syft nginx:latest -o spdx-json | feluda --sbom-input - --restrictive
 ```
 
-`-` reads stdin. This is also the fallback for the two gaps below.
+`-` reads stdin. This is also the fallback for a package format feluda does not
+read, such as an installed Ruby gemspec or jar manifest.
 
-### Two errors to explain rather than retry
+### One error to explain rather than retry
 
 | Error | What it means | What to do |
 |-------|---------------|------------|
 | The scan stops and lists the images in the archive | A multi platform archive with no `--platform` | Re-run with `--platform os/arch`, picking from the list it printed |
-| `uses the Berkeley DB backend, which feluda cannot read` | A CentOS 7, RHEL 8 or Amazon Linux 2 era rpm database | Catalog with syft and pipe through `--sbom-input`, as above |
 
-Neither is a bug to work around. Feluda stops instead of reporting nothing, so a
+It is not a bug to work around. Feluda stops instead of reporting nothing, so a
 machine full of packages never reads as a clean scan.
 
 ---
