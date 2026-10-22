@@ -8,11 +8,12 @@
 //! |---|---|---|
 //! | `rpmdb.sqlite` | sqlite | Fedora 33+, RHEL 9+, and everything built from them |
 //! | `Packages.db` | ndb | SUSE and openSUSE |
-//! | `Packages` | Berkeley DB | CentOS 7, RHEL 8, Amazon Linux 2 |
+//! | `Packages` | Berkeley DB | CentOS 7, RHEL 8 and its rebuilds, Amazon Linux 2 |
 //!
 //! sqlite, ndb and Berkeley DB are read. sqlite is the rpm default since 4.16 and covers every
 //! Fedora and RHEL derived distribution still in support; ndb is what SUSE builds with; Berkeley DB
-//! is what RHEL 8 and its rebuilds ship, which is why it is read rather than reported. All three hand
+//! is what RHEL 8 and its rebuilds ship — and what CentOS 7 and Amazon Linux 2 still ship on rpm
+//! 4.11 — which is why it is read rather than reported. All three hand
 //! back the same header blobs, so only the storage layer differs and `header.rs` serves all of them.
 //! A database in a backend this cannot read is reported by name rather than as an empty scan, so an
 //! image it cannot read never looks like an image with nothing installed.
@@ -237,8 +238,8 @@ mod tests {
         fixture_rootfs("Packages.db")
     }
 
-    /// A Berkeley DB store rpm itself wrote inside `rockylinux:8`: eight packages, plus the signing
-    /// key the image imports.
+    /// A Berkeley DB store rpm itself wrote inside `rockylinux:8`: six headers written, two of them
+    /// erased, so four packages are left.
     fn rocky_rootfs() -> tempfile::TempDir {
         fixture_rootfs("Packages")
     }
@@ -349,8 +350,8 @@ mod tests {
             .unwrap()
             .expect("database is present");
 
-        // Nine headers, less the gpg-pubkey pseudo package.
-        assert_eq!(catalog.packages.len(), 8);
+        // Four packages: six headers were written into the store and two were erased from it.
+        assert_eq!(catalog.packages.len(), 4);
         assert!(
             !catalog
                 .packages
@@ -359,19 +360,19 @@ mod tests {
             "gpg-pubkey should not be reported as a package"
         );
 
-        let libzstd = catalog
+        let gzip = catalog
             .packages
             .iter()
-            .find(|package| package.name == "rocky/libzstd")
-            .expect("libzstd missing");
-        assert_eq!(libzstd.version, "1.4.4-1.el8");
-        // EL8 writes its licenses the old way. Only the operator is rewritten, and a bare `BSD`
-        // stays as the package stated it.
-        assert_eq!(libzstd.license.as_deref(), Some("BSD AND GPL-2.0-only"));
+            .find(|package| package.name == "rocky/gzip")
+            .expect("gzip missing");
+        assert_eq!(gzip.version, "1.9-15.el8_10");
+        // EL8 writes its licenses the old way. Only the operator is rewritten, and the second
+        // license of a compound expression survives as rpm stated it.
+        assert_eq!(gzip.license.as_deref(), Some("GPL-3.0-or-later AND GFDL"));
         assert_eq!(
-            libzstd.purl().as_deref(),
+            gzip.purl().as_deref(),
             Some(
-                "pkg:rpm/rocky/libzstd@1.4.4-1.el8?arch=aarch64&upstream=zstd-1.4.4-1.el8.src.rpm"
+                "pkg:rpm/rocky/gzip@1.9-15.el8_10?arch=aarch64&upstream=gzip-1.9-15.el8_10.src.rpm"
             )
         );
 
@@ -410,7 +411,7 @@ mod tests {
             catalog
                 .owned
                 .iter()
-                .any(|path| path.ends_with("setuptools-39.2.0.dist-info/METADATA")),
+                .any(|path| path.ends_with("usr/bin/gzip")),
             "no artifact metadata claimed: {:?}",
             catalog.owned
         );

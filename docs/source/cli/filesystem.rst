@@ -264,7 +264,8 @@ RPM Database Backends
 rpm keeps its packages in a binary store, and which store depends on the rpm that built the image.
 Feluda reads all three: sqlite, which rpm has defaulted to since 4.16 and which every Fedora and
 RHEL derived distribution still in support uses; ndb, rpm's own format and the one SUSE builds
-with; and Berkeley DB, which RHEL 8, Rocky Linux 8, AlmaLinux 8 and the ``ubi8`` images ship.
+with; and Berkeley DB, which RHEL 8, Rocky Linux 8, AlmaLinux 8 and the ``ubi8`` images ship, and
+which CentOS 7 and Amazon Linux 2 still ship on rpm 4.11.
 They hold the same package headers, so a SUSE image, a Fedora image and a RHEL 8 image come out
 the same way.
 
@@ -283,7 +284,8 @@ the same way.
      - Read, covering SUSE Linux Enterprise and openSUSE
    * - ``Packages``
      - Berkeley DB
-     - Read, covering RHEL 8, Rocky Linux 8, AlmaLinux 8 and the ``ubi8`` images
+     - Read, covering RHEL 8, Rocky Linux 8, AlmaLinux 8, CentOS 7, Amazon Linux 2 and the
+       ``ubi8`` images
 
 The rpm directory is ``/var/lib/rpm``, or ``/usr/lib/sysimage/rpm`` on distributions that have moved
 it under ``/usr`` and left a symlink behind. Both are looked in, so a tree copied without its

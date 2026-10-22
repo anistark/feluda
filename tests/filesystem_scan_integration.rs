@@ -817,19 +817,54 @@ fn rocky_rootfs_is_cataloged_from_the_berkeley_db_store() {
     let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
     let report = report(&output);
 
-    // Nine headers, less the gpg-pubkey pseudo package the image's signing key becomes.
-    assert_eq!(report.len(), 8);
+    // Four packages: six headers were written into the store and two were erased from it.
+    assert_eq!(report.len(), 4);
     assert!(!report.iter().any(|entry| entry["name"]
         .as_str()
         .is_some_and(|name| name.contains("gpg-pubkey"))));
 
-    let libzstd = find(&report, "rocky/libzstd");
-    assert_eq!(libzstd["ecosystem"], "rpm");
-    assert_eq!(libzstd["version"], "1.4.4-1.el8");
-    assert_eq!(libzstd["purl"], "pkg:rpm/rocky/libzstd@1.4.4-1.el8?arch=aarch64&distro=rocky-8.9&upstream=zstd-1.4.4-1.el8.src.rpm");
-    // RHEL 8 era packages still spell their licenses the old way, and a bare `BSD` is left as the
-    // package stated it.
-    assert_eq!(libzstd["license"], "BSD AND GPL-2.0-only");
+    let gzip = find(&report, "rocky/gzip");
+    assert_eq!(gzip["ecosystem"], "rpm");
+    assert_eq!(gzip["version"], "1.9-15.el8_10");
+    assert_eq!(gzip["purl"], "pkg:rpm/rocky/gzip@1.9-15.el8_10?arch=aarch64&distro=rocky-8.9&upstream=gzip-1.9-15.el8_10.src.rpm");
+    // RHEL 8 era packages still spell their licenses the old way, and the second half of a compound
+    // expression is left as the package stated it.
+    assert_eq!(gzip["license"], "GPL-3.0-or-later AND GFDL");
+}
+
+#[test]
+fn a_damaged_berkeley_db_record_is_reported_on_stderr() {
+    // `log(LogLevel::Warn, …)` only prints under `--debug`, so a scan that drops one damaged
+    // package would report one package fewer and exit 0 with nothing said. The count and the file
+    // have to reach stderr in a normal run.
+    let temp = rocky_rootfs();
+    let database = temp.path().join("var/lib/rpm/Packages");
+    let mut bytes = fs::read(&database).expect("the fixture should read");
+    let page_size = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+    let last_page = u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
+    // The first overflow page holds the tail of a header: retyping it damages one record.
+    let overflow = (1..=last_page)
+        .find(|page| bytes[page * page_size + 25] == 7)
+        .expect("the fixture keeps headers on overflow pages");
+    bytes[overflow * page_size + 25] = 0;
+    fs::write(&database, &bytes).expect("the damaged store should write");
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    assert!(
+        output.status.success(),
+        "one damaged record is not a failure"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("⚠️ Skipped 1 unreadable rpm headers in")
+            && stderr.contains("var/lib/rpm/Packages"),
+        "unexpected stderr: {stderr}"
+    );
+    assert_eq!(
+        report(&output).len(),
+        3,
+        "the other three are still reported"
+    );
 }
 
 #[test]

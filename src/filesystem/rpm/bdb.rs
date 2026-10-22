@@ -1,10 +1,12 @@
 //! A read only reader for rpm's Berkeley DB package store, `Packages`.
 //!
 //! This is the backend RHEL 8, Rocky Linux 8, AlmaLinux 8 and the `ubi8` images ship, and the last
-//! one rpm used before it moved to sqlite. `Packages` is a plain Berkeley DB hash database: the key
-//! is a package's header number and the value is its header blob, the same blob the sqlite and ndb
-//! readers hand to `header.rs`. Nothing here needs the hash function or the bucket table, because a
-//! full dump never looks a key up: walking the pages and their overflow chains is enough.
+//! one rpm used before it moved to sqlite. It is also what CentOS 7 and Amazon Linux 2 ship: rpm
+//! 4.11 on libdb 5.3 writes the same hash version 9 store, which is read here too. `Packages` is a
+//! plain Berkeley DB hash database: the key is a package's header number and the value is its
+//! header blob, the same blob the sqlite and ndb readers hand to `header.rs`. Nothing here needs
+//! the hash function or the bucket table, because a full dump never looks a key up: walking the
+//! pages and their overflow chains is enough.
 //!
 //! The layout, from `db_page.h` in libdb, which is what rpm 4.17's own read only backend
 //! (`lib/backend/bdb_ro.c`) follows:
@@ -48,7 +50,9 @@ use super::backend_error;
 const MAGIC: u32 = 0x0006_1561;
 const MAGIC_SWAPPED: u32 = 0x6115_0600;
 
-/// The hash versions rpm has ever shipped: libdb 4.6 through 5.3.
+/// The hash versions a store can carry. 8 is the unsorted page layout libdb wrote before 4.6, and 9
+/// is what 4.6 and later write, the 5.3 in EL7 and EL8 included. 10 is accepted on the assumption
+/// that a later libdb kept the layout; no rpm release has ever written one.
 const MIN_VERSION: u32 = 8;
 const MAX_VERSION: u32 = 10;
 
@@ -127,6 +131,8 @@ pub struct Database {
     order: Order,
     page_size: usize,
     last_page: u32,
+    /// Where the store was read from, so a record skipped out of it can name the file.
+    source: String,
 }
 
 impl Database {
@@ -166,13 +172,14 @@ impl Database {
         }
 
         let page_size = order.u32(&bytes, OFFSET_PAGE_SIZE) as usize;
-        if page_size < SMALLEST_PAGE_SIZE || !page_size.is_power_of_two() || page_size > bytes.len()
-        {
+        if page_size < SMALLEST_PAGE_SIZE || !page_size.is_power_of_two() {
             return Err(backend_error(format!(
                 "{source} declares a {page_size} byte page, which is not a Berkeley DB page size."
             )));
         }
 
+        // A page size larger than the file is not checked here: the last page count below reads
+        // back as at least one page, so the same file gets the more accurate message.
         let last_page = order.u32(&bytes, OFFSET_LAST_PAGE);
         if (last_page as u64 + 1) * page_size as u64 > bytes.len() as u64 {
             return Err(backend_error(format!(
@@ -186,11 +193,13 @@ impl Database {
             order,
             page_size,
             last_page,
+            source: source.to_string(),
         })
     }
 
-    /// Every header blob in the store, in header number order, which is the install order `rpm -qa`
-    /// prints in.
+    /// Every header blob in the store, in header number order, which is the order rpm allocated
+    /// them in. `rpm -qa` lists a Berkeley DB store in hash order instead, so the two agree on the
+    /// set and not on the sequence.
     pub fn blobs(&self) -> FeludaResult<Vec<Vec<u8>>> {
         Ok(self
             .records()?
@@ -202,10 +211,14 @@ impl Database {
 
     /// Every record the store holds, in header number order, the instance counter included.
     ///
-    /// A record whose framing does not check out is skipped with a warning rather than failing the
-    /// scan: one damaged package is not a reason to report a whole image as unreadable.
+    /// A record whose framing does not check out is skipped rather than failing the scan: one
+    /// damaged package is not a reason to report a whole image as unreadable. Both a skipped record
+    /// and a repeated header number are reported on stderr once, with the file they came from:
+    /// `log(LogLevel::Warn, …)` only prints under `--debug`, and a scan that quietly returns one
+    /// package fewer looks exactly like an image that has one package fewer.
     fn records(&self) -> FeludaResult<Vec<(u32, Vec<u8>)>> {
         let mut records = Vec::new();
+        let mut skipped = 0;
 
         // shortcut: every hash page in the file is read rather than the bucket table being walked,
         // which a full dump has no use for. libdb retypes a page when it frees it, so a page left
@@ -220,22 +233,49 @@ impl Database {
             let entries = self.order.u16(page, OFFSET_ENTRIES) as usize;
             if !entries.is_multiple_of(2) || PAGE_HEADER + entries * 2 > self.page_size {
                 return Err(backend_error(format!(
-                    "The rpm Berkeley DB has a malformed hash page at page {number} and is corrupt."
+                    "{} has a malformed hash page at page {number} and is corrupt.",
+                    self.source
                 )));
             }
 
             for index in 0..entries / 2 {
                 match self.record(page, index) {
                     Some(record) => records.push(record),
-                    None => log(
-                        LogLevel::Warn,
-                        &format!("Skipped an unreadable rpm header record on page {number}"),
-                    ),
+                    None => {
+                        skipped += 1;
+                        log(
+                            LogLevel::Warn,
+                            &format!("Skipped an unreadable rpm header record on page {number}"),
+                        );
+                    }
                 }
             }
         }
 
         records.sort_by_key(|(number, _)| *number);
+
+        // A page left over from an interrupted `--rebuilddb` or an abandoned bucket split can keep
+        // its type and hand back a header number the live page also carries. The first record per
+        // number is the one to keep; the sort above is stable, so that is the lowest page number.
+        // A repeat means the page sweep is no longer enough, but this guards only a repeated
+        // number: a stale page whose numbers are unique is still read as installed.
+        let found = records.len();
+        records.dedup_by_key(|(number, _)| *number);
+        let repeated = found - records.len();
+
+        if skipped > 0 {
+            eprintln!(
+                "⚠️ Skipped {skipped} unreadable rpm headers in {}",
+                self.source
+            );
+        }
+        if repeated > 0 {
+            eprintln!(
+                "⚠️ Dropped {repeated} repeated rpm header records in {}",
+                self.source
+            );
+        }
+
         Ok(records)
     }
 
@@ -338,8 +378,18 @@ fn not_a_hash_database(source: &str) -> crate::debug::FeludaError {
 mod tests {
     use super::*;
 
-    /// The checked in fixture: eight `rockylinux:8` packages plus the signing key the image
-    /// imports, in the store rpm 4.14.3 itself wrote for them.
+    /// The page type libdb gives a page it has freed, from `db_page.h`.
+    const P_INVALID: u8 = 0;
+
+    /// The head of the freed page list, in the meta page.
+    const OFFSET_FREE: usize = 28;
+
+    /// The checked in fixture: four `rockylinux:8` packages in the store rpm 4.14.3 wrote for them.
+    /// Six headers were written — `rpm --dbpath … --justdb -i` on `gzip file file-libs diffutils
+    /// which python3-pip-wheel` — and two were erased, `rpm --dbpath … --justdb -e file diffutils`.
+    /// What it carries is what only real transactions produce: packed items, sorted `P_HASH` pages,
+    /// and the freed pages libdb chained onto its free list when it released them. No script
+    /// touches it; the commands are in the PR body.
     fn fixture() -> Database {
         Database::open(Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -349,10 +399,13 @@ mod tests {
     }
 
     #[test]
-    fn test_a_big_endian_database_reads_the_same_records() {
+    fn test_a_database_swapped_to_big_endian_reads_the_same_records() {
         // RHEL 8 runs on s390x, which is big endian, and libdb writes every metadata field of the
-        // database in the machine's own byte order. This is the fixture converted the way libdb's
-        // `bdb_swapmetapage` and `bdb_swappage` describe, since a real s390x image is not to hand.
+        // database in the machine's own byte order. What this proves is bounded: the swapper below
+        // agrees with the reader, so a field one of them gets wrong and the other mirrors stays
+        // wrong in both. It catches a field the reader forgets to look at, not a misreading of
+        // libdb's layout. A two package store written by rpm under `--platform linux/s390x` would
+        // prove the second half; no such image is available to build it from.
         let little = fixture();
         let big = Database::from_bytes(big_endian(&little.bytes), "test").unwrap();
         assert_eq!(big.order, Order::Big);
@@ -429,9 +482,9 @@ mod tests {
 
     #[test]
     fn test_reads_every_record_of_the_fixture() {
-        // Eight packages and an imported signing key, with the instance counter skipped.
+        // Four packages, with the instance counter skipped.
         let blobs = fixture().blobs().unwrap();
-        assert_eq!(blobs.len(), 9);
+        assert_eq!(blobs.len(), 4);
 
         // Every blob is self describing, so the header's own declared sizes have to account for
         // exactly what the reader returned: no page framing leaked in, and no overflow page was
@@ -445,14 +498,15 @@ mod tests {
 
     #[test]
     fn test_key_zero_is_the_instance_counter_not_a_header() {
-        // rpm keeps the last header number it allocated under key 0, and the fixture holds nine
-        // headers numbered 1 to 9. A reader that handed that record on would report a four byte
-        // "header".
+        // rpm keeps the last header number it allocated under key 0. Six packages were written to
+        // this store and two were erased, so the counter still says 6 while the highest number left
+        // in the file is 5: key 0 is a counter, not a header, and a reader that handed it on would
+        // report a four byte "header" for a package that is not installed.
         let records = fixture().records().unwrap();
         assert_eq!(records[0].0, INSTANCE_KEY);
         let instance: [u8; 4] = records[0].1.as_slice().try_into().expect("four bytes");
-        assert_eq!(u32::from_le_bytes(instance), 9);
-        assert_eq!(records.last().unwrap().0, 9);
+        assert_eq!(u32::from_le_bytes(instance), 6);
+        assert_eq!(records.last().unwrap().0, 5);
         assert!(!fixture()
             .blobs()
             .unwrap()
@@ -463,8 +517,10 @@ mod tests {
     #[test]
     fn test_the_fixture_was_written_by_rpm_not_by_this_module() {
         // A store this module could have produced would prove less, so read back what only rpm
-        // writes: two hash buckets and a full suite of overflow pages, with the file ending exactly
-        // at the meta page's declared last page.
+        // writes: two hash pages, a file ending exactly at the meta page's declared last page, and
+        // pages the two `rpm -e` runs freed. The freed pages are the point of the fixture: the page
+        // sweep trusts the type byte, so it has to be reading a store where libdb really retyped a
+        // page it released.
         let database = fixture();
         assert_eq!(database.order, Order::Little);
         assert_eq!(database.page_size, 4096);
@@ -472,15 +528,79 @@ mod tests {
             (database.last_page as usize + 1) * database.page_size,
             database.bytes.len()
         );
-        let hash_pages = (1..=database.last_page)
-            .filter(|number| {
-                matches!(
-                    database.page(*number)[OFFSET_TYPE],
-                    P_HASH | P_HASH_UNSORTED
-                )
-            })
+
+        let types: Vec<u8> = (1..=database.last_page)
+            .map(|number| database.page(number)[OFFSET_TYPE])
+            .collect();
+        let hash_pages = types
+            .iter()
+            .filter(|kind| matches!(**kind, P_HASH | P_HASH_UNSORTED))
             .count();
         assert_eq!(hash_pages, 2);
+        // The freed pages have to be on libdb's free list, not merely typed `P_INVALID`: the meta
+        // page chains them through each page's next pointer, which is bookkeeping a script would
+        // have to invent. Every page on the chain is freed, and every freed page is on it.
+        let freed: Vec<u32> = (1..=database.last_page)
+            .filter(|number| database.page(*number)[OFFSET_TYPE] == P_INVALID)
+            .collect();
+        assert!(freed.len() >= 2, "the two erases should have freed pages");
+        let mut chained = Vec::new();
+        let mut next = database.order.u32(&database.bytes, OFFSET_FREE);
+        while next != 0 {
+            assert!(
+                database.page(next)[OFFSET_TYPE] == P_INVALID,
+                "page {next} is on the free list and not freed"
+            );
+            assert!(
+                !chained.contains(&next),
+                "the free list loops at page {next}"
+            );
+            chained.push(next);
+            next = database.order.u32(database.page(next), OFFSET_NEXT_PAGE);
+        }
+        let mut chained_sorted = chained.clone();
+        chained_sorted.sort_unstable();
+        let mut freed_sorted = freed.clone();
+        freed_sorted.sort_unstable();
+        assert_eq!(chained_sorted, freed_sorted);
+        assert!(
+            types.iter().filter(|kind| **kind == P_OVERFLOW).count() > 0,
+            "the headers should live on overflow chains"
+        );
+    }
+
+    #[test]
+    fn test_a_repeated_header_number_is_kept_once() {
+        // A page released by a delete keeps its type if a `--rebuilddb` was interrupted or a bucket
+        // split was abandoned, and the same header number then comes back from two pages. Copying a
+        // live hash page into a freed one is exactly what the sweep would see; the reader must not
+        // report the package twice.
+        let mut database = fixture();
+        let pristine = fixture().records().unwrap();
+        let hash_page = (1..=database.last_page)
+            .find(|number| database.page(*number)[OFFSET_TYPE] == P_HASH)
+            .expect("the fixture has hash pages");
+        let freed_page = (1..=database.last_page)
+            .find(|number| database.page(*number)[OFFSET_TYPE] == P_INVALID)
+            .expect("the fixture has freed pages");
+        let page_size = database.page_size;
+        let (from, to) = (
+            hash_page as usize * page_size,
+            freed_page as usize * page_size,
+        );
+        let copy = database.bytes[from..from + page_size].to_vec();
+        database.bytes[to..to + page_size].copy_from_slice(&copy);
+
+        // Five records and four blobs whether or not a page was read twice, and the copy carries
+        // the same blob: the reader keeps the record, not the page number.
+        assert_eq!(database.records().unwrap().len(), pristine.len());
+        assert_eq!(database.records().unwrap().len(), 5);
+        assert_eq!(database.blobs().unwrap().len(), 4);
+        assert!(database.records().unwrap().iter().all(|(number, blob)| {
+            pristine.iter().any(|(pristine_number, pristine_blob)| {
+                pristine_number == number && pristine_blob == blob
+            })
+        }));
     }
 
     #[test]
@@ -559,7 +679,7 @@ mod tests {
         let intact = database.blobs().unwrap().len();
 
         // A record whose value starts on page 3 keeps the rest of the record there; retype the
-        // page and that record is damaged, the other eight are not.
+        // page and that record is damaged, the other three are not.
         let first_overflow = (1..=database.last_page)
             .find(|number| database.page(*number)[OFFSET_TYPE] == P_OVERFLOW)
             .expect("the fixture keeps its headers on overflow pages");

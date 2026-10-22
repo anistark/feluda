@@ -373,7 +373,7 @@ feluda sbom spdx --filesystem ./rootfs --output rootfs.spdx.json
 **What this covers:**
 - 🏔️ **Alpine** - the apk installed database, which records each package's license directly
 - 🌀 **Debian and Ubuntu** - the dpkg database for what is installed, plus each package's `copyright` file for its license, from the machine-readable DEP-5 format or, in older files, the GNU grant sentence
-- 🎩 **Fedora, RHEL, Rocky, Alma, SUSE and openSUSE** - the rpm database in any of its sqlite, ndb or Berkeley DB forms, whose package headers record the license directly
+- 🎩 **Fedora, RHEL, Rocky, Alma, CentOS, Amazon Linux, SUSE and openSUSE** - the rpm database in any of its sqlite, ndb or Berkeley DB forms, whose package headers record the license directly
 - 🐍 **Installed Python distributions** - `*.dist-info/METADATA` and `*.egg-info/PKG-INFO`, wherever they sit
 - 📗 **Installed Node packages** - the `package.json` inside every `node_modules` entry
 - 🐹 **Go binaries** - the build info the Go linker writes into every executable, so a distroless Go image reports the modules compiled into it
