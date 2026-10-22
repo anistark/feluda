@@ -225,6 +225,27 @@ environment equivalents:
 
 ----
 
+Point the OSI lookup at a mirror
+--------------------------------
+
+OSI status comes from the Open Source Initiative's license list, fetched once and cached for 30
+days. Behind a proxy, or with no route to opensource.org, point it at a mirror that serves the same
+JSON:
+
+.. code-block:: toml
+
+   [osi]
+   endpoint = "https://opensource.org/api/licenses"
+
+.. code-block:: bash
+
+   export FELUDA_OSI_ENDPOINT=https://osi.internal/api/licenses
+
+When the list cannot be fetched, Feluda uses the stale cache or a short built-in list, says so once
+on stderr, and waits six hours before asking again. See :ref:`cli-cache`.
+
+----
+
 Choose SBOM spec versions
 -------------------------
 

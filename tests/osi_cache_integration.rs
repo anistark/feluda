@@ -1,4 +1,9 @@
 //! Integration coverage for the OSI approval-list cache and its offline fallbacks.
+//!
+//! Unix only: the harness isolates the cache through `HOME` and `XDG_CACHE_HOME`, and on Windows
+//! `dirs::cache_dir()` asks the OS for the Local AppData folder instead, so a run there would read
+//! and clear the developer's real cache.
+#![cfg(unix)]
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -142,6 +147,33 @@ fn report(output: &Output) -> Vec<Value> {
     })
 }
 
+/// How many OSI warnings a run printed. Counted by message rather than by line, since the
+/// spinner writes its frames to stderr too.
+fn osi_warnings(output: &Output) -> usize {
+    String::from_utf8_lossy(&output.stderr)
+        .matches("OSI license data (")
+        .count()
+}
+
+fn read_osi_cache(home: &std::path::Path) -> Value {
+    serde_json::from_slice(
+        &std::fs::read(cache_dir(home).join("osi_licenses.json")).expect("OSI cache is missing"),
+    )
+    .expect("OSI cache is invalid JSON")
+}
+
+fn cache_status(home: &std::path::Path) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_feluda"))
+        .arg("cache")
+        .env("HOME", home)
+        .env("XDG_CACHE_HOME", home.join("cache"))
+        .env("LOCALAPPDATA", home.join("cache"))
+        .output()
+        .expect("failed to inspect cache");
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
 fn total_requests(path: &std::path::Path) -> u64 {
     let stats: Value = serde_json::from_slice(
         &std::fs::read(path).expect("feluda did not write request statistics"),
@@ -195,18 +227,38 @@ fn a_failed_fetch_without_cache_warns_and_keeps_json_output_valid() {
     assert!(stderr.contains("Could not load OSI license data"));
     assert!(stderr.contains("503 Service Unavailable"));
     assert!(stderr.contains("may read Unknown"));
+    assert_eq!(osi_warnings(&output), 1);
     assert_eq!(stub.request_count(), 1);
+
+    // The built-in list is recorded as never fetched, so the next run inside the retry window
+    // does not ask again, and `feluda cache` does not call it fresh.
+    let retry_stats = temp.path().join("retry-stats.json");
+    let retry = feluda(
+        temp.path(),
+        &sbom,
+        &stub.endpoint,
+        &retry_stats.to_string_lossy(),
+    );
+    assert_eq!(report(&retry)[0]["osi_status"], "Unknown");
+    assert_eq!(total_requests(&retry_stats), 0);
+    assert_eq!(stub.request_count(), 1);
+
+    let status = cache_status(temp.path());
+    assert!(status.contains("OSI Licenses Cache: ✗ STALE"), "{status}");
+    assert!(status.contains("never fetched"), "{status}");
+    assert!(status.contains("Last refresh failed"), "{status}");
 }
 
 #[test]
 fn a_failed_refresh_uses_the_stale_cache() {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
     let sbom = prepare(temp.path());
+    let stale_timestamp = now_secs() - THIRTY_ONE_DAYS;
     write_cache(
         temp.path(),
         "osi_licenses.json",
         json!({"EPL-2.0": "Approved"}),
-        now_secs() - THIRTY_ONE_DAYS,
+        stale_timestamp,
     );
     let stub = Stub::start("503 Service Unavailable", "unavailable");
     let stats = temp.path().join("stats.json");
@@ -216,7 +268,17 @@ fn a_failed_refresh_uses_the_stale_cache() {
     assert_eq!(report(&output)[0]["osi_status"], "Approved");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("using the stale cache"));
+    assert_eq!(osi_warnings(&output), 1);
     assert_eq!(stub.request_count(), 1);
+
+    // The table keeps its real age; only the retry is put off.
+    let cache = read_osi_cache(temp.path());
+    assert_eq!(cache["timestamp"], stale_timestamp);
+    assert!(cache["retry_after"].as_u64().unwrap() > now_secs());
+    let status = cache_status(temp.path());
+    assert!(status.contains("OSI Licenses Cache: ✗ STALE"), "{status}");
+    assert!(status.contains("31 days ago"), "{status}");
+    assert!(status.contains("Last refresh failed"), "{status}");
 
     let retry = feluda(
         temp.path(),
@@ -230,7 +292,7 @@ fn a_failed_refresh_uses_the_stale_cache() {
 }
 
 #[test]
-fn an_empty_successful_response_is_not_cached() {
+fn an_empty_successful_response_is_never_cached() {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
     let sbom = prepare(temp.path());
     let stub = Stub::start("200 OK", "[]");
@@ -240,7 +302,11 @@ fn an_empty_successful_response_is_not_cached() {
     assert_eq!(report(&output)[0]["osi_status"], "Unknown");
     assert!(String::from_utf8_lossy(&output.stderr).contains("no approved licenses"));
     assert_eq!(stub.request_count(), 1);
-    assert!(!cache_dir(temp.path()).join("osi_licenses.json").exists());
+
+    // What is kept for the retry window is the built-in list, never the empty answer.
+    let cache = read_osi_cache(temp.path());
+    assert_eq!(cache["timestamp"], 0);
+    assert_eq!(cache["data"]["MIT"], "Approved");
 }
 
 #[test]
@@ -280,15 +346,7 @@ fn cache_command_lists_and_clears_the_osi_cache() {
         now_secs(),
     );
 
-    let status = Command::new(env!("CARGO_BIN_EXE_feluda"))
-        .arg("cache")
-        .env("HOME", temp.path())
-        .env("XDG_CACHE_HOME", temp.path().join("cache"))
-        .env("LOCALAPPDATA", temp.path().join("cache"))
-        .output()
-        .expect("failed to inspect cache");
-    assert!(status.status.success());
-    assert!(String::from_utf8_lossy(&status.stdout).contains("OSI Licenses Cache: ✓ FRESH"));
+    assert!(cache_status(temp.path()).contains("OSI Licenses Cache: ✓ FRESH"));
 
     let clear = Command::new(env!("CARGO_BIN_EXE_feluda"))
         .args(["cache", "--clear"])

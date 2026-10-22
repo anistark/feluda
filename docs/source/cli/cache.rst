@@ -29,7 +29,7 @@ live in your user cache directory:
      - The GitHub license table, which drives restrictiveness classification
    * - ``osi_licenses.json``
      - 30 days
-     - The OSI approval table. A failed refresh keeps stale data available and retries after six hours
+     - The OSI approval table. A failed refresh keeps the stale table (or a short built-in list when there is none) and waits six hours before asking again; ``feluda cache`` shows it as stale with its real age until a refresh succeeds
    * - ``clearlydefined.json``
      - 7 days
      - Declared licenses ClearlyDefined answered with, keyed by package coordinate. Packages it had no answer for are cached too, so they are not asked about again on every run

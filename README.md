@@ -444,7 +444,7 @@ feluda cache --clear
 
 **How Caching Works:**
 - `github_licenses.json` stores the GitHub license table for 30 days
-- `osi_licenses.json` stores the OSI approval table for 30 days; a failed refresh reuses stale data and retries after six hours
+- `osi_licenses.json` stores the OSI approval table for 30 days; a failed refresh keeps the stale table (or a short built-in list when there is none) and waits six hours before asking again
 - `clearlydefined.json` stores ClearlyDefined answers and misses for seven days
 - The files live in your user cache directory: `~/Library/Caches/feluda` on macOS, `$XDG_CACHE_HOME/feluda` (or `~/.cache/feluda`) on Linux, and `%LOCALAPPDATA%\feluda` on Windows
 - `feluda cache --clear` removes all three files
