@@ -14,7 +14,7 @@ cache
 Overview
 --------
 
-Feluda caches what it fetches, to stay under rate limits and to speed up repeated scans. Two files
+Feluda caches what it fetches, to stay under rate limits and to speed up repeated scans. Three files
 live in your user cache directory:
 
 .. list-table::
@@ -27,6 +27,9 @@ live in your user cache directory:
    * - ``github_licenses.json``
      - 30 days
      - The GitHub license table, which drives restrictiveness classification
+   * - ``osi_licenses.json``
+     - 30 days
+     - The OSI approval table. A failed refresh keeps stale data available and retries after six hours
    * - ``clearlydefined.json``
      - 7 days
      - Declared licenses ClearlyDefined answered with, keyed by package coordinate. Packages it had no answer for are cached too, so they are not asked about again on every run
@@ -62,7 +65,7 @@ Remove stale or corrupted cache data.
 
    feluda cache --clear
 
-Feluda deletes both cache files so the next scan starts fresh with remote data.
+Feluda deletes all three cache files so the next scan starts fresh with remote data.
 
 **Options:**
 
@@ -73,7 +76,7 @@ Feluda deletes both cache files so the next scan starts fresh with remote data.
    * - Flag
      - Description
    * - ``--clear``
-     - Delete both cache files and start fresh
+     - Delete all three cache files and start fresh
 
 ----
 
@@ -81,7 +84,7 @@ Cache Behavior
 --------------
 
 .. tip::
-   Cache files older than 30 days refresh automatically, but explicit clears help when switching GitHub identities.
+   Cache files refresh automatically on the schedule shown above, but explicit clears help when switching GitHub identities.
 
 **When to clear the cache:**
 
