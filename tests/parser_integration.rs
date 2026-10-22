@@ -269,6 +269,44 @@ fn python_requirements_without_dependencies_scans_clean() {
     );
 }
 
+/// An R package already in the installed library resolves from its bundled license file without
+/// a request to R-universe (#297). The request tally records a request even when it fails, so
+/// this holds offline too.
+#[test]
+fn r_dependency_license_from_installed_library_before_r_universe() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path().join("project");
+    let lib = temp.path().join("rlib");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(lib.join("feludaTestPkg")).unwrap();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    fs::write(
+        root.join("DESCRIPTION"),
+        "Package: fixture\nVersion: 0.1.0\nLicense: MIT\nImports: feludaTestPkg\n",
+    )
+    .unwrap();
+    fs::write(lib.join("feludaTestPkg").join("LICENSE"), MIT_TEXT).unwrap();
+    let stats = temp.path().join("requests.json");
+
+    let entries = scan_json(
+        &root,
+        &[],
+        &[
+            ("R_LIBS_USER", lib.to_str().unwrap()),
+            ("FELUDA_REQUEST_STATS", stats.to_str().unwrap()),
+        ],
+    );
+
+    let dep = entry(&entries, "feludaTestPkg");
+    assert_eq!(dep["license"], "MIT");
+    let report: Value = serde_json::from_slice(&fs::read(&stats).unwrap()).unwrap();
+    let hosts = report["hosts"].as_object().unwrap();
+    assert!(
+        !hosts.keys().any(|host| host.ends_with("r-universe.dev")),
+        "R-universe was asked for a package installed locally: {report:#}"
+    );
+}
+
 #[test]
 fn own_source_header_findings_reported() {
     let temp = tempfile::TempDir::new().unwrap();

@@ -257,12 +257,13 @@ fn process_dependency_field(field: &str, value: &str, deps: &mut Vec<(String, St
 }
 
 pub fn fetch_license_for_r_dependency(name: &str, version: &str) -> String {
-    if let Some(license) = fetch_license_from_r_universe(name) {
+    // Local first: probe the installed package's bundled LICENSE/COPYING files before asking
+    // R-universe, so a package already on disk costs no request.
+    if let Some(license) = fetch_from_local_r_library(name) {
         return license;
     }
 
-    // Local fallback: probe the installed package's bundled LICENSE/COPYING files.
-    if let Some(license) = fetch_from_local_r_library(name) {
+    if let Some(license) = fetch_license_from_r_universe(name) {
         return license;
     }
 
