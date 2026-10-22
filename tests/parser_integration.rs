@@ -214,6 +214,47 @@ fn go_dependency_license_from_module_cache() {
     assert_eq!(dep["compatibility"], "Compatible");
 }
 
+/// The `go.mod` in the directory feluda is started from belongs to some other project; a
+/// `// <module> license: ...` comment there must not decide the license of the scanned
+/// project's dependency (#298).
+#[test]
+fn go_dependency_license_ignores_go_mod_in_working_directory() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let project = temp.path().join("project");
+    let elsewhere = temp.path().join("elsewhere");
+    fs::create_dir_all(&project).unwrap();
+    fs::create_dir_all(&elsewhere).unwrap();
+    fs::write(project.join("LICENSE"), MIT_TEXT).unwrap();
+    let envs = write_go_fixture(&project, "example.com/mylib", "v1.2.3");
+    fs::write(
+        elsewhere.join("go.mod"),
+        "module example.com/x\n\ngo 1.22\n\n// example.com/mylib license: GPL-3.0\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_feluda"));
+    cmd.env("FELUDA_CLEARLYDEFINED_ENABLED", "false")
+        .current_dir(&elsewhere)
+        .arg("--path")
+        .arg(project.to_str().unwrap())
+        .arg("--json");
+    for (key, value) in &envs {
+        cmd.env(key, value);
+    }
+    let output = cmd.output().expect("failed to run feluda binary");
+    assert!(
+        output.status.success(),
+        "feluda exited with {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let entries: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+
+    let dep = entry(&entries, "example.com/mylib");
+    assert_eq!(dep["license"], "MIT");
+    assert_eq!(dep["is_restrictive"], false);
+}
+
 #[test]
 fn python_requirements_without_dependencies_scans_clean() {
     let temp = tempfile::TempDir::new().unwrap();

@@ -157,6 +157,25 @@ fn opensuse_rootfs() -> tempfile::TempDir {
     temp
 }
 
+/// A RHEL 8 era root filesystem, which keeps its rpm database in the Berkeley DB the image ships.
+fn rocky_rootfs() -> tempfile::TempDir {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    write(
+        temp.path(),
+        "etc/os-release",
+        "NAME=\"Rocky Linux\"\nID=\"rocky\"\nVERSION_ID=\"8.9\"\n",
+    );
+
+    let database = temp.path().join("var/lib/rpm");
+    fs::create_dir_all(&database).expect("failed to create rpm directory");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rpm/Packages"),
+        database.join("Packages"),
+    )
+    .expect("failed to copy the rpm fixture");
+    temp
+}
+
 /// A Debian root filesystem with a dpkg database and the copyright files it points at.
 fn debian_rootfs() -> tempfile::TempDir {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
@@ -793,11 +812,145 @@ fn opensuse_rootfs_is_cataloged_from_the_ndb_store() {
 }
 
 #[test]
-fn an_unsupported_rpm_backend_names_itself() {
-    // A CentOS 7 image. Reporting nothing installed would read as a clean scan of a machine with
-    // several hundred packages on it, which is the failure this message exists to prevent.
+fn rocky_rootfs_is_cataloged_from_the_berkeley_db_store() {
+    let temp = rocky_rootfs();
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+
+    // Six headers left after two erases, less the gpg-pubkey pseudo package the image's signing key
+    // becomes.
+    assert_eq!(report.len(), 5);
+    assert!(!report.iter().any(|entry| entry["name"]
+        .as_str()
+        .is_some_and(|name| name.contains("gpg-pubkey"))));
+
+    let gzip = find(&report, "rocky/gzip");
+    assert_eq!(gzip["ecosystem"], "rpm");
+    assert_eq!(gzip["version"], "1.9-15.el8_10");
+    assert_eq!(gzip["purl"], "pkg:rpm/rocky/gzip@1.9-15.el8_10?arch=aarch64&distro=rocky-8.9&upstream=gzip-1.9-15.el8_10.src.rpm");
+    // RHEL 8 era packages still spell their licenses the old way, and the second half of a compound
+    // expression is left as the package stated it.
+    assert_eq!(gzip["license"], "GPL-3.0-or-later AND GFDL");
+}
+
+#[test]
+fn a_dist_info_the_berkeley_db_store_owns_is_reported_once() {
+    // platform-python-setuptools ships setuptools' own dist-info, so the Python cataloger has to
+    // leave it to the rpm, while a distribution pip put there itself is still reported.
+    let temp = rocky_rootfs();
+    write(
+        temp.path(),
+        "usr/lib/python3.6/site-packages/setuptools-39.2.0.dist-info/METADATA",
+        "Metadata-Version: 2.1\nName: setuptools\nVersion: 39.2.0\nLicense: MIT\n",
+    );
+    write(
+        temp.path(),
+        "usr/local/lib/python3.6/site-packages/six-1.16.0.dist-info/METADATA",
+        "Metadata-Version: 2.1\nName: six\nVersion: 1.16.0\nLicense: MIT\n",
+    );
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+    assert_eq!(report.len(), 6);
+    assert_eq!(
+        find(&report, "rocky/platform-python-setuptools")["ecosystem"],
+        "rpm"
+    );
+    assert!(
+        !report.iter().any(|entry| entry["name"] == "setuptools"),
+        "the rpm owned dist-info was reported again: {report:?}"
+    );
+    assert_eq!(find(&report, "six")["ecosystem"], "pypi");
+}
+
+#[test]
+fn a_damaged_berkeley_db_record_is_reported_on_stderr() {
+    // `log(LogLevel::Warn, …)` only prints under `--debug`, so a scan that drops one damaged
+    // package would report one package fewer and exit 0 with nothing said. The count and the file
+    // have to reach stderr in a normal run.
+    let temp = rocky_rootfs();
+    let database = temp.path().join("var/lib/rpm/Packages");
+    let mut bytes = fs::read(&database).expect("the fixture should read");
+    let page_size = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+    let last_page = u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
+    // The first overflow page holds the tail of a header: retyping it damages one record.
+    let overflow = (1..=last_page)
+        .find(|page| bytes[page * page_size + 25] == 7)
+        .expect("the fixture keeps headers on overflow pages");
+    bytes[overflow * page_size + 25] = 0;
+    fs::write(&database, &bytes).expect("the damaged store should write");
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    assert!(
+        output.status.success(),
+        "one damaged record is not a failure"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("⚠️ Skipped 1 unreadable rpm headers in")
+            && stderr.contains("var/lib/rpm/Packages"),
+        "unexpected stderr: {stderr}"
+    );
+    assert_eq!(
+        report(&output).len(),
+        4,
+        "the other four are still reported"
+    );
+}
+
+#[test]
+fn a_repeated_berkeley_db_header_is_reported_on_stderr() {
+    // A freed page that kept its hash type hands back header numbers a live page also carries.
+    // Each package is reported once, and the repeat has to reach stderr in a normal run, since it
+    // is the sign that the page sweep can no longer be trusted.
+    let temp = rocky_rootfs();
+    let intact = report(&feluda(&[
+        "--filesystem",
+        temp.path().to_str().unwrap(),
+        "--json",
+    ]))
+    .len();
+
+    let database = temp.path().join("var/lib/rpm/Packages");
+    let mut bytes = fs::read(&database).expect("the fixture should read");
+    let page_size = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+    let last_page = u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
+    let page_type = |bytes: &[u8], page: usize| bytes[page * page_size + 25];
+    let hash_page = (1..=last_page)
+        .find(|page| page_type(&bytes, *page) == 13)
+        .expect("the fixture has hash pages");
+    let freed_page = (1..=last_page)
+        .find(|page| page_type(&bytes, *page) == 0)
+        .expect("the fixture has freed pages");
+    // Every item on the copied page is a key and value pair, and each pair comes back twice.
+    let start = hash_page * page_size;
+    let pairs = u16::from_le_bytes(bytes[start + 20..start + 22].try_into().unwrap()) / 2;
+    let copy = bytes[start..start + page_size].to_vec();
+    bytes[freed_page * page_size..(freed_page + 1) * page_size].copy_from_slice(&copy);
+    fs::write(&database, &bytes).expect("the doctored store should write");
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    assert!(output.status.success(), "a repeat is not a failure");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!(
+            "⚠️ Dropped {pairs} repeated rpm header records in"
+        )) && stderr.contains("var/lib/rpm/Packages"),
+        "unexpected stderr: {stderr}"
+    );
+    assert_eq!(
+        report(&output).len(),
+        intact,
+        "each package is reported once"
+    );
+}
+
+#[test]
+fn a_corrupt_rpm_database_names_its_backend() {
+    // Reporting nothing installed would read as a clean scan of a machine with several hundred
+    // packages on it, which is the failure this message exists to prevent.
     let temp = tempfile::tempdir().unwrap();
-    write(temp.path(), "etc/os-release", "ID=centos\n");
+    write(temp.path(), "etc/os-release", "ID=rocky\n");
     write(
         temp.path(),
         "var/lib/rpm/Packages",
@@ -808,7 +961,7 @@ fn an_unsupported_rpm_backend_names_itself() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Berkeley DB") && stderr.contains("sqlite") && stderr.contains("ndb"),
+        stderr.contains("Packages") && stderr.contains("Berkeley DB"),
         "unexpected stderr: {stderr}"
     );
 }

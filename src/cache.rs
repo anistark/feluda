@@ -31,6 +31,10 @@ struct CacheEntry<T> {
     version: u32,
     data: HashMap<String, T>,
     timestamp: u64,
+    /// Until when a stale entry is used without asking again, after a refresh that failed. Only
+    /// the OSI table writes it; `timestamp` keeps saying when the data was last fetched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retry_after: Option<u64>,
 }
 
 fn cache_dir_path() -> FeludaResult<PathBuf> {
@@ -86,16 +90,29 @@ fn entry_age_secs(timestamp: u64) -> u64 {
     now.saturating_sub(timestamp)
 }
 
+/// A cache entry, and whether it is due a refresh.
+#[derive(Debug)]
+pub(crate) enum CacheLookup<T> {
+    /// Use it as is: within its TTL, or inside the retry window after a failed refresh.
+    Fresh(HashMap<String, T>),
+    /// Past its TTL; `timestamp` is when it was last fetched, kept so a deferral can keep it.
+    Stale {
+        data: HashMap<String, T>,
+        timestamp: u64,
+    },
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// Read a cache file and report whether its entry is fresh or stale.
 ///
 /// A missing, older-layout, or unreadable cache returns `None`: the caller's fallback is to fetch,
 /// which is what it would have done anyway.
-#[derive(Debug)]
-pub(crate) enum CacheLookup<T> {
-    Fresh(HashMap<String, T>),
-    Stale(HashMap<String, T>),
-}
-
 fn load_cache_with_state<T: serde::de::DeserializeOwned>(
     path: &Path,
     ttl_secs: u64,
@@ -142,8 +159,21 @@ fn load_cache_with_state<T: serde::de::DeserializeOwned>(
     }
 
     if !is_entry_fresh_for(entry.timestamp, ttl_secs) {
+        if entry
+            .retry_after
+            .is_some_and(|retry_after| retry_after > now_secs())
+        {
+            log(
+                LogLevel::Info,
+                "Cache is stale, but the last refresh failed recently; not asking again yet",
+            );
+            return Ok(Some(CacheLookup::Fresh(entry.data)));
+        }
         log(LogLevel::Info, "Cache is stale, will re-fetch");
-        return Ok(Some(CacheLookup::Stale(entry.data)));
+        return Ok(Some(CacheLookup::Stale {
+            data: entry.data,
+            timestamp: entry.timestamp,
+        }));
     }
 
     log(
@@ -163,31 +193,31 @@ fn load_cache<T: serde::de::DeserializeOwned>(
 ) -> FeludaResult<Option<HashMap<String, T>>> {
     match load_cache_with_state(path, ttl_secs)? {
         Some(CacheLookup::Fresh(data)) => Ok(Some(data)),
-        Some(CacheLookup::Stale(_)) | None => Ok(None),
+        Some(CacheLookup::Stale { .. }) | None => Ok(None),
     }
 }
 
 fn save_cache<T: serde::Serialize>(path: &Path, data: &HashMap<String, T>) -> FeludaResult<()> {
-    let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-
-    save_cache_with_timestamp(path, data, timestamp)
+    save_cache_entry(path, data, now_secs(), None)
 }
 
-fn save_cache_with_timestamp<T: serde::Serialize>(
+fn save_cache_entry<T: serde::Serialize>(
     path: &Path,
     data: &HashMap<String, T>,
     timestamp: u64,
+    retry_after: Option<u64>,
 ) -> FeludaResult<()> {
     ensure_cache_dir()?;
 
-    let json = match serde_json::to_string_pretty(&serde_json::json!({
+    let mut entry = serde_json::json!({
         "version": CACHE_VERSION,
         "data": data,
         "timestamp": timestamp,
-    })) {
+    });
+    if let Some(retry_after) = retry_after {
+        entry["retry_after"] = retry_after.into();
+    }
+    let json = match serde_json::to_string_pretty(&entry) {
         Ok(json) => json,
         Err(e) => {
             log_error("Failed to serialize cache", &e);
@@ -226,17 +256,21 @@ pub fn save_osi_licenses_to_cache(licenses: &HashMap<String, OsiStatus>) -> Felu
     save_cache(&osi_cache_path()?, licenses)
 }
 
-/// Keep a stale OSI table usable for a short retry window after a failed refresh.
+/// After a failed refresh, keep using `licenses` for six hours before asking again.
 ///
-/// The entry remains old enough to become stale again after six hours, rather than postponing the
-/// next refresh for the full 30-day cache lifetime.
-pub(crate) fn defer_osi_refresh(licenses: &HashMap<String, OsiStatus>) -> FeludaResult<()> {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let timestamp = now.saturating_sub(CACHE_TTL_SECS - OSI_REFRESH_RETRY_SECS);
-    save_cache_with_timestamp(&osi_cache_path()?, licenses, timestamp)
+/// `timestamp` is when the table was last fetched, and is written back unchanged, so `feluda
+/// cache` keeps reporting the table as stale with its real age. Without any table to keep, the
+/// caller passes the built-in list with a timestamp of 0, so it reads as never fetched.
+pub(crate) fn defer_osi_refresh(
+    licenses: &HashMap<String, OsiStatus>,
+    timestamp: u64,
+) -> FeludaResult<()> {
+    save_cache_entry(
+        &osi_cache_path()?,
+        licenses,
+        timestamp,
+        Some(now_secs() + OSI_REFRESH_RETRY_SECS),
+    )
 }
 
 /// Declared licenses ClearlyDefined answered with, keyed by coordinate.
@@ -285,8 +319,11 @@ pub struct CacheStatus {
     pub path: PathBuf,
     pub size_bytes: u64,
     pub is_fresh: bool,
-    pub age_secs: u64,
+    /// Seconds since the data was fetched, or `None` when it never was (the OSI built-in list).
+    pub age_secs: Option<u64>,
     pub license_count: usize,
+    /// Seconds until the next attempt, when the last refresh failed and Feluda is holding off.
+    pub retry_in_secs: Option<u64>,
 }
 
 impl CacheStatus {
@@ -318,6 +355,14 @@ impl CacheStatus {
         }
     }
 
+    fn format_duration(secs: u64) -> String {
+        if secs < 3600 {
+            format!("{} minutes", secs.div_ceil(60))
+        } else {
+            format!("{} hours", secs.div_ceil(3600))
+        }
+    }
+
     pub fn print_status(&self) {
         if !self.exists {
             println!("\n📦 {} Cache: EMPTY", self.label);
@@ -335,8 +380,17 @@ impl CacheStatus {
         println!("\n📦 {} Cache: {health}", self.label);
         println!("   Location: {}", self.path.display());
         println!("   Size: {}", Self::format_size(self.size_bytes));
-        println!("   Age: {}", Self::format_age(self.age_secs));
+        match self.age_secs {
+            Some(age) => println!("   Age: {}", Self::format_age(age)),
+            None => println!("   Age: never fetched (built-in list)"),
+        }
         println!("   Entries cached: {}", self.license_count);
+        if let Some(retry_in) = self.retry_in_secs {
+            println!(
+                "   Last refresh failed; next attempt in {}",
+                Self::format_duration(retry_in)
+            );
+        }
         println!();
     }
 }
@@ -386,23 +440,28 @@ fn status_of<T: serde::de::DeserializeOwned>(
             path: cache_path,
             size_bytes: 0,
             is_fresh: false,
-            age_secs: 0,
+            age_secs: None,
             license_count: 0,
+            retry_in_secs: None,
         });
     }
 
     let size_bytes = fs::metadata(&cache_path)?.len();
 
-    let (is_fresh, age_secs, license_count) = match fs::read_to_string(&cache_path) {
-        Ok(content) => match serde_json::from_str::<CacheEntry<T>>(&content) {
-            Ok(entry) => (
-                is_entry_fresh_for(entry.timestamp, ttl_secs),
-                entry_age_secs(entry.timestamp),
-                entry.data.len(),
-            ),
-            Err(_) => (false, 0, 0),
-        },
-        Err(_) => (false, 0, 0),
+    let entry = fs::read_to_string(&cache_path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<CacheEntry<T>>(&content).ok());
+    let (is_fresh, age_secs, license_count, retry_in_secs) = match entry {
+        Some(entry) => (
+            is_entry_fresh_for(entry.timestamp, ttl_secs),
+            (entry.timestamp != 0).then(|| entry_age_secs(entry.timestamp)),
+            entry.data.len(),
+            entry
+                .retry_after
+                .and_then(|retry_after| retry_after.checked_sub(now_secs()))
+                .filter(|&secs| secs > 0),
+        ),
+        None => (false, Some(0), 0, None),
     };
 
     Ok(CacheStatus {
@@ -413,6 +472,7 @@ fn status_of<T: serde::de::DeserializeOwned>(
         is_fresh,
         age_secs,
         license_count,
+        retry_in_secs,
     })
 }
 
@@ -428,13 +488,6 @@ mod tests {
             conditions: vec!["include-copyright".into()],
             limitations: vec!["liability".into()],
         }
-    }
-
-    fn now_secs() -> u64 {
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
     }
 
     #[test]
@@ -463,6 +516,7 @@ mod tests {
             version: CACHE_VERSION,
             data,
             timestamp: now_secs(),
+            retry_after: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let decoded: CacheEntry<License> = serde_json::from_str(&json).unwrap();
@@ -480,6 +534,7 @@ mod tests {
             version: CACHE_VERSION,
             data,
             timestamp: now_secs(),
+            retry_after: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let result = load_from_content(&json);
@@ -495,9 +550,55 @@ mod tests {
             version: CACHE_VERSION,
             data,
             timestamp: now_secs() - CACHE_TTL_SECS - 1,
+            retry_after: None,
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(load_from_content(&json).is_none());
+    }
+
+    #[test]
+    fn a_stale_entry_inside_its_retry_window_is_used_without_a_refresh() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("osi_licenses.json");
+        let data = HashMap::from([("MIT".to_string(), OsiStatus::Approved)]);
+        let stale = now_secs() - CACHE_TTL_SECS - 1;
+
+        fs::write(
+            &path,
+            serde_json::to_string(&CacheEntry {
+                version: CACHE_VERSION,
+                data: data.clone(),
+                timestamp: stale,
+                retry_after: Some(now_secs() + 60),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            load_cache_with_state::<OsiStatus>(&path, CACHE_TTL_SECS).unwrap(),
+            Some(CacheLookup::Fresh(_))
+        ));
+        let status = status_of::<OsiStatus>(path.clone(), "OSI Licenses", CACHE_TTL_SECS).unwrap();
+        assert!(!status.is_fresh);
+        assert!(status.retry_in_secs.is_some());
+
+        fs::write(
+            &path,
+            serde_json::to_string(&CacheEntry {
+                version: CACHE_VERSION,
+                data,
+                timestamp: stale,
+                retry_after: Some(now_secs() - 60),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            load_cache_with_state::<OsiStatus>(&path, CACHE_TTL_SECS).unwrap(),
+            Some(CacheLookup::Stale { timestamp, .. }) if timestamp == stale
+        ));
+        let status = status_of::<OsiStatus>(path, "OSI Licenses", CACHE_TTL_SECS).unwrap();
+        assert_eq!(status.retry_in_secs, None);
     }
 
     #[test]

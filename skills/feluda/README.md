@@ -51,7 +51,7 @@ Or ask naturally:
 
 **Languages:** Rust · Node.js · Go · Python · Java (Maven/Gradle) · .NET · Ruby · PHP · C/C++ · R
 
-**OS packages, when scanning an image or a root filesystem:** Alpine apk · Debian and Ubuntu dpkg · rpm on its sqlite and ndb backends
+**OS packages, when scanning an image or a root filesystem:** Alpine apk · Debian and Ubuntu dpkg · rpm on its sqlite, ndb and Berkeley DB backends
 
 ## Configuration
 
