@@ -90,7 +90,7 @@ Answers are cached alongside the GitHub license table, in Feluda's cache directo
 That is shorter than the 30 days the GitHub table gets, because curations land continuously.
 
 Misses are cached too: a package ClearlyDefined has never heard of is not asked about again on
-every run. ``feluda cache --clear`` clears both caches.
+every run. ``feluda cache --clear`` clears all three caches.
 
 ----
 
