@@ -817,8 +817,9 @@ fn rocky_rootfs_is_cataloged_from_the_berkeley_db_store() {
     let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
     let report = report(&output);
 
-    // Four packages: six headers were written into the store and two were erased from it.
-    assert_eq!(report.len(), 4);
+    // Six headers left after two erases, less the gpg-pubkey pseudo package the image's signing key
+    // becomes.
+    assert_eq!(report.len(), 5);
     assert!(!report.iter().any(|entry| entry["name"]
         .as_str()
         .is_some_and(|name| name.contains("gpg-pubkey"))));
@@ -830,6 +831,36 @@ fn rocky_rootfs_is_cataloged_from_the_berkeley_db_store() {
     // RHEL 8 era packages still spell their licenses the old way, and the second half of a compound
     // expression is left as the package stated it.
     assert_eq!(gzip["license"], "GPL-3.0-or-later AND GFDL");
+}
+
+#[test]
+fn a_dist_info_the_berkeley_db_store_owns_is_reported_once() {
+    // platform-python-setuptools ships setuptools' own dist-info, so the Python cataloger has to
+    // leave it to the rpm, while a distribution pip put there itself is still reported.
+    let temp = rocky_rootfs();
+    write(
+        temp.path(),
+        "usr/lib/python3.6/site-packages/setuptools-39.2.0.dist-info/METADATA",
+        "Metadata-Version: 2.1\nName: setuptools\nVersion: 39.2.0\nLicense: MIT\n",
+    );
+    write(
+        temp.path(),
+        "usr/local/lib/python3.6/site-packages/six-1.16.0.dist-info/METADATA",
+        "Metadata-Version: 2.1\nName: six\nVersion: 1.16.0\nLicense: MIT\n",
+    );
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    let report = report(&output);
+    assert_eq!(report.len(), 6);
+    assert_eq!(
+        find(&report, "rocky/platform-python-setuptools")["ecosystem"],
+        "rpm"
+    );
+    assert!(
+        !report.iter().any(|entry| entry["name"] == "setuptools"),
+        "the rpm owned dist-info was reported again: {report:?}"
+    );
+    assert_eq!(find(&report, "six")["ecosystem"], "pypi");
 }
 
 #[test]
@@ -862,8 +893,55 @@ fn a_damaged_berkeley_db_record_is_reported_on_stderr() {
     );
     assert_eq!(
         report(&output).len(),
-        3,
-        "the other three are still reported"
+        4,
+        "the other four are still reported"
+    );
+}
+
+#[test]
+fn a_repeated_berkeley_db_header_is_reported_on_stderr() {
+    // A freed page that kept its hash type hands back header numbers a live page also carries.
+    // Each package is reported once, and the repeat has to reach stderr in a normal run, since it
+    // is the sign that the page sweep can no longer be trusted.
+    let temp = rocky_rootfs();
+    let intact = report(&feluda(&[
+        "--filesystem",
+        temp.path().to_str().unwrap(),
+        "--json",
+    ]))
+    .len();
+
+    let database = temp.path().join("var/lib/rpm/Packages");
+    let mut bytes = fs::read(&database).expect("the fixture should read");
+    let page_size = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+    let last_page = u32::from_le_bytes(bytes[32..36].try_into().unwrap()) as usize;
+    let page_type = |bytes: &[u8], page: usize| bytes[page * page_size + 25];
+    let hash_page = (1..=last_page)
+        .find(|page| page_type(&bytes, *page) == 13)
+        .expect("the fixture has hash pages");
+    let freed_page = (1..=last_page)
+        .find(|page| page_type(&bytes, *page) == 0)
+        .expect("the fixture has freed pages");
+    // Every item on the copied page is a key and value pair, and each pair comes back twice.
+    let start = hash_page * page_size;
+    let pairs = u16::from_le_bytes(bytes[start + 20..start + 22].try_into().unwrap()) / 2;
+    let copy = bytes[start..start + page_size].to_vec();
+    bytes[freed_page * page_size..(freed_page + 1) * page_size].copy_from_slice(&copy);
+    fs::write(&database, &bytes).expect("the doctored store should write");
+
+    let output = feluda(&["--filesystem", temp.path().to_str().unwrap(), "--json"]);
+    assert!(output.status.success(), "a repeat is not a failure");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!(
+            "⚠️ Dropped {pairs} repeated rpm header records in"
+        )) && stderr.contains("var/lib/rpm/Packages"),
+        "unexpected stderr: {stderr}"
+    );
+    assert_eq!(
+        report(&output).len(),
+        intact,
+        "each package is reported once"
     );
 }
 

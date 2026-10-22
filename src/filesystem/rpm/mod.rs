@@ -238,8 +238,8 @@ mod tests {
         fixture_rootfs("Packages.db")
     }
 
-    /// A Berkeley DB store rpm itself wrote inside `rockylinux:8`: six headers written, two of them
-    /// erased, so four packages are left.
+    /// A Berkeley DB store rpm itself wrote inside `rockylinux:8`: eight headers written, two of them
+    /// erased, so five packages and the signing key the image imports are left.
     fn rocky_rootfs() -> tempfile::TempDir {
         fixture_rootfs("Packages")
     }
@@ -350,8 +350,8 @@ mod tests {
             .unwrap()
             .expect("database is present");
 
-        // Four packages: six headers were written into the store and two were erased from it.
-        assert_eq!(catalog.packages.len(), 4);
+        // Six headers left after two erases, less the gpg-pubkey pseudo package.
+        assert_eq!(catalog.packages.len(), 5);
         assert!(
             !catalog
                 .packages
@@ -404,14 +404,13 @@ mod tests {
     #[test]
     fn test_berkeley_db_headers_carry_their_file_lists() {
         // The ownership dedupe needs the file list, and it comes out of the same header parser
-        // whichever store the blob came from, overflow chain and all.
+        // whichever store the blob came from, overflow chain and all. platform-python-setuptools
+        // ships setuptools' own dist-info, which the Python cataloger must leave to it.
         let temp = rocky_rootfs();
         let catalog = catalog(temp.path(), Some("rocky")).unwrap().unwrap();
         assert!(
-            catalog
-                .owned
-                .iter()
-                .any(|path| path.ends_with("usr/bin/gzip")),
+            catalog.owned.iter().any(|path| path
+                .ends_with("usr/lib/python3.6/site-packages/setuptools-39.2.0.dist-info/METADATA")),
             "no artifact metadata claimed: {:?}",
             catalog.owned
         );
