@@ -255,10 +255,12 @@ impl Database {
         records.sort_by_key(|(number, _)| *number);
 
         // A page left over from an interrupted `--rebuilddb` or an abandoned bucket split can keep
-        // its type and hand back a header number the live page also carries. The first record per
-        // number is the one to keep; the sort above is stable, so that is the lowest page number.
-        // A repeat means the page sweep is no longer enough, but this guards only a repeated
-        // number: a stale page whose numbers are unique is still read as installed.
+        // its type and hand back a header number the live page also carries. One record per number
+        // is kept: the sort above is stable, so that is the one on the lowest page number. Nothing
+        // ties page order to which copy is live, so when the two blobs differ the one kept is
+        // arbitrary, and the stderr line below is what says the sweep can no longer be trusted.
+        // This guards only a repeated number: a stale page whose numbers are unique is still read
+        // as installed.
         let found = records.len();
         records.dedup_by_key(|(number, _)| *number);
         let repeated = found - records.len();
@@ -384,12 +386,23 @@ mod tests {
     /// The head of the freed page list, in the meta page.
     const OFFSET_FREE: usize = 28;
 
-    /// The checked in fixture: four `rockylinux:8` packages in the store rpm 4.14.3 wrote for them.
-    /// Six headers were written — `rpm --dbpath … --justdb -i` on `gzip file file-libs diffutils
-    /// which python3-pip-wheel` — and two were erased, `rpm --dbpath … --justdb -e file diffutils`.
-    /// What it carries is what only real transactions produce: packed items, sorted `P_HASH` pages,
-    /// and the freed pages libdb chained onto its free list when it released them. No script
-    /// touches it; the commands are in the PR body.
+    /// The checked in fixture: five `rockylinux:8` packages and the image's signing key, in the
+    /// store rpm 4.14.3 wrote for them inside `rockylinux:8`:
+    ///
+    /// ```sh
+    /// rpm --initdb --dbpath /work/db
+    /// rpm --dbpath /work/db --justdb --nodeps --noscripts -i gzip file file-libs which \
+    ///     python3-pip-wheel platform-python-setuptools   # the downloaded .rpm files
+    /// rpm --dbpath /work/db --import /etc/pki/rpm-gpg/RPM-GPG-KEY-rockyofficial
+    /// rpm --dbpath /work/db --justdb --nodeps --noscripts -i diffutils
+    /// rpm --dbpath /work/db --justdb -e file diffutils
+    /// ```
+    ///
+    /// Eight headers were written and two erased. `--nodeps` is there only because the fresh
+    /// database knows none of `glibc`. diffutils goes in last so that erasing it frees the highest
+    /// header number. What the file carries is what only real transactions produce: packed items,
+    /// sorted `P_HASH` pages, and the freed pages libdb chained onto its free list when it released
+    /// them. No script touches it.
     fn fixture() -> Database {
         Database::open(Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -482,9 +495,9 @@ mod tests {
 
     #[test]
     fn test_reads_every_record_of_the_fixture() {
-        // Four packages, with the instance counter skipped.
+        // Five packages and the signing key, with the instance counter skipped.
         let blobs = fixture().blobs().unwrap();
-        assert_eq!(blobs.len(), 4);
+        assert_eq!(blobs.len(), 6);
 
         // Every blob is self describing, so the header's own declared sizes have to account for
         // exactly what the reader returned: no page framing leaked in, and no overflow page was
@@ -498,15 +511,16 @@ mod tests {
 
     #[test]
     fn test_key_zero_is_the_instance_counter_not_a_header() {
-        // rpm keeps the last header number it allocated under key 0. Six packages were written to
-        // this store and two were erased, so the counter still says 6 while the highest number left
-        // in the file is 5: key 0 is a counter, not a header, and a reader that handed it on would
-        // report a four byte "header" for a package that is not installed.
+        // rpm keeps the last header number it allocated under key 0. Eight headers were written to
+        // this store and two were erased, the last one among them, so the counter still says 8
+        // while the highest number left in the file is 7: key 0 is a counter, not a header, and a
+        // reader that handed it on would report a four byte "header" for a package that is not
+        // installed.
         let records = fixture().records().unwrap();
         assert_eq!(records[0].0, INSTANCE_KEY);
         let instance: [u8; 4] = records[0].1.as_slice().try_into().expect("four bytes");
-        assert_eq!(u32::from_le_bytes(instance), 6);
-        assert_eq!(records.last().unwrap().0, 5);
+        assert_eq!(u32::from_le_bytes(instance), 8);
+        assert_eq!(records.last().unwrap().0, 7);
         assert!(!fixture()
             .blobs()
             .unwrap()
@@ -591,11 +605,11 @@ mod tests {
         let copy = database.bytes[from..from + page_size].to_vec();
         database.bytes[to..to + page_size].copy_from_slice(&copy);
 
-        // Five records and four blobs whether or not a page was read twice, and the copy carries
+        // Seven records and six blobs whether or not a page was read twice, and the copy carries
         // the same blob: the reader keeps the record, not the page number.
         assert_eq!(database.records().unwrap().len(), pristine.len());
-        assert_eq!(database.records().unwrap().len(), 5);
-        assert_eq!(database.blobs().unwrap().len(), 4);
+        assert_eq!(database.records().unwrap().len(), 7);
+        assert_eq!(database.blobs().unwrap().len(), 6);
         assert!(database.records().unwrap().iter().all(|(number, blob)| {
             pristine.iter().any(|(pristine_number, pristine_blob)| {
                 pristine_number == number && pristine_blob == blob
@@ -679,7 +693,7 @@ mod tests {
         let intact = database.blobs().unwrap().len();
 
         // A record whose value starts on page 3 keeps the rest of the record there; retype the
-        // page and that record is damaged, the other three are not.
+        // page and that record is damaged, the other five are not.
         let first_overflow = (1..=database.last_page)
             .find(|number| database.page(*number)[OFFSET_TYPE] == P_OVERFLOW)
             .expect("the fixture keeps its headers on overflow pages");
