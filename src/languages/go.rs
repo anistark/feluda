@@ -609,21 +609,13 @@ fn parse_go_module_version(module_str: &str) -> Option<(String, String)> {
     }
 }
 
-/// Fetch the license for a Go dependency, trying local sources first, then the pkg.go.dev API
+/// Fetch the license for a Go dependency, trying the Go module cache first, then the pkg.go.dev API
 pub fn fetch_license_for_go_dependency(
     name: impl Into<String>,
     version: impl Into<String>,
 ) -> String {
     let name = name.into();
     let version = version.into();
-
-    if let Some(license) = get_license_from_local_go_mod(&name) {
-        log(
-            LogLevel::Info,
-            &format!("Found license in local go.mod for {name}: {license}"),
-        );
-        return license;
-    }
 
     if let Some(license) = get_license_from_go_module_cache(&name, &version) {
         log(
@@ -634,27 +626,6 @@ pub fn fetch_license_for_go_dependency(
     }
 
     fetch_license_from_pkgsite_api(&name, &version)
-}
-
-fn get_license_from_local_go_mod(package_name: &str) -> Option<String> {
-    let go_mod_path = Path::new("go.mod");
-    if !go_mod_path.exists() {
-        return None;
-    }
-
-    let content = fs::read_to_string(go_mod_path).ok()?;
-    for line in content.lines() {
-        let line = line.trim();
-        if line.starts_with("//")
-            && line.to_lowercase().contains("license")
-            && line.contains(package_name)
-        {
-            if let Some(license_part) = line.split("license:").nth(1) {
-                return Some(license_part.trim().to_string());
-            }
-        }
-    }
-    None
 }
 
 fn get_license_from_go_module_cache(package_name: &str, version: &str) -> Option<String> {
