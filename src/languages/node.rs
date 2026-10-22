@@ -322,12 +322,19 @@ pub fn analyze_js_licenses_with_config(
         }
     };
 
-    let attribution = build_npm_workspace_attribution(project_root, package_json_path);
+    let mut attribution = if project_root.join("pnpm-lock.yaml").exists() {
+        build_pnpm_workspace_attribution(project_root)
+    } else {
+        HashMap::new()
+    };
+    if attribution.is_empty() {
+        attribution = build_npm_workspace_attribution(project_root, package_json_path);
+    }
     if !attribution.is_empty() {
         log(
             LogLevel::Info,
             &format!(
-                "Built npm workspace attribution for {} unique deps across members",
+                "Built workspace attribution for {} unique deps across members",
                 attribution.len()
             ),
         );
@@ -1007,14 +1014,8 @@ fn parse_pnpm_lockfile(project_root: &Path) -> Option<HashMap<String, String>> {
     Some(packages.into_iter().collect())
 }
 
-/// Every package `pnpm-lock.yaml` says is installed, as sorted, distinct `(name, version)` pairs.
-///
-/// Read as YAML rather than line by line: keys are quoted when they start with `@`, and the shape
-/// of the `packages` map changed twice. What is read is its keys, which is where every lockfile
-/// version records name and version, and never the `importers` or top level `dependencies` maps,
-/// which describe what a project asked for rather than what was installed. Workspace members
-/// linked with `link:` are never in `packages`, so they are not reported as dependencies.
-fn read_pnpm_lockfile(project_root: &Path) -> Result<Vec<(String, String)>, String> {
+/// The project's own document of `pnpm-lock.yaml`.
+fn load_pnpm_lockfile(project_root: &Path) -> Result<serde_yaml::Value, String> {
     let content = fs::read_to_string(project_root.join("pnpm-lock.yaml"))
         .map_err(|e| format!("failed to read: {e}"))?;
     // Recent pnpm releases write the lockfile of the pnpm version a project pins as a first YAML
@@ -1025,7 +1026,80 @@ fn read_pnpm_lockfile(project_root: &Path) -> Result<Vec<(String, String)>, Stri
             serde_yaml::Value::deserialize(document).map_err(|e| format!("not valid YAML: {e}"))?,
         );
     }
-    let lockfile = lockfile.ok_or("not valid YAML: empty file")?;
+    lockfile.ok_or_else(|| "not valid YAML: empty file".to_string())
+}
+
+/// Map from dep name -> set of pnpm workspace members that declare it.
+///
+/// pnpm keeps its workspace in `pnpm-workspace.yaml` rather than in `package.json`, and the
+/// lockfile's `importers` map already records each member's direct dependencies, keyed by the
+/// member's path. A lockfile with a single importer is not a workspace, so it gives an empty map,
+/// as a package.json without `workspaces` does for npm.
+fn build_pnpm_workspace_attribution(
+    project_root: &Path,
+) -> HashMap<String, std::collections::BTreeSet<String>> {
+    let mut attribution: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
+
+    let Ok(lockfile) = load_pnpm_lockfile(project_root) else {
+        return attribution;
+    };
+    let Some(importers) = lockfile
+        .get("importers")
+        .and_then(serde_yaml::Value::as_mapping)
+    else {
+        return attribution;
+    };
+    if importers.len() < 2 {
+        return attribution;
+    }
+
+    log(LogLevel::Info, "Building pnpm workspace attribution map");
+
+    for (path, importer) in importers {
+        let Some(path) = path.as_str() else {
+            continue;
+        };
+        let member_name = pnpm_importer_name(project_root, path);
+        for key in ["dependencies", "devDependencies", "optionalDependencies"] {
+            if let Some(deps) = importer.get(key).and_then(serde_yaml::Value::as_mapping) {
+                for dep_name in deps.keys().filter_map(serde_yaml::Value::as_str) {
+                    attribution
+                        .entry(dep_name.to_string())
+                        .or_default()
+                        .insert(member_name.clone());
+                }
+            }
+        }
+    }
+
+    attribution
+}
+
+/// A pnpm importer's name: its package.json `name`, else its directory name (`root` for `.`).
+fn pnpm_importer_name(project_root: &Path, importer_path: &str) -> String {
+    let dir = project_root.join(importer_path);
+    let declared = fs::read_to_string(dir.join("package.json"))
+        .ok()
+        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+        .and_then(|json| json.get("name")?.as_str().map(String::from));
+    declared.unwrap_or_else(|| {
+        Path::new(importer_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("root")
+            .to_string()
+    })
+}
+
+/// Every package `pnpm-lock.yaml` says is installed, as sorted, distinct `(name, version)` pairs.
+///
+/// Read as YAML rather than line by line: keys are quoted when they start with `@`, and the shape
+/// of the `packages` map changed twice. What is read is its keys, which is where every lockfile
+/// version records name and version, and never the `importers` or top level `dependencies` maps,
+/// which describe what a project asked for rather than what was installed. Workspace members
+/// linked with `link:` are never in `packages`, so they are not reported as dependencies.
+fn read_pnpm_lockfile(project_root: &Path) -> Result<Vec<(String, String)>, String> {
+    let lockfile = load_pnpm_lockfile(project_root)?;
 
     let grammar = PnpmKeyGrammar::for_lockfile_version(lockfile.get("lockfileVersion"));
 
@@ -2961,6 +3035,120 @@ packages:
     fn test_pnpm_lockfile_without_packages_is_empty() {
         let temp = lockfile("lockfileVersion: '9.0'\n\nimporters:\n  .: {}\n");
         assert_eq!(read_pnpm_lockfile(temp.path()).unwrap(), Vec::new());
+    }
+
+    fn members(
+        attribution: &HashMap<String, std::collections::BTreeSet<String>>,
+        dep: &str,
+    ) -> Vec<String> {
+        attribution
+            .get(dep)
+            .map(|m| m.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn test_pnpm_workspace_attribution_from_importers() {
+        // Left over from #98: pnpm workspaces live in pnpm-workspace.yaml, never in package.json.
+        let temp = lockfile(
+            "\
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.6.3
+  packages/api:
+    dependencies:
+      ms:
+        specifier: ^2.1.2
+        version: 2.1.2
+      web:
+        specifier: workspace:*
+        version: link:../web
+  packages/web:
+    dependencies:
+      ms:
+        specifier: ^2.1.2
+        version: 2.1.2
+    optionalDependencies:
+      fsevents:
+        specifier: ^2.3.3
+        version: 2.3.3
+
+packages:
+  ms@2.1.2: {}
+  fsevents@2.3.3: {}
+  typescript@5.6.3: {}
+",
+        );
+        let root = temp.path();
+        fs::write(root.join("package.json"), r#"{"name": "monorepo"}"#).unwrap();
+        fs::create_dir_all(root.join("packages/api")).unwrap();
+        fs::write(
+            root.join("packages/api/package.json"),
+            r#"{"name": "@acme/api"}"#,
+        )
+        .unwrap();
+        // No package.json: the directory name stands in.
+        fs::create_dir_all(root.join("packages/web")).unwrap();
+
+        let attribution = build_pnpm_workspace_attribution(root);
+        assert_eq!(members(&attribution, "typescript"), vec!["monorepo"]);
+        assert_eq!(members(&attribution, "ms"), vec!["@acme/api", "web"]);
+        assert_eq!(members(&attribution, "fsevents"), vec!["web"]);
+    }
+
+    #[test]
+    fn test_pnpm_workspace_attribution_lockfile_v5() {
+        // 5.x importers map names straight to versions, beside a `specifiers` map.
+        let temp = lockfile(
+            "\
+lockfileVersion: 5.4
+
+importers:
+  .:
+    specifiers:
+      ms: ^2.1.2
+    dependencies:
+      ms: 2.1.2
+  tools:
+    specifiers:
+      debug: 4.3.4
+    devDependencies:
+      debug: 4.3.4
+
+packages:
+  /ms/2.1.2: {}
+  /debug/4.3.4: {}
+",
+        );
+        let attribution = build_pnpm_workspace_attribution(temp.path());
+        assert_eq!(members(&attribution, "ms"), vec!["root"]);
+        assert_eq!(members(&attribution, "debug"), vec!["tools"]);
+        assert!(!attribution.contains_key("specifiers"));
+    }
+
+    #[test]
+    fn test_pnpm_single_importer_is_not_a_workspace() {
+        let temp = lockfile(
+            "\
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      ms:
+        specifier: ^2.1.2
+        version: 2.1.2
+
+packages:
+  ms@2.1.2: {}
+",
+        );
+        assert!(build_pnpm_workspace_attribution(temp.path()).is_empty());
     }
 
     #[test]
