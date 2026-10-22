@@ -10,11 +10,13 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::debug::{log, log_error, FeludaResult, LogLevel};
-use crate::licenses::License;
+use crate::licenses::{License, OsiStatus};
 
 const CACHE_SUBDIR: &str = "feluda";
 const GITHUB_LICENSES_CACHE_FILE: &str = "github_licenses.json";
+const OSI_LICENSES_CACHE_FILE: &str = "osi_licenses.json";
 const CACHE_TTL_SECS: u64 = 30 * 24 * 60 * 60; // 30 days
+const OSI_REFRESH_RETRY_SECS: u64 = 6 * 60 * 60; // 6 hours
 
 /// ClearlyDefined answers are cached separately and expire sooner: the GitHub table is the SPDX
 /// license list, which barely moves, while ClearlyDefined definitions gain curations continuously.
@@ -58,6 +60,10 @@ fn clearlydefined_cache_path() -> FeludaResult<PathBuf> {
     Ok(cache_dir_path()?.join(CLEARLYDEFINED_CACHE_FILE))
 }
 
+fn osi_cache_path() -> FeludaResult<PathBuf> {
+    Ok(cache_dir_path()?.join(OSI_LICENSES_CACHE_FILE))
+}
+
 fn is_entry_fresh_for(timestamp: u64, ttl_secs: u64) -> bool {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -80,14 +86,20 @@ fn entry_age_secs(timestamp: u64) -> u64 {
     now.saturating_sub(timestamp)
 }
 
-/// Read a cache file, or `None` when it is absent, stale, from an older layout, or unreadable.
+/// Read a cache file and report whether its entry is fresh or stale.
 ///
-/// A cache that cannot be read is never an error: the caller's fallback is to fetch, which is what
-/// it would have done anyway.
-fn load_cache<T: serde::de::DeserializeOwned>(
+/// A missing, older-layout, or unreadable cache returns `None`: the caller's fallback is to fetch,
+/// which is what it would have done anyway.
+#[derive(Debug)]
+pub(crate) enum CacheLookup<T> {
+    Fresh(HashMap<String, T>),
+    Stale(HashMap<String, T>),
+}
+
+fn load_cache_with_state<T: serde::de::DeserializeOwned>(
     path: &Path,
     ttl_secs: u64,
-) -> FeludaResult<Option<HashMap<String, T>>> {
+) -> FeludaResult<Option<CacheLookup<T>>> {
     if !path.exists() {
         log(
             LogLevel::Info,
@@ -131,7 +143,7 @@ fn load_cache<T: serde::de::DeserializeOwned>(
 
     if !is_entry_fresh_for(entry.timestamp, ttl_secs) {
         log(LogLevel::Info, "Cache is stale, will re-fetch");
-        return Ok(None);
+        return Ok(Some(CacheLookup::Stale(entry.data)));
     }
 
     log(
@@ -142,16 +154,34 @@ fn load_cache<T: serde::de::DeserializeOwned>(
             path.display()
         ),
     );
-    Ok(Some(entry.data))
+    Ok(Some(CacheLookup::Fresh(entry.data)))
+}
+
+fn load_cache<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    ttl_secs: u64,
+) -> FeludaResult<Option<HashMap<String, T>>> {
+    match load_cache_with_state(path, ttl_secs)? {
+        Some(CacheLookup::Fresh(data)) => Ok(Some(data)),
+        Some(CacheLookup::Stale(_)) | None => Ok(None),
+    }
 }
 
 fn save_cache<T: serde::Serialize>(path: &Path, data: &HashMap<String, T>) -> FeludaResult<()> {
-    ensure_cache_dir()?;
-
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+
+    save_cache_with_timestamp(path, data, timestamp)
+}
+
+fn save_cache_with_timestamp<T: serde::Serialize>(
+    path: &Path,
+    data: &HashMap<String, T>,
+    timestamp: u64,
+) -> FeludaResult<()> {
+    ensure_cache_dir()?;
 
     let json = match serde_json::to_string_pretty(&serde_json::json!({
         "version": CACHE_VERSION,
@@ -187,6 +217,28 @@ pub fn save_github_licenses_to_cache(licenses: &HashMap<String, License>) -> Fel
     save_cache(&github_cache_path()?, licenses)
 }
 
+/// Load the OSI table and preserve a stale entry so callers can use it if refresh fails.
+pub(crate) fn load_osi_licenses_from_cache() -> FeludaResult<Option<CacheLookup<OsiStatus>>> {
+    load_cache_with_state(&osi_cache_path()?, CACHE_TTL_SECS)
+}
+
+pub fn save_osi_licenses_to_cache(licenses: &HashMap<String, OsiStatus>) -> FeludaResult<()> {
+    save_cache(&osi_cache_path()?, licenses)
+}
+
+/// Keep a stale OSI table usable for a short retry window after a failed refresh.
+///
+/// The entry remains old enough to become stale again after six hours, rather than postponing the
+/// next refresh for the full 30-day cache lifetime.
+pub(crate) fn defer_osi_refresh(licenses: &HashMap<String, OsiStatus>) -> FeludaResult<()> {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let timestamp = now.saturating_sub(CACHE_TTL_SECS - OSI_REFRESH_RETRY_SECS);
+    save_cache_with_timestamp(&osi_cache_path()?, licenses, timestamp)
+}
+
 /// Declared licenses ClearlyDefined answered with, keyed by coordinate.
 ///
 /// The value is `None` for a coordinate ClearlyDefined has no answer for. Those are cached too, so
@@ -201,10 +253,14 @@ pub fn save_clearlydefined_to_cache(
     save_cache(&clearlydefined_cache_path()?, definitions)
 }
 
-/// Clear every cache feluda keeps: the GitHub license table and the ClearlyDefined answers.
-pub fn clear_github_licenses_cache() -> FeludaResult<()> {
+/// Clear every cache feluda keeps.
+pub fn clear_all_caches() -> FeludaResult<()> {
     let mut cleared = false;
-    for path in [github_cache_path()?, clearlydefined_cache_path()?] {
+    for path in [
+        github_cache_path()?,
+        osi_cache_path()?,
+        clearlydefined_cache_path()?,
+    ] {
         if path.exists() {
             fs::remove_file(&path).inspect_err(|e| log_error("Failed to clear cache", e))?;
             log(
@@ -301,6 +357,11 @@ fn load_from_content(content: &str) -> Option<HashMap<String, License>> {
 
 pub fn get_cache_status() -> FeludaResult<CacheStatus> {
     status_of::<License>(github_cache_path()?, "GitHub Licenses", CACHE_TTL_SECS)
+}
+
+/// The OSI approval table cache, refreshed on the same 30-day cadence as GitHub's license table.
+pub fn get_osi_cache_status() -> FeludaResult<CacheStatus> {
+    status_of::<OsiStatus>(osi_cache_path()?, "OSI Licenses", CACHE_TTL_SECS)
 }
 
 /// The ClearlyDefined answers cache, reported next to the GitHub one so `feluda cache` accounts

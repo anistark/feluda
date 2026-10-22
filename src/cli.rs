@@ -185,7 +185,7 @@ pub enum Commands {
     },
     /// Manage cache
     Cache {
-        /// Clear the GitHub licenses cache
+        /// Clear every Feluda cache
         #[arg(long)]
         clear: bool,
     },

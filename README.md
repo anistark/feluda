@@ -432,7 +432,7 @@ feluda sbom validate spdx.json --json --output validation-report.json
 
 ### Cache Management
 
-Feluda caches GitHub license data to improve performance on repeated runs:
+Feluda caches three remote data sets to improve repeat performance and reduce network traffic:
 
 ```sh
 # View cache status (size, age, health)
@@ -443,11 +443,11 @@ feluda cache --clear
 ```
 
 **How Caching Works:**
-- Cache is stored at `.feluda/cache/github_licenses.json`
-- 30-day automatic expiration (cache is refreshed if older)
-- Only licenses successfully fetched from GitHub API are cached
-- Cache is automatically loaded on subsequent analysis runs
-- Reduces GitHub API calls and improves analysis speed
+- `github_licenses.json` stores the GitHub license table for 30 days
+- `osi_licenses.json` stores the OSI approval table for 30 days; a failed refresh reuses stale data and retries after six hours
+- `clearlydefined.json` stores ClearlyDefined answers and misses for seven days
+- The files live in your user cache directory: `~/Library/Caches/feluda` on macOS, `$XDG_CACHE_HOME/feluda` (or `~/.cache/feluda`) on Linux, and `%LOCALAPPDATA%\feluda` on Windows
+- `feluda cache --clear` removes all three files
 
 ### Watch Mode
 
@@ -672,6 +672,14 @@ The verbose mode displays a table with an additional "OSI Status" column showing
 ### OSI Integration
 
 Feluda integrates with the Open Source Initiative (OSI) to provide license approval status information. This feature helps you identify whether the licenses used by your dependencies are officially approved by the OSI.
+
+The approval list comes from the public OSI API. Point it at a mirror or proxy in `.feluda.toml`;
+`FELUDA_OSI_ENDPOINT` overrides the file setting:
+
+```toml
+[osi]
+endpoint = "https://opensource.org/api/licenses"
+```
 
 #### OSI Status Values
 
