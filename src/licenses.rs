@@ -545,7 +545,7 @@ pub fn fetch_osi_licenses() -> HashMap<String, OsiStatus> {
             );
             return with_builtin_osi_licenses(licenses);
         }
-        Ok(Some(cache::CacheLookup::Stale(licenses))) => Some(licenses),
+        Ok(Some(cache::CacheLookup::Stale { data, timestamp })) => Some((data, timestamp)),
         Ok(None) => None,
         Err(err) => {
             log(
@@ -570,28 +570,30 @@ pub fn fetch_osi_licenses() -> HashMap<String, OsiStatus> {
             licenses
         }
         Err(err) => {
-            let fallback = match stale {
-                Some(licenses) => {
-                    let licenses = with_builtin_osi_licenses(licenses);
+            // Either way the next attempt waits six hours, so a host that never answers costs one
+            // timeout per window rather than one per run. A timestamp of 0 marks the built-in
+            // list as never fetched, which is also how a later failure tells the two apart.
+            let (licenses, timestamp) = match stale {
+                Some((licenses, timestamp)) if timestamp != 0 => {
                     eprintln!(
                         "⚠️ Could not refresh OSI license data ({err}); using the stale cache, so some OSI statuses may be outdated or Unknown."
                     );
-                    if let Err(cache_err) = cache::defer_osi_refresh(&licenses) {
-                        log(
-                            LogLevel::Warn,
-                            &format!("Failed to defer the next OSI refresh: {cache_err}"),
-                        );
-                    }
-                    licenses
+                    (with_builtin_osi_licenses(licenses), timestamp)
                 }
-                None => {
+                _ => {
                     eprintln!(
                         "⚠️ Could not load OSI license data ({err}); using the built-in list, so some OSI statuses may read Unknown."
                     );
-                    builtin_osi_licenses()
+                    (builtin_osi_licenses(), 0)
                 }
             };
-            fallback
+            if let Err(cache_err) = cache::defer_osi_refresh(&licenses, timestamp) {
+                log(
+                    LogLevel::Warn,
+                    &format!("Failed to defer the next OSI refresh: {cache_err}"),
+                );
+            }
+            licenses
         }
     }
 }
@@ -623,12 +625,16 @@ fn fetch_osi_licenses_from_api() -> FeludaResult<HashMap<String, OsiStatus>> {
     Ok(osi_map)
 }
 
-/// The approved licenses in an OSI API answer, keyed by SPDX id. The API's own `id` is a slug
+/// The licenses in an OSI API answer, keyed by SPDX id. The API's own `id` is a slug
 /// (`apache-2-0`), so it is used only for an entry without an SPDX id.
+///
+/// Every entry is an OSI approved license, superseded and voluntarily retired ones included. The
+/// entries' `approved` flag is not that: it is `true` only for licenses approved since 2025 and
+/// `false` for MIT, Apache-2.0 and EPL-2.0 alike (119 of 126 entries in October 2026), so it is
+/// not read.
 fn osi_approved_from_api(licenses: &[serde_json::Value]) -> HashMap<String, OsiStatus> {
     licenses
         .iter()
-        .filter(|license| license.get("approved").and_then(|a| a.as_bool()) != Some(false))
         .filter_map(|license| {
             ["spdx_id", "id"].iter().find_map(|key| {
                 license
@@ -2830,16 +2836,18 @@ mod tests {
 
     #[test]
     fn osi_api_answer_is_keyed_by_spdx_id() {
+        // Shaped like the live answer: `approved` is false for long approved licenses.
         let answer = serde_json::json!([
-            { "id": "apache-2-0", "spdx_id": "Apache-2.0", "approved": true },
+            { "id": "curl", "spdx_id": "curl", "approved": true, "approval_date": "20260417" },
+            { "id": "apache-2-0", "spdx_id": "Apache-2.0", "approved": false, "approval_date": "" },
+            { "id": "epl-2-0", "spdx_id": "EPL-2.0", "approved": false, "approval_date": "20170810" },
             { "id": "mit", "spdx_id": "MIT" },
-            { "id": "not-yet", "spdx_id": "Not-Yet-1.0", "approved": false },
             { "id": "legacy-slug", "spdx_id": "" }
         ]);
         let map = osi_approved_from_api(answer.as_array().unwrap());
-        assert_eq!(map.get("Apache-2.0"), Some(&OsiStatus::Approved));
-        assert_eq!(map.get("MIT"), Some(&OsiStatus::Approved));
-        assert!(!map.contains_key("Not-Yet-1.0"));
+        for id in ["curl", "Apache-2.0", "EPL-2.0", "MIT"] {
+            assert_eq!(map.get(id), Some(&OsiStatus::Approved), "{id}");
+        }
         assert!(!map.contains_key("apache-2-0"));
         assert!(map.contains_key("legacy-slug"));
     }
