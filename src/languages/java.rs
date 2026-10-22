@@ -881,20 +881,34 @@ mod tests {
         assert_eq!(dep.version, "31.1-jre");
     }
 
-    #[test]
-    fn test_detect_license_in_jar() {
+    fn write_jar(path: &std::path::Path, entries: &[(&str, &[u8])]) {
         use std::io::Write;
         use zip::write::SimpleFileOptions;
 
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        let file = fs::File::create(path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        for &(entry_name, content) in entries {
+            zip.start_file(entry_name, SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(content).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn test_detect_license_in_jar() {
         let temp_dir = TempDir::new().unwrap();
         let jar_path = temp_dir.path().join("guava-32.0.jar");
-        let file = fs::File::create(&jar_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-        zip.start_file("META-INF/LICENSE", SimpleFileOptions::default())
-            .unwrap();
-        zip.write_all(b"Apache License\nVersion 2.0, January 2004")
-            .unwrap();
-        zip.finish().unwrap();
+        write_jar(
+            &jar_path,
+            &[(
+                "META-INF/LICENSE",
+                b"Apache License\nVersion 2.0, January 2004",
+            )],
+        );
 
         assert_eq!(
             detect_license_in_jar(&jar_path),
@@ -904,17 +918,9 @@ mod tests {
 
     #[test]
     fn test_detect_license_in_jar_no_license_entry() {
-        use std::io::Write;
-        use zip::write::SimpleFileOptions;
-
         let temp_dir = TempDir::new().unwrap();
         let jar_path = temp_dir.path().join("nolicense-1.0.jar");
-        let file = fs::File::create(&jar_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-        zip.start_file("com/example/Main.class", SimpleFileOptions::default())
-            .unwrap();
-        zip.write_all(b"not a license").unwrap();
-        zip.finish().unwrap();
+        write_jar(&jar_path, &[("com/example/Main.class", b"not a license")]);
 
         assert_eq!(detect_license_in_jar(&jar_path), None);
     }
@@ -933,6 +939,33 @@ mod tests {
         // Without a concrete version the jar can't be located, so no probing happens.
         assert_eq!(fetch_license_from_local_jar("g", "a", ""), None);
         assert_eq!(fetch_license_from_local_jar("g", "a", "RELEASE"), None);
+    }
+
+    #[test]
+    fn test_fetch_license_from_local_jar() {
+        let temp_dir = TempDir::new().unwrap();
+        let jar_path = temp_dir
+            .path()
+            .join("com/example/cachedpkg/1.0.0/cachedpkg-1.0.0.jar");
+        write_jar(
+            &jar_path,
+            &[(
+                "META-INF/LICENSE",
+                b"MIT License\n\nCopyright (c) 2024 Example",
+            )],
+        );
+
+        temp_env::with_var(
+            "MAVEN_REPO_LOCAL",
+            Some(temp_dir.path().to_str().unwrap()),
+            || {
+                let license = fetch_license_from_local_jar("com.example", "cachedpkg", "1.0.0");
+                assert_eq!(license, Some("MIT".to_string()));
+
+                let missing = fetch_license_from_local_jar("com.example", "nonexistent", "1.0.0");
+                assert_eq!(missing, None);
+            },
+        );
     }
 
     #[test]
@@ -1477,46 +1510,5 @@ dependencies {
             "31.1-jre"
         );
         assert_eq!(resolve_gradle_variable("1.0.0", &props), "1.0.0");
-    }
-
-    #[test]
-    fn test_fetch_maven_license_falls_through_to_local_jar() {
-        use std::io::Write;
-        use zip::write::SimpleFileOptions;
-
-        let temp_dir = TempDir::new().unwrap();
-        let jar_dir = temp_dir.path().join("com/example/nolocalpom/1.0.0");
-        fs::create_dir_all(&jar_dir).unwrap();
-        let jar_path = jar_dir.join("nolocalpom-1.0.0.jar");
-        let file = fs::File::create(&jar_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-        zip.start_file("META-INF/LICENSE", SimpleFileOptions::default())
-            .unwrap();
-        zip.write_all(b"MIT License\n\nCopyright (c) 2024 Example")
-            .unwrap();
-        zip.finish().unwrap();
-
-        temp_env::with_var(
-            "MAVEN_REPO_LOCAL",
-            Some(temp_dir.path().to_str().unwrap()),
-            || {
-                let license = fetch_maven_license("com.example", "nolocalpom", "1.0.0");
-                assert_eq!(license, "MIT");
-            },
-        );
-    }
-
-    #[test]
-    fn test_fetch_maven_license_unknown_when_not_found() {
-        let temp_dir = TempDir::new().unwrap();
-        temp_env::with_var(
-            "MAVEN_REPO_LOCAL",
-            Some(temp_dir.path().to_str().unwrap()),
-            || {
-                let license =
-                    fetch_maven_license("com.example.nonexistent", "nonexistent-pkg", "1.0.0");
-                assert_eq!(license, "Unknown");
-            },
-        );
     }
 }
