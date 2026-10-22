@@ -95,7 +95,7 @@ Feluda's speed depends on two kinds of state, and the scenarios below vary them 
    :widths: 22 39 39
 
    * - Scenario
-     - Feluda's cache (GitHub license table, ClearlyDefined answers)
+     - Feluda's cache (GitHub license table and ClearlyDefined answers)
      - Package manager state (``node_modules``, Cargo and Go module caches, ...)
    * - ``cold``
      - empty
@@ -572,7 +572,7 @@ Feluda's cache. At 100 direct dependencies:
      - 2.50
 
 - **Feluda's cache** saves a near constant 1.4 s (Rust), 1.7 s (Node) and 6.9 s (Python)
-  at this size: the GitHub license table and the OSI list.
+  at this size: the GitHub license table.
 - **Installed dependencies** save 9.1 s (Rust), 48.6 s (Node) and 18.2 s (Python),
   because licenses are then read from files on disk instead of fetched.
 - **Offline**, Rust scans fully in 0.5 s and Python reports all 104 dependencies in 2.5 s.
@@ -1209,4 +1209,3 @@ What the study found Feluda does slowly today, in order of how much it costs:
 #. **License text is kept as the registry wrote it** for many Maven, CRAN, PyPI and NuGet packages
    (for example "Apache License, Version 2.0" or "MIT + file LICENSE"), rather than as an SPDX id.
    SBOM output maps most of these.
-#. **The OSI list is fetched on every run**, one request, and a failed fetch is silent.
