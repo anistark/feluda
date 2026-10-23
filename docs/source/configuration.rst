@@ -330,3 +330,23 @@ Call this to wipe the cache after rotating credentials or troubleshooting mismat
    feluda cache --clear
 
 Feluda deletes ``.feluda/cache/github_licenses.json`` and rebuilds it on the next scan.
+
+----
+
+Point the Maven lookups at a mirror
+-----------------------------------
+
+A dependency's license and POM are read from the local Maven repository first — ``MAVEN_REPO_LOCAL``,
+or ``~/.m2/repository`` — and only a dependency that is not there, or whose parent POM is not, is
+asked about over the network.
+Those network lookups read ``https://repo1.maven.org/maven2``, which an internal Nexus or Artifactory
+mirroring Central can stand in for:
+
+.. code-block:: bash
+
+   export FELUDA_MAVEN_ENDPOINT=https://nexus.internal/repository/maven-public
+
+It is read at lookup time, so it can be set for a single run. The integration tests use it to answer
+from a stub on localhost instead of Maven Central. One lookup still goes to
+``https://search.maven.org``: a Gradle dependency whose version is unresolved (``RELEASE`` or empty)
+is resolved to a concrete version there, since only that service answers "the latest".

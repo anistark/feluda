@@ -41,8 +41,18 @@ pub fn resolve_license_for(ecosystem: Ecosystem, name: &str, version: &str) -> O
         Ecosystem::Maven => {
             // Maven display names are `groupId:artifactId`; without a group there is nothing to
             // build a repository path from.
+            //
+            // `no_local: false` is deliberate: a component that arrives from someone else's SBOM or
+            // from an image has no manifest behind it, so the local repository is the first answer
+            // available, which is the documented default. Threading `--no-local` down here is a
+            // separate change: this function has no flag in scope.
             let (group_id, artifact_id) = name.split_once(':')?;
-            Some(java::fetch_maven_license(group_id, artifact_id, version))
+            Some(java::fetch_maven_license(
+                group_id,
+                artifact_id,
+                version,
+                false,
+            ))
         }
         Ecosystem::Gem => Some(ruby::fetch_ruby_license(name, version)),
         Ecosystem::Nuget => Some(dotnet::fetch_license_for_nuget_package(name, version)),

@@ -24,7 +24,11 @@ struct JavaDependency {
     version: String,
 }
 
-pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
+pub fn analyze_java_licenses(
+    file_path: &str,
+    config: &FeludaConfig,
+    no_local: bool,
+) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
         &format!("Analyzing Java dependencies from: {file_path}"),
@@ -54,7 +58,7 @@ pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
     // mirroring the transitive resolution done for Rust/Go/Node. Bounded by the
     // configured max dependency depth; falls back to the direct dependencies if
     // the registry is unreachable.
-    let deps = resolve_transitive_dependencies(deps, config.dependencies.max_depth);
+    let deps = resolve_transitive_dependencies(deps, config.dependencies.max_depth, no_local);
 
     log(
         LogLevel::Info,
@@ -74,7 +78,8 @@ pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
 
     deps.par_iter()
         .map(|dep| {
-            let license = fetch_maven_license(&dep.group_id, &dep.artifact_id, &dep.version);
+            let license =
+                fetch_maven_license(&dep.group_id, &dep.artifact_id, &dep.version, no_local);
             let is_restrictive =
                 is_license_restrictive(&Some(license.clone()), &known_licenses, config.strict);
 
@@ -568,6 +573,7 @@ fn resolve_gradle_variable(value: &str, props: &HashMap<String, String>) -> Stri
 fn resolve_transitive_dependencies(
     direct: Vec<JavaDependency>,
     max_depth: u32,
+    no_local: bool,
 ) -> Vec<JavaDependency> {
     let mut visited: HashSet<String> = HashSet::new();
     let mut resolved: Vec<JavaDependency> = Vec::new();
@@ -587,7 +593,9 @@ fn resolve_transitive_dependencies(
             continue;
         }
 
-        for child in fetch_pom_transitive_deps(&dep.group_id, &dep.artifact_id, &dep.version) {
+        for child in
+            fetch_pom_transitive_deps(&dep.group_id, &dep.artifact_id, &dep.version, no_local)
+        {
             let key = format!("{}:{}", child.group_id, child.artifact_id);
             // First occurrence wins, approximating Maven's nearest-first order.
             if visited.insert(key) {
@@ -607,8 +615,9 @@ fn fetch_pom_transitive_deps(
     group_id: &str,
     artifact_id: &str,
     version: &str,
+    no_local: bool,
 ) -> Vec<JavaDependency> {
-    let content = match fetch_pom_content(group_id, artifact_id, version) {
+    let content = match fetch_pom_content(group_id, artifact_id, version, no_local) {
         Some(c) => c,
         None => return Vec::new(),
     };
@@ -622,14 +631,24 @@ fn fetch_pom_transitive_deps(
 // MAVEN CENTRAL LICENSE LOOKUP
 // =============================================================================
 
-pub(crate) fn fetch_maven_license(group_id: &str, artifact_id: &str, version: &str) -> String {
-    // Try fetching the POM from Maven Central and extracting license info
-    if let Some(license) = fetch_license_from_pom(group_id, artifact_id, version) {
-        return license;
+/// Resolve the license of one artifact, local files first.
+///
+/// The jar in the local Maven repository is the artifact the project was actually built against,
+/// and reading it keeps an offline run offline; the POM on Maven Central is the fallback, not the
+/// other way round. `no_local` skips the first step, as `--no-local` promises.
+pub(crate) fn fetch_maven_license(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+    no_local: bool,
+) -> String {
+    if !no_local {
+        if let Some(license) = fetch_license_from_local_jar(group_id, artifact_id, version) {
+            return license;
+        }
     }
 
-    // Local fallback: read the license text bundled inside the cached jar.
-    if let Some(license) = fetch_license_from_local_jar(group_id, artifact_id, version) {
+    if let Some(license) = fetch_license_from_pom(group_id, artifact_id, version, no_local) {
         return license;
     }
 
@@ -673,6 +692,25 @@ fn fetch_license_from_local_jar(
     detect_license_in_jar(&jar_path)
 }
 
+/// Read `<repo>/<group as path>/<artifact>/<version>/<artifact>-<version>.pom`, if it is there.
+fn read_local_pom(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
+    if version.is_empty() || version == "RELEASE" {
+        return None;
+    }
+
+    let repo = maven_local_repo()?;
+    let path = repo
+        .join(group_id.replace('.', "/"))
+        .join(artifact_id)
+        .join(version)
+        .join(format!("{artifact_id}-{version}.pom"));
+
+    let content = fs::read_to_string(&path).ok()?;
+    // A truncated file, an HTML error page a proxy saved under the POM's name, or a zero-byte
+    // leftover would otherwise be accepted as "the answer" and suppress the network fallback.
+    content.contains("<project").then_some(content)
+}
+
 fn maven_local_repo() -> Option<PathBuf> {
     if let Ok(repo) = std::env::var("MAVEN_REPO_LOCAL") {
         return Some(PathBuf::from(repo));
@@ -705,8 +743,13 @@ fn detect_license_in_jar(jar_path: &Path) -> Option<String> {
 /// against cycles and unbounded chains in malformed metadata.
 const MAX_POM_PARENT_DEPTH: usize = 5;
 
-fn fetch_license_from_pom(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
-    resolve_pom_license(group_id, artifact_id, version, 0)
+fn fetch_license_from_pom(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+    no_local: bool,
+) -> Option<String> {
+    resolve_pom_license(group_id, artifact_id, version, 0, no_local)
 }
 
 /// Resolve a license from an artifact's POM, walking up the `<parent>` chain
@@ -718,12 +761,13 @@ fn resolve_pom_license(
     artifact_id: &str,
     version: &str,
     depth: usize,
+    no_local: bool,
 ) -> Option<String> {
     if depth > MAX_POM_PARENT_DEPTH {
         return None;
     }
 
-    let pom_content = fetch_pom_content(group_id, artifact_id, version)?;
+    let pom_content = fetch_pom_content(group_id, artifact_id, version, no_local)?;
 
     // A license declared directly on this POM takes precedence.
     if let Some(license) = extract_license_from_pom_content(&pom_content) {
@@ -737,6 +781,7 @@ fn resolve_pom_license(
         &parent.artifact_id,
         &parent.version,
         depth + 1,
+        no_local,
     )
 }
 
@@ -748,7 +793,21 @@ fn pom_content_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn fetch_pom_content(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
+fn fetch_pom_content(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+    no_local: bool,
+) -> Option<String> {
+    // The POM next to the jar in the local repository is the one the project was built from, and
+    // reading it keeps an offline scan offline, exactly as it does for the jar. It is not cached:
+    // the cache holds network answers, and this one can change while the process runs.
+    if !no_local {
+        if let Some(content) = read_local_pom(group_id, artifact_id, version) {
+            return Some(content);
+        }
+    }
+
     let key = format!("{group_id}:{artifact_id}:{version}");
 
     if let Ok(cache) = pom_content_cache().lock() {
@@ -766,6 +825,17 @@ fn fetch_pom_content(group_id: &str, artifact_id: &str, version: &str) -> Option
     result
 }
 
+/// Base URL of the Maven repository the POM lookups read.
+///
+/// `FELUDA_MAVEN_ENDPOINT` moves it, the way `FELUDA_CLEARLYDEFINED_ENDPOINT` moves the
+/// ClearlyDefined URL, so a test can answer from a stub on localhost instead of Maven Central.
+fn maven_endpoint() -> String {
+    std::env::var("FELUDA_MAVEN_ENDPOINT")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "https://repo1.maven.org/maven2".to_string())
+}
+
 fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
     let group_path = group_id.replace('.', "/");
     let effective_version = if version == "RELEASE" || version.is_empty() {
@@ -775,7 +845,8 @@ fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) 
     };
 
     let pom_url = format!(
-        "https://repo1.maven.org/maven2/{group_path}/{artifact_id}/{effective_version}/{artifact_id}-{effective_version}.pom"
+        "{}/{group_path}/{artifact_id}/{effective_version}/{artifact_id}-{effective_version}.pom",
+        maven_endpoint()
     );
 
     log(LogLevel::Info, &format!("Fetching POM: {pom_url}"));

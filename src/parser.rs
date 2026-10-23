@@ -633,7 +633,7 @@ fn parse_dependencies(
 
                     match project_path.to_str() {
                         Some(path_str) => {
-                            let deps = analyze_java_licenses(path_str, config);
+                            let deps = analyze_java_licenses(path_str, config, no_local);
                             indicator
                                 .update_progress(&format!("found {} dependencies", deps.len()));
                             deps
