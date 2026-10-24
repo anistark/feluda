@@ -441,8 +441,12 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
     // An ingested SBOM is already the inventory: there is no tree behind it to walk for manifests,
     // own-source headers or vendored copies, so the pipeline picks up from compatibility onwards.
     if let Some(sbom_input) = &config.sbom_input {
-        let components =
-            sbom::ingest::ingest_sbom(sbom_input, config.strict, config.sbom_enriched.as_deref())?;
+        let components = sbom::ingest::ingest_sbom(
+            sbom_input,
+            config.strict,
+            config.no_local,
+            config.sbom_enriched.as_deref(),
+        )?;
         log(
             LogLevel::Info,
             &format!("Ingested {} components from {sbom_input}", components.len()),
@@ -453,7 +457,8 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
     // A filesystem is an inventory too: what its package databases record is what is installed.
     // There are no manifests to walk and no project sources in it to check headers on.
     if let Some(root) = &config.filesystem {
-        let packages = filesystem::scan_filesystem(Path::new(root), config.strict)?;
+        let packages =
+            filesystem::scan_filesystem(Path::new(root), config.strict, config.no_local)?;
         log(
             LogLevel::Info,
             &format!("Cataloged {} packages from {root}", packages.len()),
@@ -464,7 +469,7 @@ fn analyze_dependencies(config: &CheckConfig) -> FeludaResult<(Vec<LicenseInfo>,
     // An image is a filesystem that has not been extracted yet. Squashed to a temporary tree, it
     // goes through the same catalogers.
     if let Some(archive) = &config.image_archive {
-        let packages = image::scan_image(archive, config.strict)?;
+        let packages = image::scan_image(archive, config.strict, config.no_local)?;
         log(
             LogLevel::Info,
             &format!(

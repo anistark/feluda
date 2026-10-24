@@ -1134,8 +1134,25 @@ pub fn is_license_compatible(
 }
 
 /// Normalize license identifier to a standard format
-fn normalize_license_id(license_id: &str) -> String {
-    let trimmed = license_id.trim().to_uppercase();
+///
+/// `pub(crate)` because the Maven POM tier hands it a `<name>` written by the artifact's authors
+/// ("Apache License, Version 2.0", "EPL 2.0") rather than an SPDX id, and everything downstream —
+/// the registry lookup, the restrictive list, the CycloneDX writer — speaks ids.
+pub(crate) fn normalize_license_id(license_id: &str) -> String {
+    let mut trimmed = license_id.trim().to_uppercase();
+
+    // POM `<name>` fields spell the family out. Folding the spelled-out forms onto the abbreviation
+    // first lets the match below keep one arm per family instead of two.
+    for (prose, abbreviation) in [
+        ("LESSER GENERAL PUBLIC LICENSE", "LGPL"),
+        ("AFFERO GENERAL PUBLIC LICENSE", "AGPL"),
+        ("GENERAL PUBLIC LICENSE", "GPL"),
+        ("ECLIPSE PUBLIC LICENSE", "EPL"),
+        ("COMMON DEVELOPMENT AND DISTRIBUTION LICENSE", "CDDL"),
+        ("MOZILLA PUBLIC LICENSE", "MPL"),
+    ] {
+        trimmed = trimmed.replace(prose, abbreviation);
+    }
 
     // Handle common variations and aliases
     match trimmed.as_str() {
@@ -1170,6 +1187,11 @@ fn normalize_license_id(license_id: &str) -> String {
         }
 
         id if id.contains("MPL") && id.contains("2.0") => "MPL-2.0".to_string(),
+
+        id if id.contains("EPL") && id.contains("2") => "EPL-2.0".to_string(),
+        id if id.contains("EPL") && id.contains("1") => "EPL-1.0".to_string(),
+        id if id.contains("CDDL") && id.contains("1.1") => "CDDL-1.1".to_string(),
+        id if id.contains("CDDL") => "CDDL-1.0".to_string(),
 
         id if id.contains("BSD") && (id.contains("3") || id.contains("THREE")) => {
             "BSD-3-Clause".to_string()
@@ -2123,6 +2145,49 @@ mod tests {
         assert_eq!(normalize_license_id("BSD 2-Clause"), "BSD-2-Clause");
         assert_eq!(normalize_license_id("Unknown License"), "Unknown License");
         assert_eq!(normalize_license_id("  MIT  "), "MIT");
+    }
+
+    /// The `<name>` a Maven POM carries, which is prose rather than an id.
+    #[test]
+    fn test_normalize_pom_license_names() {
+        assert_eq!(
+            normalize_license_id("Apache License, Version 2.0"),
+            "Apache-2.0"
+        );
+        assert_eq!(
+            normalize_license_id("The Apache Software License, Version 2.0"),
+            "Apache-2.0"
+        );
+        assert_eq!(normalize_license_id("EPL 2.0"), "EPL-2.0");
+        assert_eq!(
+            normalize_license_id("Eclipse Public License - v 2.0"),
+            "EPL-2.0"
+        );
+        assert_eq!(normalize_license_id("EPL 1.0"), "EPL-1.0");
+        assert_eq!(normalize_license_id("CDDL 1.1"), "CDDL-1.1");
+        assert_eq!(normalize_license_id("CDDL 1.0"), "CDDL-1.0");
+        assert_eq!(normalize_license_id("GPL2 w/ CPE"), "GPL-2.0");
+        // No version in the name, no id: 2.1 and 3.0 are both "the LGPL", so the prose stays.
+        assert_eq!(
+            normalize_license_id("GNU Lesser General Public License"),
+            "GNU Lesser General Public License"
+        );
+        assert_eq!(
+            normalize_license_id("GNU Lesser General Public License, version 2.1"),
+            "LGPL-2.1"
+        );
+        assert_eq!(
+            normalize_license_id("GNU General Public License, version 2"),
+            "GPL-2.0"
+        );
+        assert_eq!(
+            normalize_license_id("GNU Affero General Public License v3"),
+            "AGPL-3.0"
+        );
+        assert_eq!(
+            normalize_license_id("Mozilla Public License 2.0"),
+            "MPL-2.0"
+        );
     }
 
     #[test]

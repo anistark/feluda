@@ -105,10 +105,10 @@ Feluda currently supports projects written in these ecosystems:
      - CRAN packages
    * - Java (Maven)
      - ``pom.xml``
-     - Maven Central; resolves ``<dependencyManagement>`` and ``${properties}``
+     - the local Maven repository, then Maven Central; resolves ``<dependencyManagement>`` and ``${properties}``
    * - Java (Gradle)
      - ``build.gradle``, ``build.gradle.kts``
-     - Maven Central; supports Groovy and Kotlin DSL, reads ``gradle.properties``
+     - the local Maven repository, then Maven Central; supports Groovy and Kotlin DSL, reads ``gradle.properties``
    * - .NET (C#/F#/VB)
      - ``*.csproj``, ``*.fsproj``, ``packages.config``
      - NuGet packages
