@@ -233,8 +233,8 @@ pub fn handle_sbom_command(
     );
 
     let analyzed_data = match (&filesystem, &image_archive) {
-        (Some(root), _) => scan_filesystem(std::path::Path::new(root), false)?,
-        (None, Some(archive)) => scan_image(archive, false)?,
+        (Some(root), _) => scan_filesystem(std::path::Path::new(root), false, false)?,
+        (None, Some(archive)) => scan_image(archive, false, false)?,
         (None, None) => {
             let mut analyzed_data = parse_root(&path, None, false, false)
                 .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {e}")))?;

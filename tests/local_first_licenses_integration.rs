@@ -2,10 +2,13 @@
 //! Maven Central.
 //!
 //! `AGENTS.md` makes local-first resolution a rule: local files before network requests, with
-//! `--no-local` as the only way to skip them. The fixture makes the two sources disagree — the
-//! cached jar says MIT, while the cached POM and the stub registry both say Apache-2.0 — so the
-//! reported license says which one answered, and the request tally says whether the registry was
-//! asked at all.
+//! `--no-local` as the only way to skip them. Within the local tier the POM answers before the jar,
+//! because a jar can carry several license texts at once (an EPL-2.0 artifact that also ships the
+//! GPLv2 text for the Classpath Exception) and a content matcher reading those reports `GPL-2.0`,
+//! which is restrictive and wrong. The fixture makes the sources disagree — for `widget` the cached
+//! POM and the stub registry say Apache-2.0 while its jar says MIT, and for `jaronly` the local POM
+//! declares nothing so the jar does — so the reported license says which source answered, and the
+//! request tally says whether the registry was asked at all.
 //!
 //! The registry is pointed at a stub on localhost (`FELUDA_MAVEN_ENDPOINT`) so the test never
 //! depends on Maven Central, and `FELUDA_REQUEST_STATS` counts what was actually asked: the default
@@ -28,7 +31,7 @@ const POM: &str = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
   <version>1.0</version>
   <licenses>
     <license>
-      <name>Apache-2.0</name>
+      <name>BSD-3-Clause</name>
     </license>
   </licenses>
   <dependencies>
@@ -41,7 +44,8 @@ const POM: &str = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
 </project>
 "#;
 
-/// What the local repository holds: the same license, no dependencies, so a fully local tree.
+/// What the local repository holds: the license written the way artifact authors write it, and no
+/// dependencies, so a fully local tree.
 const LOCAL_POM: &str = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.stub</groupId>
@@ -49,9 +53,18 @@ const LOCAL_POM: &str = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
   <version>1.0</version>
   <licenses>
     <license>
-      <name>Apache-2.0</name>
+      <name>Apache License, Version 2.0</name>
     </license>
   </licenses>
+</project>
+"#;
+
+/// A local POM that declares no license at all: the jar next to it is the only local answer.
+const JARONLY_LOCAL_POM: &str = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.stub</groupId>
+  <artifactId>jaronly</artifactId>
+  <version>1.0</version>
 </project>
 "#;
 
@@ -77,6 +90,11 @@ const PROJECT_POM: &str = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
     <dependency>
       <groupId>com.stub</groupId>
       <artifactId>widget</artifactId>
+      <version>1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.stub</groupId>
+      <artifactId>jaronly</artifactId>
       <version>1.0</version>
     </dependency>
   </dependencies>
@@ -125,7 +143,11 @@ fn serve(mut stream: TcpStream) {
     }
 
     let path = request_line.split_whitespace().nth(1).unwrap_or("");
-    let (status, body) = if path.ends_with("widget-1.0.pom") {
+    // A mirror URL that ends in a slash must not produce `//` in the joined path: some repositories
+    // answer 404 for the empty segment, so the stub refuses it here too.
+    let (status, body) = if path.contains("//") {
+        ("404 Not Found", "")
+    } else if path.ends_with("widget-1.0.pom") {
         ("200 OK", POM)
     } else if path.ends_with("child-1.0.pom") {
         ("200 OK", CHILD_POM)
@@ -169,6 +191,15 @@ fn maven_fixture(root: &Path) -> (PathBuf, PathBuf) {
     );
     fs::write(artifact.join("widget-1.0.pom"), LOCAL_POM).expect("failed to write cached pom");
 
+    // The second dependency: a POM on disk that states no license, and a jar that does.
+    let jaronly = m2.join("com/stub/jaronly/1.0");
+    write_jar(
+        &jaronly.join("jaronly-1.0.jar"),
+        "MIT License\n\nCopyright (c) 2024 Stub",
+    );
+    fs::write(jaronly.join("jaronly-1.0.pom"), JARONLY_LOCAL_POM)
+        .expect("failed to write jaronly pom");
+
     (project, m2)
 }
 
@@ -184,7 +215,8 @@ fn feluda(home: &Path, project: &Path, stub: &Stub, m2: &Path, extra_args: &[&st
         .env("HOME", home)
         .env("XDG_CACHE_HOME", home.join("cache"))
         .env("FELUDA_CLEARLYDEFINED_ENABLED", "false")
-        .env("FELUDA_MAVEN_ENDPOINT", format!("{}/maven2", stub.base))
+        // Trailing slash on purpose: Nexus and Artifactory print their URLs that way.
+        .env("FELUDA_MAVEN_ENDPOINT", format!("{}/maven2/", stub.base))
         .env("FELUDA_REQUEST_STATS", &stats)
         .env("MAVEN_REPO_LOCAL", m2)
         .output()
@@ -235,8 +267,13 @@ fn maven_license_and_pom_come_from_the_local_repository_first() {
     let entries = report(&local_first);
     assert_eq!(
         license_of(&entries, "com.stub:widget"),
+        "Apache-2.0",
+        "the local POM declares Apache-2.0 in prose and answers before the jar says MIT"
+    );
+    assert_eq!(
+        license_of(&entries, "com.stub:jaronly"),
         "MIT",
-        "the jar in the local repository should answer first"
+        "a local POM that declares nothing leaves the jar next to it to answer"
     );
     assert_eq!(
         registry_requests(temp.path()),
@@ -249,8 +286,8 @@ fn maven_license_and_pom_come_from_the_local_repository_first() {
     let entries = report(&remote);
     assert_eq!(
         license_of(&entries, "com.stub:widget"),
-        "Apache-2.0",
-        "--no-local should fall back to the registry"
+        "BSD-3-Clause",
+        "--no-local should fall back to the registry, which states a license no local file does"
     );
     assert!(
         registry_requests(temp.path()) > 0,
@@ -287,11 +324,49 @@ fn an_unreadable_local_pom_falls_back_to_the_registry() {
     let entries = report(&output);
     assert_eq!(
         license_of(&entries, "com.stub:widget"),
-        "Apache-2.0",
+        "BSD-3-Clause",
         "a corrupt local POM must not silence the registry"
     );
     assert!(
         registry_requests(temp.path()) > 0,
         "the registry should have been asked"
+    );
+}
+
+#[test]
+fn a_truncated_local_pom_is_not_taken_as_the_answer() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let (project, m2) = maven_fixture(temp.path());
+    let stub = Stub::start();
+
+    // An interrupted download that stopped inside `<dependencies>` still declares Apache-2.0 above
+    // the cut. Accepting it would report the declared license of a file we cannot fully read and
+    // never consult the jar or the registry; the closing tag is what proves the document is whole.
+    let artifact = m2.join("com/stub/widget/1.0");
+    fs::write(
+        artifact.join("widget-1.0.pom"),
+        r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.stub</groupId>
+  <artifactId>widget</artifactId>
+  <version>1.0</version>
+  <licenses>
+    <license>
+      <name>Apache-2.0</name>
+    </license>
+  </licenses>
+  <dependencies>
+    <dependency>
+      <groupId>com.stub</groupId>
+      <artifactId>chi"#,
+    )
+    .expect("failed to write truncated pom");
+
+    let output = feluda(temp.path(), &project, &stub, &m2, &[]);
+    let entries = report(&output);
+    assert_eq!(
+        license_of(&entries, "com.stub:widget"),
+        "MIT",
+        "a truncated POM is not an answer, so the jar has to answer"
     );
 }

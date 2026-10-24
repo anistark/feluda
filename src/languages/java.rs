@@ -13,7 +13,7 @@ use crate::config::FeludaConfig;
 use crate::debug::{log, log_error, LogLevel};
 use crate::licenses::{
     detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
-    LicenseCompatibility, LicenseInfo,
+    normalize_license_id, LicenseCompatibility, LicenseInfo,
 };
 use crate::purl::Ecosystem;
 
@@ -633,9 +633,12 @@ fn fetch_pom_transitive_deps(
 
 /// Resolve the license of one artifact, local files first.
 ///
-/// The jar in the local Maven repository is the artifact the project was actually built against,
-/// and reading it keeps an offline run offline; the POM on Maven Central is the fallback, not the
-/// other way round. `no_local` skips the first step, as `--no-local` promises.
+/// A POM declares the license its authors chose; a jar only carries the license texts that were
+/// bundled into it, and several of those can be present at once (an EPL-2.0 artifact that also ships
+/// the GPLv2 text for the Classpath Exception). Reading the jar first therefore answers `GPL-2.0` for
+/// those artifacts, which is both wrong and marked restrictive. So the order is: the local POM, then
+/// the jar next to it, then the registry. Both local steps are files, so an offline run stays offline,
+/// and `no_local` skips them, as `--no-local` promises.
 pub(crate) fn fetch_maven_license(
     group_id: &str,
     artifact_id: &str,
@@ -643,6 +646,11 @@ pub(crate) fn fetch_maven_license(
     no_local: bool,
 ) -> String {
     if !no_local {
+        if let Some(content) = read_local_pom(group_id, artifact_id, version) {
+            if let Some(license) = extract_license_from_pom_content(&content) {
+                return license;
+            }
+        }
         if let Some(license) = fetch_license_from_local_jar(group_id, artifact_id, version) {
             return license;
         }
@@ -677,38 +685,67 @@ fn fetch_license_from_local_jar(
     artifact_id: &str,
     version: &str,
 ) -> Option<String> {
-    // A concrete version is required to locate the jar on disk.
+    detect_license_in_jar(&local_artifact_path(group_id, artifact_id, version, "jar")?)
+}
+
+/// Where one file of an artifact lives in the local Maven repository.
+///
+/// A concrete version is required to locate anything on disk, so `RELEASE` and an empty version
+/// answer `None`.
+fn local_artifact_path(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+    extension: &str,
+) -> Option<PathBuf> {
     if version.is_empty() || version == "RELEASE" {
         return None;
     }
 
     let repo = maven_local_repo()?;
-    let jar_path = repo
-        .join(group_id.replace('.', "/"))
-        .join(artifact_id)
-        .join(version)
-        .join(format!("{artifact_id}-{version}.jar"));
+    Some(
+        repo.join(group_id.replace('.', "/"))
+            .join(artifact_id)
+            .join(version)
+            .join(format!("{artifact_id}-{version}.{extension}")),
+    )
+}
 
-    detect_license_in_jar(&jar_path)
+/// The local POMs already read, including the ones that were not there, keyed by file path.
+///
+/// The transitive walk and the license lookup ask about the same coordinates several times over —
+/// once per dependency that walks up to a shared parent such as `commons-parent` — and each answer
+/// costs a read and a parse. For the life of the process the file does not change in a way that
+/// matters; `feluda watch` re-scans in the same process and will not see a `mvn install` that lands
+/// mid-watch, which is the price of not re-reading every POM on every pass.
+fn local_pom_cache() -> &'static Mutex<HashMap<PathBuf, Option<String>>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<String>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Read `<repo>/<group as path>/<artifact>/<version>/<artifact>-<version>.pom`, if it is there.
 fn read_local_pom(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
-    if version.is_empty() || version == "RELEASE" {
-        return None;
+    let path = local_artifact_path(group_id, artifact_id, version, "pom")?;
+
+    if let Ok(cache) = local_pom_cache().lock() {
+        if let Some(answer) = cache.get(&path) {
+            return answer.clone();
+        }
     }
 
-    let repo = maven_local_repo()?;
-    let path = repo
-        .join(group_id.replace('.', "/"))
-        .join(artifact_id)
-        .join(version)
-        .join(format!("{artifact_id}-{version}.pom"));
-
-    let content = fs::read_to_string(&path).ok()?;
     // A truncated file, an HTML error page a proxy saved under the POM's name, or a zero-byte
-    // leftover would otherwise be accepted as "the answer" and suppress the network fallback.
-    content.contains("<project").then_some(content)
+    // leftover would otherwise be accepted as "the answer", returning no license and suppressing
+    // both the jar and the network fallback. An interrupted download cut inside `<dependencies>`
+    // still carries the opening tag, so the closing tag is what proves the document is whole.
+    let answer = fs::read_to_string(&path)
+        .ok()
+        .filter(|content| content.contains("<project") && content.contains("</project>"));
+
+    if let Ok(mut cache) = local_pom_cache().lock() {
+        cache.insert(path, answer.clone());
+    }
+
+    answer
 }
 
 fn maven_local_repo() -> Option<PathBuf> {
@@ -800,8 +837,7 @@ fn fetch_pom_content(
     no_local: bool,
 ) -> Option<String> {
     // The POM next to the jar in the local repository is the one the project was built from, and
-    // reading it keeps an offline scan offline, exactly as it does for the jar. It is not cached:
-    // the cache holds network answers, and this one can change while the process runs.
+    // reading it keeps an offline scan offline, exactly as it does for the jar.
     if !no_local {
         if let Some(content) = read_local_pom(group_id, artifact_id, version) {
             return Some(content);
@@ -827,13 +863,27 @@ fn fetch_pom_content(
 
 /// Base URL of the Maven repository the POM lookups read.
 ///
-/// `FELUDA_MAVEN_ENDPOINT` moves it, the way `FELUDA_CLEARLYDEFINED_ENDPOINT` moves the
-/// ClearlyDefined URL, so a test can answer from a stub on localhost instead of Maven Central.
+/// It comes from `[maven] endpoint`, which `FELUDA_MAVEN_ENDPOINT` overrides through the usual
+/// figment chain, the way `FELUDA_CLEARLYDEFINED_ENDPOINT` moves the ClearlyDefined URL; a test can
+/// therefore answer from a stub on localhost instead of Maven Central. Read once per process: loading
+/// the configuration per dependency would log a line per POM, and `feluda watch` re-scans in the same
+/// process, so an endpoint edited mid-watch is picked up on the next run.
 fn maven_endpoint() -> String {
-    std::env::var("FELUDA_MAVEN_ENDPOINT")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "https://repo1.maven.org/maven2".to_string())
+    static ENDPOINT: OnceLock<String> = OnceLock::new();
+    ENDPOINT
+        .get_or_init(|| {
+            crate::config::load_config()
+                .map(|config| config.maven.endpoint)
+                // `FELUDA_MAVEN_ENDPOINT=` is how CI says "unset", and figment keeps it as an empty
+                // string; an empty base URL would make every uncached artifact Unknown.
+                .ok()
+                .filter(|endpoint| !endpoint.trim().is_empty())
+                // A mirror URL copied from Nexus or Artifactory ends in a slash, and joining it as
+                // `.../maven-public//com/...` makes some repositories answer 404 for everything.
+                .map(|endpoint| endpoint.trim_end_matches('/').to_string())
+                .unwrap_or_else(|| FeludaConfig::default().maven.endpoint)
+        })
+        .clone()
 }
 
 fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
@@ -862,8 +912,12 @@ fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) 
 fn extract_license_from_pom_content(content: &str) -> Option<String> {
     // Extract <licenses><license><name>...</name>
     let re = Regex::new(r"(?s)<licenses>.*?<license>.*?<name>(.*?)</name>.*?</license>").ok()?;
+    // A `<name>` is written by the artifact's authors, not in SPDX: "Apache License, Version 2.0",
+    // "EPL 2.0", "GPL2 w/ CPE". Everything downstream — the registry lookup, the restrictive list,
+    // the CycloneDX writer — speaks ids, and a prose copyleft name matches none of them, so it would
+    // classify as permissive. Normalize here, where the prose enters.
     re.captures(content)
-        .map(|c| c[1].trim().to_string())
+        .map(|c| normalize_license_id(c[1].trim()))
         .filter(|s| !s.is_empty())
 }
 
@@ -1222,8 +1276,10 @@ dependencies {
   </license>
 </licenses>"#;
 
+        // The `<name>` is prose; what leaves this function is the SPDX id the rest of the pipeline
+        // speaks, because a prose copyleft name matches neither the registry nor the restrictive list.
         let license = extract_license_from_pom_content(content);
-        assert_eq!(license, Some("Apache License, Version 2.0".to_string()));
+        assert_eq!(license, Some("Apache-2.0".to_string()));
     }
 
     #[test]
@@ -1552,7 +1608,7 @@ dependencies {
 
         assert_eq!(
             extract_license_from_pom_content(content),
-            Some("MIT License".to_string())
+            Some("MIT".to_string())
         );
     }
 

@@ -73,7 +73,7 @@ src/reporter.rs — format output (text/JSON/YAML/CI/gist)
 | **C++** | `vcpkg.json`, `conanfile.txt`, `conanfile.py`, `CMakeLists.txt`, `MODULE.bazel` | `src/languages/cpp.rs` | — |
 | **R** | `DESCRIPTION`, `renv.lock` | `src/languages/r.rs` | — |
 | **.NET** | `.csproj`, `.fsproj`, `.vbproj`, `.slnx` | `src/languages/dotnet.rs` | — |
-| **Java** | `pom.xml`, `build.gradle`, `build.gradle.kts` | `src/languages/java.rs` | License file inside the cached jar in `MAVEN_REPO_LOCAL` or `~/.m2/repository` |
+| **Java** | `pom.xml`, `build.gradle`, `build.gradle.kts` | `src/languages/java.rs` | `<licenses>` in the POM under `MAVEN_REPO_LOCAL` or `~/.m2/repository`, then the license file bundled in the jar next to it, then the registry (`[maven] endpoint`, `FELUDA_MAVEN_ENDPOINT`) |
 | **Ruby** | `Gemfile.lock`, `Gemfile` | `src/languages/ruby.rs` | License file in installed gems (`gem env gempath`, `GEM_HOME`) |
 
 ### Critical Rules
