@@ -1074,6 +1074,11 @@ fn is_single_license_compatible(
     strict: bool,
 ) -> LicenseCompatibility {
     let compatibility_matrix = get_compatibility_matrix();
+    // The matrix is keyed by single ids and nothing splits a compound *project* license, so a project
+    // that declares `A OR B` answers `Unknown` here (and `Incompatible` under `--strict`) rather than
+    // checking the dependency against either half. Deliberate for now: choosing between the halves
+    // for a whole project is a policy decision, and answering it wrongly would be worse than saying
+    // it is unknown. A compound *dependency* license is handled above, in `is_license_compatible`.
     let norm_dep = normalize_license_id(dependency_license);
     let norm_proj = normalize_license_id(project_license);
 
@@ -1141,6 +1146,16 @@ pub fn is_license_compatible(
 pub(crate) fn normalize_license_id(license_id: &str) -> String {
     let mut trimmed = license_id.trim().to_uppercase();
 
+    // LGPL-2.0 was called the "Library General Public License", so the fold below has to see the
+    // "L" the old name does not spell out.
+    if trimmed.contains("LIBRARY GENERAL PUBLIC LICENSE") || trimmed.contains("LIBRARY GPL") {
+        return if trimmed.contains("2.1") {
+            "LGPL-2.1".to_string()
+        } else {
+            "LGPL-2.0".to_string()
+        };
+    }
+
     // POM `<name>` fields spell the family out. Folding the spelled-out forms onto the abbreviation
     // first lets the match below keep one arm per family instead of two.
     for (prose, abbreviation) in [
@@ -1176,15 +1191,35 @@ pub(crate) fn normalize_license_id(license_id: &str) -> String {
         id if id.contains("GPL") && id.contains("3") && !id.contains("LGPL") => {
             "GPL-3.0".to_string()
         }
+        // `CDDL + GPLv2 with classpath exception` names two licences at once, and the GPL arm below
+        // would answer only the restrictive half: jakarta.*/javax.* artifacts then read as plain
+        // GPL-2.0 although their authors dual-licensed them.
+        id if id.contains("CDDL") && id.contains("GPL") => {
+            let cddl = if id.contains("1.1") {
+                "CDDL-1.1"
+            } else {
+                "CDDL-1.0"
+            };
+            format!("{cddl} OR GPL-2.0 WITH Classpath-exception-2.0")
+        }
+        // `GPL2 w/ CPE` and `GPLv2 with classpath exception`: the exception is part of the id. The
+        // `!LGPL` guard keeps `LGPL 2.1 with classpath exception` in its own family.
+        id if id.contains("GPL")
+            && !id.contains("LGPL")
+            && (id.contains("CPE") || id.contains("CLASSPATH")) =>
+        {
+            "GPL-2.0 WITH Classpath-exception-2.0".to_string()
+        }
+
         id if id.contains("GPL") && id.contains("2") && !id.contains("LGPL") => {
             "GPL-2.0".to_string()
         }
 
         id if id.contains("LGPL") && id.contains("3") => "LGPL-3.0".to_string(),
         id if id.contains("LGPL") && id.contains("2.1") => "LGPL-2.1".to_string(),
-        id if id.contains("LGPL") && id.contains("2") && !id.contains("2.1") => {
-            "LGPL-2.1".to_string()
-        }
+        // LGPL-2.1 is the later "Lesser" name and has the arm above; anything else that says 2 is
+        // LGPL-2.0, the "Library" one.
+        id if id.contains("LGPL") && id.contains("2") => "LGPL-2.0".to_string(),
 
         id if id.contains("MPL") && id.contains("2.0") => "MPL-2.0".to_string(),
 
@@ -2166,7 +2201,39 @@ mod tests {
         assert_eq!(normalize_license_id("EPL 1.0"), "EPL-1.0");
         assert_eq!(normalize_license_id("CDDL 1.1"), "CDDL-1.1");
         assert_eq!(normalize_license_id("CDDL 1.0"), "CDDL-1.0");
-        assert_eq!(normalize_license_id("GPL2 w/ CPE"), "GPL-2.0");
+        assert_eq!(
+            normalize_license_id("GPL2 w/ CPE"),
+            "GPL-2.0 WITH Classpath-exception-2.0"
+        );
+        assert_eq!(
+            normalize_license_id("CDDL + GPLv2 with classpath exception"),
+            "CDDL-1.0 OR GPL-2.0 WITH Classpath-exception-2.0"
+        );
+        assert_eq!(
+            normalize_license_id("CDDL/GPLv2+CE"),
+            "CDDL-1.0 OR GPL-2.0 WITH Classpath-exception-2.0"
+        );
+        assert_eq!(
+            normalize_license_id("Dual license consisting of the CDDL v1.1 and GPL v2"),
+            "CDDL-1.1 OR GPL-2.0 WITH Classpath-exception-2.0"
+        );
+        // The old name of LGPL-2.0, which must not be answered as GPL or as LGPL-2.1.
+        assert_eq!(
+            normalize_license_id("GNU Library General Public License, version 2"),
+            "LGPL-2.0"
+        );
+        assert_eq!(
+            normalize_license_id("GNU Library General Public License, version 2.1"),
+            "LGPL-2.1"
+        );
+        // A classpath exception does not move an LGPL name into the GPL family.
+        assert_eq!(
+            normalize_license_id("LGPL 2.1 with classpath exception"),
+            "LGPL-2.1"
+        );
+        // The id itself, without the old name: LGPL-2.1 has its own arm and 2.0 is not 2.1.
+        assert_eq!(normalize_license_id("LGPL-2.0"), "LGPL-2.0");
+        assert_eq!(normalize_license_id("LGPL-2.1"), "LGPL-2.1");
         // No version in the name, no id: 2.1 and 3.0 are both "the LGPL", so the prose stays.
         assert_eq!(
             normalize_license_id("GNU Lesser General Public License"),

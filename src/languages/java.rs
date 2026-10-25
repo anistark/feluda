@@ -636,9 +636,12 @@ fn fetch_pom_transitive_deps(
 /// A POM declares the license its authors chose; a jar only carries the license texts that were
 /// bundled into it, and several of those can be present at once (an EPL-2.0 artifact that also ships
 /// the GPLv2 text for the Classpath Exception). Reading the jar first therefore answers `GPL-2.0` for
-/// those artifacts, which is both wrong and marked restrictive. So the order is: the local POM, then
-/// the jar next to it, then the registry. Both local steps are files, so an offline run stays offline,
-/// and `no_local` skips them, as `--no-local` promises.
+/// those artifacts, which is both wrong and marked restrictive. So the order is: the **local POM
+/// chain, parents included**, then the jar next to it, then the registry. Most multi-module projects
+/// (Guava, `commons-*`, slf4j, logback, Netty, the ee4j APIs) declare the license only in a parent, so
+/// stopping at the artifact's own POM would still let the jar answer first for exactly those. Both
+/// local steps are files, so an offline run stays offline, and `no_local` skips them, as `--no-local`
+/// promises.
 pub(crate) fn fetch_maven_license(
     group_id: &str,
     artifact_id: &str,
@@ -646,10 +649,10 @@ pub(crate) fn fetch_maven_license(
     no_local: bool,
 ) -> String {
     if !no_local {
-        if let Some(content) = read_local_pom(group_id, artifact_id, version) {
-            if let Some(license) = extract_license_from_pom_content(&content) {
-                return license;
-            }
+        if let Some(license) =
+            resolve_pom_license(group_id, artifact_id, version, 0, PomSource::LocalOnly)
+        {
+            return license;
         }
         if let Some(license) = fetch_license_from_local_jar(group_id, artifact_id, version) {
             return license;
@@ -715,9 +718,9 @@ fn local_artifact_path(
 ///
 /// The transitive walk and the license lookup ask about the same coordinates several times over —
 /// once per dependency that walks up to a shared parent such as `commons-parent` — and each answer
-/// costs a read and a parse. For the life of the process the file does not change in a way that
-/// matters; `feluda watch` re-scans in the same process and will not see a `mvn install` that lands
-/// mid-watch, which is the price of not re-reading every POM on every pass.
+/// costs a read and a parse. The file cannot change in a way that matters within one pass, and
+/// `feluda watch` empties this map before each re-scan (see [`reset_maven_caches`]), so a `mvn
+/// install` that lands mid-watch is picked up by the next pass rather than cached as absent.
 fn local_pom_cache() -> &'static Mutex<HashMap<PathBuf, Option<String>>> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<String>>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -786,7 +789,23 @@ fn fetch_license_from_pom(
     version: &str,
     no_local: bool,
 ) -> Option<String> {
-    resolve_pom_license(group_id, artifact_id, version, 0, no_local)
+    resolve_pom_license(
+        group_id,
+        artifact_id,
+        version,
+        0,
+        PomSource::Registry { no_local },
+    )
+}
+
+/// Where the parent-POM walk may read a POM from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PomSource {
+    /// Files already in the local repository, and nothing else: no network at any level.
+    LocalOnly,
+    /// The local repository first, then the registry. `no_local` is `--no-local`, which skips the
+    /// local read.
+    Registry { no_local: bool },
 }
 
 /// Resolve a license from an artifact's POM, walking up the `<parent>` chain
@@ -798,13 +817,18 @@ fn resolve_pom_license(
     artifact_id: &str,
     version: &str,
     depth: usize,
-    no_local: bool,
+    source: PomSource,
 ) -> Option<String> {
     if depth > MAX_POM_PARENT_DEPTH {
         return None;
     }
 
-    let pom_content = fetch_pom_content(group_id, artifact_id, version, no_local)?;
+    let pom_content = match source {
+        PomSource::LocalOnly => read_local_pom(group_id, artifact_id, version)?,
+        PomSource::Registry { no_local } => {
+            fetch_pom_content(group_id, artifact_id, version, no_local)?
+        }
+    };
 
     // A license declared directly on this POM takes precedence.
     if let Some(license) = extract_license_from_pom_content(&pom_content) {
@@ -818,7 +842,7 @@ fn resolve_pom_license(
         &parent.artifact_id,
         &parent.version,
         depth + 1,
-        no_local,
+        source,
     )
 }
 
@@ -861,29 +885,65 @@ fn fetch_pom_content(
     result
 }
 
+/// The endpoint in use, once it has been read.
+///
+/// A cell rather than an `OnceLock<String>` so that [`reset_maven_caches`] can empty it: `feluda
+/// watch` re-scans in the same process, and a `[maven] endpoint` edited while it runs has to be
+/// picked up by the next pass.
+fn maven_endpoint_cell() -> &'static Mutex<Option<String>> {
+    static ENDPOINT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    ENDPOINT.get_or_init(|| Mutex::new(None))
+}
+
 /// Base URL of the Maven repository the POM lookups read.
 ///
 /// It comes from `[maven] endpoint`, which `FELUDA_MAVEN_ENDPOINT` overrides through the usual
 /// figment chain, the way `FELUDA_CLEARLYDEFINED_ENDPOINT` moves the ClearlyDefined URL; a test can
-/// therefore answer from a stub on localhost instead of Maven Central. Read once per process: loading
-/// the configuration per dependency would log a line per POM, and `feluda watch` re-scans in the same
-/// process, so an endpoint edited mid-watch is picked up on the next run.
+/// therefore answer from a stub on localhost instead of Maven Central. Read once per pass: loading
+/// the configuration per dependency would log a line per POM, and `feluda watch` clears the cache
+/// before each re-scan.
 fn maven_endpoint() -> String {
-    static ENDPOINT: OnceLock<String> = OnceLock::new();
-    ENDPOINT
-        .get_or_init(|| {
-            crate::config::load_config()
-                .map(|config| config.maven.endpoint)
-                // `FELUDA_MAVEN_ENDPOINT=` is how CI says "unset", and figment keeps it as an empty
-                // string; an empty base URL would make every uncached artifact Unknown.
-                .ok()
-                .filter(|endpoint| !endpoint.trim().is_empty())
-                // A mirror URL copied from Nexus or Artifactory ends in a slash, and joining it as
-                // `.../maven-public//com/...` makes some repositories answer 404 for everything.
-                .map(|endpoint| endpoint.trim_end_matches('/').to_string())
-                .unwrap_or_else(|| FeludaConfig::default().maven.endpoint)
-        })
-        .clone()
+    let cell = maven_endpoint_cell();
+    if let Ok(cached) = cell.lock() {
+        if let Some(endpoint) = cached.as_ref() {
+            return endpoint.clone();
+        }
+    }
+
+    let endpoint = crate::config::load_config()
+        .map(|config| config.maven.endpoint)
+        // `FELUDA_MAVEN_ENDPOINT=` is how CI says "unset", and figment keeps it as an empty
+        // string; an empty base URL would make every uncached artifact Unknown.
+        .ok()
+        .filter(|endpoint| !endpoint.trim().is_empty())
+        // A mirror URL copied from Nexus or Artifactory ends in a slash, and joining it as
+        // `.../maven-public//com/...` makes some repositories answer 404 for everything.
+        .map(|endpoint| endpoint.trim_end_matches('/').to_string())
+        .unwrap_or_else(|| FeludaConfig::default().maven.endpoint);
+
+    if let Ok(mut cached) = cell.lock() {
+        *cached = Some(endpoint.clone());
+    }
+
+    endpoint
+}
+
+/// Forget what the local Maven repository and the configuration answered last time.
+///
+/// `feluda watch` calls this before every pass. Without it a `pom.xml` edit re-scans the tree before
+/// `mvn` has downloaded the new dependency, the miss is cached, and every later pass asks the registry
+/// (or reports `Unknown` offline) even once the file is on disk — and an edited `[maven] endpoint`
+/// waits for a restart.
+pub(crate) fn reset_maven_caches() {
+    if let Ok(mut cache) = local_pom_cache().lock() {
+        cache.clear();
+    }
+    if let Ok(mut cache) = pom_content_cache().lock() {
+        cache.clear();
+    }
+    if let Ok(mut endpoint) = maven_endpoint_cell().lock() {
+        *endpoint = None;
+    }
 }
 
 fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
@@ -1091,6 +1151,159 @@ mod tests {
                 assert_eq!(missing, None);
             },
         );
+    }
+
+    /// The artifact's own POM declares nothing, its parent — also on disk — declares GPL-2.0, and the
+    /// jar next to it bundles the MIT text. The parent chain has to answer: most multi-module projects
+    /// declare the license only in a parent, and reading the jar first would report whatever that jar
+    /// happens to bundle.
+    #[test]
+    fn test_local_parent_pom_answers_before_the_jar() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo = temp_dir.path();
+        let child_pom = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>parentpom</artifactId>
+    <version>1.0</version>
+  </parent>
+  <artifactId>childmod</artifactId>
+</project>
+"#;
+        let parent_pom = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>parentpom</artifactId>
+  <version>1.0</version>
+  <licenses>
+    <license>
+      <name>GPL-2.0</name>
+    </license>
+  </licenses>
+</project>
+"#;
+        let write = |path: std::path::PathBuf, content: &str| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, content).unwrap();
+        };
+        write(
+            repo.join("com/example/childmod/1.0/childmod-1.0.pom"),
+            child_pom,
+        );
+        write(
+            repo.join("com/example/parentpom/1.0/parentpom-1.0.pom"),
+            parent_pom,
+        );
+        write_jar(
+            &repo.join("com/example/childmod/1.0/childmod-1.0.jar"),
+            &[(
+                "META-INF/LICENSE",
+                b"MIT License\n\nCopyright (c) 2024 Example",
+            )],
+        );
+
+        temp_env::with_var("MAVEN_REPO_LOCAL", Some(repo.to_str().unwrap()), || {
+            assert_eq!(
+                fetch_maven_license("com.example", "childmod", "1.0", false),
+                "GPL-2.0",
+                "the parent POM on disk must answer before the jar bundles its own text"
+            );
+        });
+    }
+
+    /// A dependency `mvn` downloads while `feluda watch` is running must be seen by the next pass:
+    /// the miss is cached, so the cache has to be emptied at the start of a pass.
+    /// `--no-local` skips the whole local tier, the parent chain included: the contract grew from one
+    /// POM to a chain, and the flag has to cover what it grew into.
+    #[test]
+    fn test_no_local_skips_the_local_parent_chain() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo = temp_dir.path();
+        let child_pom = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>parentpom</artifactId>
+    <version>1.0</version>
+  </parent>
+  <artifactId>childmod</artifactId>
+</project>
+"#;
+        let parent_pom = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <groupId>com.example</groupId>
+  <artifactId>parentpom</artifactId>
+  <version>1.0</version>
+  <licenses>
+    <license>
+      <name>GPL-2.0</name>
+    </license>
+  </licenses>
+</project>
+"#;
+        for (path, content) in [
+            ("com/example/childmod/1.0/childmod-1.0.pom", child_pom),
+            ("com/example/parentpom/1.0/parentpom-1.0.pom", parent_pom),
+        ] {
+            let path = repo.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, content).unwrap();
+        }
+
+        temp_env::with_vars(
+            [
+                ("MAVEN_REPO_LOCAL", Some(repo.to_str().unwrap())),
+                // Nothing listens on port 1, so the registry tier fails instead of reaching the
+                // network: the test stays offline and the answer is deterministic.
+                ("FELUDA_MAVEN_ENDPOINT", Some("http://127.0.0.1:1/maven2")),
+            ],
+            || {
+                reset_maven_caches();
+
+                assert_eq!(
+                    fetch_maven_license("com.example", "childmod", "1.0", false),
+                    "GPL-2.0",
+                    "the local parent chain answers before the jar"
+                );
+                // `--no-local` must skip the chain too: with no registry answer, the result is
+                // unknown rather than the local parent's license.
+                assert_eq!(
+                    fetch_maven_license("com.example", "childmod", "1.0", true),
+                    "Unknown"
+                );
+
+                reset_maven_caches();
+            },
+        );
+    }
+
+    #[test]
+    fn test_reset_maven_caches_forgets_a_missed_local_pom() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo = temp_dir.path();
+        let artifact = repo.join("com/example/latepkg/1.0");
+        fs::create_dir_all(&artifact).unwrap();
+
+        temp_env::with_var("MAVEN_REPO_LOCAL", Some(repo.to_str().unwrap()), || {
+            // Pass one: not on disk yet, and the miss is what gets cached.
+            assert_eq!(read_local_pom("com.example", "latepkg", "1.0"), None);
+
+            // `mvn install` lands between passes. Without a reset the cached miss outlives the
+            // file and every later pass still answers "not there".
+            fs::write(artifact.join("latepkg-1.0.pom"), "<project></project>").unwrap();
+            assert_eq!(
+                read_local_pom("com.example", "latepkg", "1.0"),
+                None,
+                "the miss is cached for the rest of the pass"
+            );
+
+            reset_maven_caches();
+
+            assert_eq!(
+                read_local_pom("com.example", "latepkg", "1.0"),
+                Some("<project></project>".to_string()),
+                "the next pass has to see the file `mvn` downloaded"
+            );
+        });
     }
 
     #[test]
