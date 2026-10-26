@@ -928,18 +928,32 @@ fn maven_endpoint() -> String {
     endpoint
 }
 
-/// Forget what the local Maven repository and the configuration answered last time.
+/// Forget what the local Maven repository and the configuration answered last time, and keep what the
+/// next pass cannot get differently.
 ///
 /// `feluda watch` calls this before every pass. Without it a `pom.xml` edit re-scans the tree before
 /// `mvn` has downloaded the new dependency, the miss is cached, and every later pass asks the registry
-/// (or reports `Unknown` offline) even once the file is on disk — and an edited `[maven] endpoint`
-/// waits for a restart.
+/// (or reports `Unknown` offline) even once the file is on disk.
+///
+/// A local POM's miss only says what `mvn` has downloaded *so far*, so the whole local cache goes, and
+/// the endpoint is configuration rather than an answer, so it goes too. A POM's fetched content is kept
+/// — clearing it as well made every pass ask the registry again for every POM outside `~/.m2` — but
+/// only for a coordinate that cannot move between two passes: `RELEASE`, an empty version and a
+/// `-SNAPSHOT` are re-resolved by the next pass, so their content is forgotten with the misses.
+/// A hit fetched from an earlier `[maven] endpoint` also survives: the coordinate names the artifact,
+/// and a mirror serving different content for the same coordinate is not something a per-process
+/// cache can tell apart.
 pub(crate) fn reset_maven_caches() {
     if let Ok(mut cache) = local_pom_cache().lock() {
         cache.clear();
     }
     if let Ok(mut cache) = pom_content_cache().lock() {
-        cache.clear();
+        cache.retain(|key, content| {
+            content.is_some()
+                && key.rsplit(':').next().is_some_and(|version| {
+                    !version.is_empty() && version != "RELEASE" && !version.ends_with("-SNAPSHOT")
+                })
+        });
     }
     if let Ok(mut endpoint) = maven_endpoint_cell().lock() {
         *endpoint = None;
@@ -1212,8 +1226,6 @@ mod tests {
         });
     }
 
-    /// A dependency `mvn` downloads while `feluda watch` is running must be seen by the next pass:
-    /// the miss is cached, so the cache has to be emptied at the start of a pass.
     /// `--no-local` skips the whole local tier, the parent chain included: the contract grew from one
     /// POM to a chain, and the flag has to cover what it grew into.
     #[test]
@@ -1276,6 +1288,8 @@ mod tests {
         );
     }
 
+    /// A dependency `mvn` downloads while `feluda watch` is running must be seen by the next pass:
+    /// the miss is cached, so the cache has to be emptied at the start of a pass.
     #[test]
     fn test_reset_maven_caches_forgets_a_missed_local_pom() {
         let temp_dir = TempDir::new().unwrap();
@@ -1304,6 +1318,54 @@ mod tests {
                 "the next pass has to see the file `mvn` downloaded"
             );
         });
+    }
+
+    /// A released POM does not change for a given coordinate, so the content a pass already fetched
+    /// has to survive the reset; a miss says something about the network and a `RELEASE` or
+    /// `-SNAPSHOT` coordinate is re-resolved every pass, so neither survives.
+    #[test]
+    fn test_reset_keeps_a_fetched_pom_and_forgets_a_miss() {
+        let hit = "com.example:hit:1.0";
+        let miss = "com.example:miss:1.0";
+        let floating = "com.example:floating:RELEASE";
+        let snapshot = "com.example:snapshot:2.0-SNAPSHOT";
+        {
+            let mut cache = pom_content_cache().lock().unwrap();
+            cache.insert(hit.to_string(), Some("<project></project>".to_string()));
+            cache.insert(miss.to_string(), None);
+            cache.insert(
+                floating.to_string(),
+                Some("<project></project>".to_string()),
+            );
+            cache.insert(
+                snapshot.to_string(),
+                Some("<project></project>".to_string()),
+            );
+        }
+
+        reset_maven_caches();
+
+        {
+            let cache = pom_content_cache().lock().unwrap();
+            assert_eq!(
+                cache.get(hit),
+                Some(&Some("<project></project>".to_string())),
+                "the next pass must not ask the registry again for a POM it already has"
+            );
+            assert!(
+                !cache.contains_key(miss),
+                "a miss is a statement about the network, not about the artifact"
+            );
+            assert!(
+                !cache.contains_key(floating),
+                "`RELEASE` re-resolves to a new version between passes"
+            );
+            assert!(
+                !cache.contains_key(snapshot),
+                "a `-SNAPSHOT` is republished under the same coordinate"
+            );
+        }
+        reset_maven_caches();
     }
 
     #[test]

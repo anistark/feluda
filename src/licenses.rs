@@ -68,6 +68,8 @@ struct LicenseCompatibilityMatrix {
     lgpl_3_0: Option<LicenseEntry>,
     #[serde(rename = "LGPL-2_1")]
     lgpl_2_1: Option<LicenseEntry>,
+    #[serde(rename = "LGPL-2_0")]
+    lgpl_2_0: Option<LicenseEntry>,
     #[serde(rename = "MPL-2_0")]
     mpl_2_0: Option<LicenseEntry>,
     #[serde(rename = "BSD-3-Clause")]
@@ -514,6 +516,7 @@ const BUILTIN_OSI_LICENSE_IDS: &[&str] = &[
     "GPL-2.0",
     "LGPL-3.0",
     "LGPL-2.1",
+    "LGPL-2.0",
     "MPL-2.0",
     "ISC",
     "0BSD",
@@ -996,6 +999,7 @@ fn load_compatibility_matrix() -> FeludaResult<HashMap<String, Vec<String>>> {
         ("AGPL-3.0", &matrix.agpl_3_0),
         ("LGPL-3.0", &matrix.lgpl_3_0),
         ("LGPL-2.1", &matrix.lgpl_2_1),
+        ("LGPL-2.0", &matrix.lgpl_2_0),
         ("MPL-2.0", &matrix.mpl_2_0),
         ("BSD-3-Clause", &matrix.bsd_3_clause),
         ("BSD-2-Clause", &matrix.bsd_2_clause),
@@ -1195,10 +1199,13 @@ pub(crate) fn normalize_license_id(license_id: &str) -> String {
         // would answer only the restrictive half: jakarta.*/javax.* artifacts then read as plain
         // GPL-2.0 although their authors dual-licensed them.
         id if id.contains("CDDL") && id.contains("GPL") => {
-            let cddl = if id.contains("1.1") {
-                "CDDL-1.1"
-            } else {
+            // The name usually carries no version — the javax artifacts write exactly this one and
+            // link to `oss.oracle.com/licenses/CDDL+GPL-1.1` — so 1.1 is the default and only an
+            // explicit "1.0" answers 1.0.
+            let cddl = if id.contains("1.0") {
                 "CDDL-1.0"
+            } else {
+                "CDDL-1.1"
             };
             format!("{cddl} OR GPL-2.0 WITH Classpath-exception-2.0")
         }
@@ -1225,6 +1232,9 @@ pub(crate) fn normalize_license_id(license_id: &str) -> String {
 
         id if id.contains("EPL") && id.contains("2") => "EPL-2.0".to_string(),
         id if id.contains("EPL") && id.contains("1") => "EPL-1.0".to_string(),
+        // A bare CDDL name still defaults to 1.0: the versionless form that matters is the combined
+        // CDDL/GPL one above, which states 1.1, and changing this arm would move reports nobody asked
+        // about.
         id if id.contains("CDDL") && id.contains("1.1") => "CDDL-1.1".to_string(),
         id if id.contains("CDDL") => "CDDL-1.0".to_string(),
 
@@ -2207,10 +2217,15 @@ mod tests {
         );
         assert_eq!(
             normalize_license_id("CDDL + GPLv2 with classpath exception"),
-            "CDDL-1.0 OR GPL-2.0 WITH Classpath-exception-2.0"
+            "CDDL-1.1 OR GPL-2.0 WITH Classpath-exception-2.0"
         );
         assert_eq!(
             normalize_license_id("CDDL/GPLv2+CE"),
+            "CDDL-1.1 OR GPL-2.0 WITH Classpath-exception-2.0"
+        );
+        // An explicit version still wins over the versionless default.
+        assert_eq!(
+            normalize_license_id("CDDL 1.0 + GPLv2 with classpath exception"),
             "CDDL-1.0 OR GPL-2.0 WITH Classpath-exception-2.0"
         );
         assert_eq!(
@@ -2982,5 +2997,41 @@ mod tests {
         }
         assert!(!map.contains_key("apache-2-0"));
         assert!(map.contains_key("legacy-slug"));
+    }
+
+    #[test]
+    fn matrix_answers_lgpl_2_0_as_a_project_and_as_a_dependency() {
+        // `normalize_license_id` answers the true SPDX id for the "Library" name, and it is shared
+        // with every ecosystem: a matrix that only knows LGPL-2.1 reports a dependency `main`
+        // accepted as Incompatible, so the matrix has to know 2.0 on both sides.
+        let matrix = load_compatibility_matrix().unwrap();
+        let row = matrix
+            .get("LGPL-2.0")
+            .expect("there has to be an LGPL-2_0 section next to LGPL-2_1");
+        assert!(row.contains(&"LGPL-2.0".to_string()));
+        assert!(row.contains(&"LGPL-2.1".to_string()));
+
+        for project in ["GPL-3.0", "GPL-2.0", "AGPL-3.0", "LGPL-3.0", "LGPL-2.1"] {
+            assert!(
+                matrix[project].contains(&"LGPL-2.0".to_string()),
+                "{project} lists LGPL-2.1 as compatible, so it has to list LGPL-2.0 too"
+            );
+        }
+    }
+
+    #[test]
+    fn lgpl_2_0_is_compatible_with_gpl_3_0_and_with_itself() {
+        assert_eq!(
+            is_single_license_compatible("LGPL-2.0", "GPL-3.0", false),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_single_license_compatible("LGPL-2.0", "LGPL-2.0", false),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            normalize_license_id("GNU Library General Public License, version 2"),
+            "LGPL-2.0"
+        );
     }
 }
