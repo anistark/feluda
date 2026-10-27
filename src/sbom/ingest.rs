@@ -50,6 +50,7 @@ struct Origin {
 pub fn ingest_sbom(
     source: &str,
     strict: bool,
+    no_local: bool,
     enriched_output: Option<&str>,
 ) -> FeludaResult<Vec<LicenseInfo>> {
     let content = read_source(source)?;
@@ -72,7 +73,7 @@ pub fn ingest_sbom(
         &format!("Read {} components from the SBOM", components.len()),
     );
 
-    resolve_missing_licenses(&mut components, &mut origins);
+    resolve_missing_licenses(&mut components, &mut origins, no_local);
     classify_findings(&mut components, strict);
     // Before the enriched document is written, so what it states is everything feluda resolved.
     for index in crate::clearlydefined::resolve_unknown_licenses(&mut components, strict) {
@@ -378,7 +379,11 @@ fn string_field(value: &JsonValue, key: &str) -> Option<String> {
 ///
 /// A component that already states a license costs nothing here, which is what keeps a fully
 /// populated document an offline operation.
-fn resolve_missing_licenses(components: &mut [LicenseInfo], origins: &mut [Origin]) {
+fn resolve_missing_licenses(
+    components: &mut [LicenseInfo],
+    origins: &mut [Origin],
+    no_local: bool,
+) {
     let unresolved = components
         .iter()
         .filter(|info| info.license.is_none())
@@ -399,7 +404,7 @@ fn resolve_missing_licenses(components: &mut [LicenseInfo], origins: &mut [Origi
                 if info.license.is_some() {
                     return None;
                 }
-                resolve_license_for(info.ecosystem, &info.name, &info.version)
+                resolve_license_for(info.ecosystem, &info.name, &info.version, no_local)
             })
             .collect();
 
@@ -1132,7 +1137,7 @@ mod tests {
         let path = temp.path().join("sbom.json");
         fs::write(&path, spdx_fixture().to_string()).unwrap();
 
-        let components = ingest_sbom(path.to_str().unwrap(), false, None).unwrap();
+        let components = ingest_sbom(path.to_str().unwrap(), false, false, None).unwrap();
         assert_eq!(components.len(), 3);
         assert!(components.iter().any(|info| info.is_restrictive));
     }
@@ -1143,12 +1148,12 @@ mod tests {
 
         let not_json = temp.path().join("not.json");
         fs::write(&not_json, "this is not json").unwrap();
-        assert!(ingest_sbom(not_json.to_str().unwrap(), false, None).is_err());
+        assert!(ingest_sbom(not_json.to_str().unwrap(), false, false, None).is_err());
 
         let unknown = temp.path().join("unknown.json");
         fs::write(&unknown, r#"{"dependencies": []}"#).unwrap();
-        assert!(ingest_sbom(unknown.to_str().unwrap(), false, None).is_err());
+        assert!(ingest_sbom(unknown.to_str().unwrap(), false, false, None).is_err());
 
-        assert!(ingest_sbom("/nonexistent/sbom.json", false, None).is_err());
+        assert!(ingest_sbom("/nonexistent/sbom.json", false, false, None).is_err());
     }
 }

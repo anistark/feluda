@@ -43,7 +43,11 @@ pub struct ImageArchive {
 /// The squashed filesystem lives in a temporary directory for the duration of the scan and is
 /// removed with it. An image's worth of disk is the price of reusing the filesystem catalogers as
 /// they are; it is also exactly what `docker export | tar -x` costs.
-pub fn scan_image(archive: &ImageArchive, strict: bool) -> FeludaResult<Vec<LicenseInfo>> {
+pub fn scan_image(
+    archive: &ImageArchive,
+    strict: bool,
+    no_local: bool,
+) -> FeludaResult<Vec<LicenseInfo>> {
     let path = Path::new(&archive.path);
     let store = store::Store::open(path).map_err(announce)?;
     let image = manifest::select(&store, archive.platform.as_deref()).map_err(announce)?;
@@ -65,7 +69,7 @@ pub fn scan_image(archive: &ImageArchive, strict: bool) -> FeludaResult<Vec<Lice
     layers::squash(&store, &image.layers, rootfs.path()).map_err(announce)?;
 
     let origin = format!("image {} ({})", path.display(), image.describe());
-    scan_tree(rootfs.path(), strict, &origin)
+    scan_tree(rootfs.path(), strict, no_local, &origin)
 }
 
 /// Say what went wrong on the way to the scan.

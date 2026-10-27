@@ -330,3 +330,37 @@ Call this to wipe the cache after rotating credentials or troubleshooting mismat
    feluda cache --clear
 
 Feluda deletes ``.feluda/cache/github_licenses.json`` and rebuilds it on the next scan.
+
+----
+
+Point the Maven lookups at a mirror
+-----------------------------------
+
+A dependency's license and POM are read from the local Maven repository first — ``MAVEN_REPO_LOCAL``,
+or ``~/.m2/repository`` — and only a dependency that is not there, or whose parent POM is not, is
+asked about over the network. Within the local repository the **POM answers before the jar**: a jar
+can carry several license texts at once — ``jakarta.servlet-api`` ships EPL-2.0 and the GPLv2 text
+for the Classpath Exception — and a content matcher reading them reports ``GPL-2.0``, which is both
+restrictive and not what the artifact declares. The jar answers when the artifact's own POM states
+no license — artifacts published without one — and the ``<parent>`` chain is followed afterwards,
+with the registry lookups.
+
+Those network lookups read ``https://repo1.maven.org/maven2``, which an internal Nexus or Artifactory
+mirroring Central can stand in for, in ``.feluda.toml``:
+
+.. code-block:: toml
+
+   [maven]
+   endpoint = "https://nexus.internal/repository/maven-public"
+
+or for a single run:
+
+.. code-block:: bash
+
+   export FELUDA_MAVEN_ENDPOINT=https://nexus.internal/repository/maven-public
+
+Trailing slashes are trimmed, since Nexus and Artifactory print their URLs with one and
+``.../maven-public//com/...`` 404s on some repositories. The integration tests use this setting to
+answer from a stub on localhost instead of Maven Central. One lookup still goes to
+``https://search.maven.org``: a Gradle dependency whose version is unresolved (``RELEASE`` or empty)
+is resolved to a concrete version there, since only that service answers "the latest".

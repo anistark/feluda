@@ -26,8 +26,15 @@ use std::path::Path;
 /// of "ask npm" and one of "ask Maven Central".
 ///
 /// Returns `None` for ecosystems with no registry to ask — OS packages, Conan, and the generic
-/// bucket — and for any lookup that came back without a real license.
-pub fn resolve_license_for(ecosystem: Ecosystem, name: &str, version: &str) -> Option<String> {
+/// bucket — and for any lookup that came back without a real license. `no_local` is the caller's
+/// `--no-local`: the Maven arm reads the local repository first, so a run that asked not to read it
+/// must say so here too.
+pub fn resolve_license_for(
+    ecosystem: Ecosystem,
+    name: &str,
+    version: &str,
+    no_local: bool,
+) -> Option<String> {
     log(
         LogLevel::Info,
         &format!("Resolving license for {ecosystem} package {name} ({version})"),
@@ -42,7 +49,12 @@ pub fn resolve_license_for(ecosystem: Ecosystem, name: &str, version: &str) -> O
             // Maven display names are `groupId:artifactId`; without a group there is nothing to
             // build a repository path from.
             let (group_id, artifact_id) = name.split_once(':')?;
-            Some(java::fetch_maven_license(group_id, artifact_id, version))
+            Some(java::fetch_maven_license(
+                group_id,
+                artifact_id,
+                version,
+                no_local,
+            ))
         }
         Ecosystem::Gem => Some(ruby::fetch_ruby_license(name, version)),
         Ecosystem::Nuget => Some(dotnet::fetch_license_for_nuget_package(name, version)),

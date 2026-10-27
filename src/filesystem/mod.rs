@@ -76,14 +76,18 @@ const CATALOGERS: &[(&str, &str, Cataloger)] = &[
 /// Fails when the tree holds neither. An empty report would be indistinguishable from a clean one,
 /// and a mistyped path should not read as a pass. A tree that holds only artifacts is fine — an
 /// installation directory like `/opt/app` has no package database and is still worth scanning.
-pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInfo>> {
+pub fn scan_filesystem(
+    root: &Path,
+    strict: bool,
+    no_local: bool,
+) -> FeludaResult<Vec<LicenseInfo>> {
     if !root.is_dir() {
         return Err(source_error(format!(
             "Not a directory: {}. --filesystem takes a root filesystem or an installation tree.",
             root.display()
         )));
     }
-    scan_tree(root, strict, &root.display().to_string())
+    scan_tree(root, strict, no_local, &root.display().to_string())
 }
 
 /// Catalog everything installed under `root`, naming the tree `origin` in messages.
@@ -91,7 +95,12 @@ pub fn scan_filesystem(root: &Path, strict: bool) -> FeludaResult<Vec<LicenseInf
 /// `scan_filesystem` is this with the path as the name. `--image-archive` squashes its layers into
 /// a temporary directory and calls this with the archive's name instead, since a message about
 /// `/tmp/.tmpAb12Cd` would tell the user nothing.
-pub fn scan_tree(root: &Path, strict: bool, origin: &str) -> FeludaResult<Vec<LicenseInfo>> {
+pub fn scan_tree(
+    root: &Path,
+    strict: bool,
+    no_local: bool,
+    origin: &str,
+) -> FeludaResult<Vec<LicenseInfo>> {
     let os_release = read_os_release(root);
     let namespace = os_release.as_deref().and_then(parse_os_release_id);
     let debian_version = std::fs::read_to_string(root.join(DEBIAN_VERSION_PATH)).ok();
@@ -183,7 +192,7 @@ pub fn scan_tree(root: &Path, strict: bool, origin: &str) -> FeludaResult<Vec<Li
         ),
     );
 
-    artifacts::resolve_missing_licenses(&mut findings);
+    artifacts::resolve_missing_licenses(&mut findings, no_local);
     classify_findings(&mut findings, strict);
     crate::clearlydefined::resolve_unknown_licenses(&mut findings, strict);
     Ok(findings)
@@ -447,7 +456,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         write(temp.path(), "etc/os-release", "ID=debian\n");
 
-        let error = scan_filesystem(temp.path(), false).unwrap_err();
+        let error = scan_filesystem(temp.path(), false, false).unwrap_err();
         assert!(
             error.to_string().contains("Nothing installed found"),
             "unexpected error: {error}"
@@ -464,7 +473,7 @@ mod tests {
             r#"{"name":"lodash","version":"4.17.21","license":"MIT"}"#,
         );
 
-        let findings = scan_filesystem(temp.path(), false).unwrap();
+        let findings = scan_filesystem(temp.path(), false, false).unwrap();
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].name, "lodash");
         assert_eq!(findings[0].license.as_deref(), Some("MIT"));
@@ -491,7 +500,7 @@ mod tests {
             &format!("/{metadata}\n"),
         );
 
-        let findings = scan_filesystem(temp.path(), false).unwrap();
+        let findings = scan_filesystem(temp.path(), false, false).unwrap();
         let names: Vec<&str> = findings.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(names, ["debian/python3-yaml"]);
     }
@@ -513,7 +522,7 @@ mod tests {
             "Metadata-Version: 2.1\nName: requests\nVersion: 2.32.3\nLicense: Apache-2.0\n",
         );
 
-        let findings = scan_filesystem(temp.path(), false).unwrap();
+        let findings = scan_filesystem(temp.path(), false, false).unwrap();
         let requests = findings
             .iter()
             .find(|finding| finding.name == "requests")
@@ -541,7 +550,7 @@ mod tests {
             "Metadata-Version: 2.1\nName: requests\nVersion: 2.32.3\nLicense: Apache-2.0\n",
         );
 
-        let findings = scan_filesystem(temp.path(), false).unwrap();
+        let findings = scan_filesystem(temp.path(), false, false).unwrap();
         let purl = |name: &str| {
             findings
                 .iter()
@@ -564,7 +573,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         write(temp.path(), "rootfs.tar", "not a directory");
 
-        let error = scan_filesystem(&temp.path().join("rootfs.tar"), false).unwrap_err();
+        let error = scan_filesystem(&temp.path().join("rootfs.tar"), false, false).unwrap_err();
         assert!(
             error.to_string().contains("Not a directory"),
             "unexpected error: {error}"
@@ -601,7 +610,7 @@ mod tests {
             "Package: bash\nStatus: install ok installed\nVersion: 5.2.15-2\n",
         );
 
-        let findings = scan_filesystem(temp.path(), false).unwrap();
+        let findings = scan_filesystem(temp.path(), false, false).unwrap();
         let names: Vec<&str> = findings.iter().map(|f| f.name.as_str()).collect();
         assert!(
             names.contains(&"debian/musl"),
