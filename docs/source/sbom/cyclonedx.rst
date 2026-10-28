@@ -132,14 +132,14 @@ Example Output Structure
      "metadata": {
        "timestamp": "2025-01-27T12:00:00Z",
        "tools": {
-         "components": [{"type": "application", "name": "feluda", "version": "1.17.0"}]
+         "components": [{"type": "application", "name": "feluda", "version": "1.18.0"}]
        }
      },
      "components": []
    }
 
 With ``--spec-version 1.4``, ``tools`` is the older plain list:
-``[{"name": "feluda", "version": "1.17.0"}]``.
+``[{"name": "feluda", "version": "1.18.0"}]``.
 
 ----
 

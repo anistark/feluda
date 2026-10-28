@@ -1047,7 +1047,7 @@ The matrix currently supports compatibility checking for:
 - **GPL-3.0** - Copyleft license with broad compatibility including LGPL and other GPL versions
 - **GPL-2.0** - Stricter copyleft (cannot include Apache-2.0 dependencies)
 - **AGPL-3.0** - Network copyleft with GPL-3.0 compatibility plus AGPL
-- **LGPL-3.0 / LGPL-2.1** - Lesser GPL variants with limited compatibility
+- **LGPL-3.0 / LGPL-2.1 / LGPL-2.0** - Lesser GPL variants with limited compatibility
 - **MPL-2.0** - Mozilla Public License with moderate compatibility
 - **BSD-3-Clause / BSD-2-Clause** - BSD variants with permissive-only compatibility
 - **ISC, 0BSD, Unlicense, WTFPL** - Various permissive licenses

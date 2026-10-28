@@ -246,7 +246,7 @@ fn dedupe(artifacts: Vec<Artifact>) -> Vec<LicenseInfo> {
 /// an OS package: a distribution in `site-packages` is a real PyPI release, so there is somewhere
 /// to ask. `resolve_license_for` returns `None` for the OS ecosystems without touching the network,
 /// so passing every finding through costs nothing.
-pub fn resolve_missing_licenses(findings: &mut [LicenseInfo]) {
+pub fn resolve_missing_licenses(findings: &mut [LicenseInfo], no_local: bool) {
     let unresolved = findings
         .iter()
         .filter(|finding| finding.license.is_none())
@@ -267,7 +267,12 @@ pub fn resolve_missing_licenses(findings: &mut [LicenseInfo]) {
                 .par_iter()
                 .map(|finding| match finding.license {
                     Some(_) => None,
-                    None => resolve_license_for(finding.ecosystem, &finding.name, &finding.version),
+                    None => resolve_license_for(
+                        finding.ecosystem,
+                        &finding.name,
+                        &finding.version,
+                        no_local,
+                    ),
                 })
                 .collect();
 

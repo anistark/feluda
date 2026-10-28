@@ -114,7 +114,7 @@ Different language ecosystems require different approaches. Here are some exampl
 - Gradle ``build.gradle`` / ``build.gradle.kts`` parsing (Groovy and Kotlin DSL) via regex
 - ``gradle.properties`` variable resolution
 - Test-scoped dependency exclusion (``scope=test``, ``testImplementation``)
-- License fetching from Maven Central POM files and local jar fallback
+- License fetching from the local repository (jar and POM), with Maven Central POM files as the fallback
 
 Updating Language Detection
 ---------------------------

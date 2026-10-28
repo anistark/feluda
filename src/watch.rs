@@ -23,6 +23,11 @@ use std::time::{Duration, Instant};
 /// Errors are logged and swallowed so a transient parse failure (e.g. an editor
 /// writing a half-finished manifest) doesn't tear down the watch session.
 fn scan_once(config: &CheckConfig) {
+    // A pass starts from the files on disk and the configuration as it is now: a dependency `mvn`
+    // downloaded since the last pass, or an edited `[maven] endpoint`, is otherwise answered from a
+    // cache filled before it existed.
+    crate::languages::java::reset_maven_caches();
+
     match analyze_dependencies(config) {
         Ok((mut analyzed_data, project_license)) => {
             if analyzed_data.is_empty() {

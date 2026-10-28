@@ -13,7 +13,7 @@ use crate::config::FeludaConfig;
 use crate::debug::{log, log_error, LogLevel};
 use crate::licenses::{
     detect_license_from_content, fetch_licenses_from_github, is_license_restrictive,
-    LicenseCompatibility, LicenseInfo,
+    normalize_license_id, LicenseCompatibility, LicenseInfo,
 };
 use crate::purl::Ecosystem;
 
@@ -24,7 +24,11 @@ struct JavaDependency {
     version: String,
 }
 
-pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<LicenseInfo> {
+pub fn analyze_java_licenses(
+    file_path: &str,
+    config: &FeludaConfig,
+    no_local: bool,
+) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
         &format!("Analyzing Java dependencies from: {file_path}"),
@@ -54,7 +58,7 @@ pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
     // mirroring the transitive resolution done for Rust/Go/Node. Bounded by the
     // configured max dependency depth; falls back to the direct dependencies if
     // the registry is unreachable.
-    let deps = resolve_transitive_dependencies(deps, config.dependencies.max_depth);
+    let deps = resolve_transitive_dependencies(deps, config.dependencies.max_depth, no_local);
 
     log(
         LogLevel::Info,
@@ -74,7 +78,8 @@ pub fn analyze_java_licenses(file_path: &str, config: &FeludaConfig) -> Vec<Lice
 
     deps.par_iter()
         .map(|dep| {
-            let license = fetch_maven_license(&dep.group_id, &dep.artifact_id, &dep.version);
+            let license =
+                fetch_maven_license(&dep.group_id, &dep.artifact_id, &dep.version, no_local);
             let is_restrictive =
                 is_license_restrictive(&Some(license.clone()), &known_licenses, config.strict);
 
@@ -568,6 +573,7 @@ fn resolve_gradle_variable(value: &str, props: &HashMap<String, String>) -> Stri
 fn resolve_transitive_dependencies(
     direct: Vec<JavaDependency>,
     max_depth: u32,
+    no_local: bool,
 ) -> Vec<JavaDependency> {
     let mut visited: HashSet<String> = HashSet::new();
     let mut resolved: Vec<JavaDependency> = Vec::new();
@@ -587,7 +593,9 @@ fn resolve_transitive_dependencies(
             continue;
         }
 
-        for child in fetch_pom_transitive_deps(&dep.group_id, &dep.artifact_id, &dep.version) {
+        for child in
+            fetch_pom_transitive_deps(&dep.group_id, &dep.artifact_id, &dep.version, no_local)
+        {
             let key = format!("{}:{}", child.group_id, child.artifact_id);
             // First occurrence wins, approximating Maven's nearest-first order.
             if visited.insert(key) {
@@ -607,8 +615,9 @@ fn fetch_pom_transitive_deps(
     group_id: &str,
     artifact_id: &str,
     version: &str,
+    no_local: bool,
 ) -> Vec<JavaDependency> {
-    let content = match fetch_pom_content(group_id, artifact_id, version) {
+    let content = match fetch_pom_content(group_id, artifact_id, version, no_local) {
         Some(c) => c,
         None => return Vec::new(),
     };
@@ -622,14 +631,35 @@ fn fetch_pom_transitive_deps(
 // MAVEN CENTRAL LICENSE LOOKUP
 // =============================================================================
 
-pub(crate) fn fetch_maven_license(group_id: &str, artifact_id: &str, version: &str) -> String {
-    // Try fetching the POM from Maven Central and extracting license info
-    if let Some(license) = fetch_license_from_pom(group_id, artifact_id, version) {
-        return license;
+/// Resolve the license of one artifact, local files first.
+///
+/// A POM declares the license its authors chose; a jar only carries the license texts that were
+/// bundled into it, and several of those can be present at once (an EPL-2.0 artifact that also ships
+/// the GPLv2 text for the Classpath Exception). Reading the jar first therefore answers `GPL-2.0` for
+/// those artifacts, which is both wrong and marked restrictive. So the order is: the **local POM
+/// chain, parents included**, then the jar next to it, then the registry. Most multi-module projects
+/// (Guava, `commons-*`, slf4j, logback, Netty, the ee4j APIs) declare the license only in a parent, so
+/// stopping at the artifact's own POM would still let the jar answer first for exactly those. Both
+/// local steps are files, so an offline run stays offline, and `no_local` skips them, as `--no-local`
+/// promises.
+pub(crate) fn fetch_maven_license(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+    no_local: bool,
+) -> String {
+    if !no_local {
+        if let Some(license) =
+            resolve_pom_license(group_id, artifact_id, version, 0, PomSource::LocalOnly)
+        {
+            return license;
+        }
+        if let Some(license) = fetch_license_from_local_jar(group_id, artifact_id, version) {
+            return license;
+        }
     }
 
-    // Local fallback: read the license text bundled inside the cached jar.
-    if let Some(license) = fetch_license_from_local_jar(group_id, artifact_id, version) {
+    if let Some(license) = fetch_license_from_pom(group_id, artifact_id, version, no_local) {
         return license;
     }
 
@@ -658,19 +688,67 @@ fn fetch_license_from_local_jar(
     artifact_id: &str,
     version: &str,
 ) -> Option<String> {
-    // A concrete version is required to locate the jar on disk.
+    detect_license_in_jar(&local_artifact_path(group_id, artifact_id, version, "jar")?)
+}
+
+/// Where one file of an artifact lives in the local Maven repository.
+///
+/// A concrete version is required to locate anything on disk, so `RELEASE` and an empty version
+/// answer `None`.
+fn local_artifact_path(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+    extension: &str,
+) -> Option<PathBuf> {
     if version.is_empty() || version == "RELEASE" {
         return None;
     }
 
     let repo = maven_local_repo()?;
-    let jar_path = repo
-        .join(group_id.replace('.', "/"))
-        .join(artifact_id)
-        .join(version)
-        .join(format!("{artifact_id}-{version}.jar"));
+    Some(
+        repo.join(group_id.replace('.', "/"))
+            .join(artifact_id)
+            .join(version)
+            .join(format!("{artifact_id}-{version}.{extension}")),
+    )
+}
 
-    detect_license_in_jar(&jar_path)
+/// The local POMs already read, including the ones that were not there, keyed by file path.
+///
+/// The transitive walk and the license lookup ask about the same coordinates several times over —
+/// once per dependency that walks up to a shared parent such as `commons-parent` — and each answer
+/// costs a read and a parse. The file cannot change in a way that matters within one pass, and
+/// `feluda watch` empties this map before each re-scan (see [`reset_maven_caches`]), so a `mvn
+/// install` that lands mid-watch is picked up by the next pass rather than cached as absent.
+fn local_pom_cache() -> &'static Mutex<HashMap<PathBuf, Option<String>>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<String>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Read `<repo>/<group as path>/<artifact>/<version>/<artifact>-<version>.pom`, if it is there.
+fn read_local_pom(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
+    let path = local_artifact_path(group_id, artifact_id, version, "pom")?;
+
+    if let Ok(cache) = local_pom_cache().lock() {
+        if let Some(answer) = cache.get(&path) {
+            return answer.clone();
+        }
+    }
+
+    // A truncated file, an HTML error page a proxy saved under the POM's name, or a zero-byte
+    // leftover would otherwise be accepted as "the answer", returning no license and suppressing
+    // both the jar and the network fallback. An interrupted download cut inside `<dependencies>`
+    // still carries the opening tag, so the closing tag is what proves the document is whole.
+    let answer = fs::read_to_string(&path)
+        .ok()
+        .filter(|content| content.contains("<project") && content.contains("</project>"));
+
+    if let Ok(mut cache) = local_pom_cache().lock() {
+        cache.insert(path, answer.clone());
+    }
+
+    answer
 }
 
 fn maven_local_repo() -> Option<PathBuf> {
@@ -705,8 +783,29 @@ fn detect_license_in_jar(jar_path: &Path) -> Option<String> {
 /// against cycles and unbounded chains in malformed metadata.
 const MAX_POM_PARENT_DEPTH: usize = 5;
 
-fn fetch_license_from_pom(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
-    resolve_pom_license(group_id, artifact_id, version, 0)
+fn fetch_license_from_pom(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+    no_local: bool,
+) -> Option<String> {
+    resolve_pom_license(
+        group_id,
+        artifact_id,
+        version,
+        0,
+        PomSource::Registry { no_local },
+    )
+}
+
+/// Where the parent-POM walk may read a POM from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PomSource {
+    /// Files already in the local repository, and nothing else: no network at any level.
+    LocalOnly,
+    /// The local repository first, then the registry. `no_local` is `--no-local`, which skips the
+    /// local read.
+    Registry { no_local: bool },
 }
 
 /// Resolve a license from an artifact's POM, walking up the `<parent>` chain
@@ -718,12 +817,18 @@ fn resolve_pom_license(
     artifact_id: &str,
     version: &str,
     depth: usize,
+    source: PomSource,
 ) -> Option<String> {
     if depth > MAX_POM_PARENT_DEPTH {
         return None;
     }
 
-    let pom_content = fetch_pom_content(group_id, artifact_id, version)?;
+    let pom_content = match source {
+        PomSource::LocalOnly => read_local_pom(group_id, artifact_id, version)?,
+        PomSource::Registry { no_local } => {
+            fetch_pom_content(group_id, artifact_id, version, no_local)?
+        }
+    };
 
     // A license declared directly on this POM takes precedence.
     if let Some(license) = extract_license_from_pom_content(&pom_content) {
@@ -737,6 +842,7 @@ fn resolve_pom_license(
         &parent.artifact_id,
         &parent.version,
         depth + 1,
+        source,
     )
 }
 
@@ -748,7 +854,20 @@ fn pom_content_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn fetch_pom_content(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
+fn fetch_pom_content(
+    group_id: &str,
+    artifact_id: &str,
+    version: &str,
+    no_local: bool,
+) -> Option<String> {
+    // The POM next to the jar in the local repository is the one the project was built from, and
+    // reading it keeps an offline scan offline, exactly as it does for the jar.
+    if !no_local {
+        if let Some(content) = read_local_pom(group_id, artifact_id, version) {
+            return Some(content);
+        }
+    }
+
     let key = format!("{group_id}:{artifact_id}:{version}");
 
     if let Ok(cache) = pom_content_cache().lock() {
@@ -766,6 +885,81 @@ fn fetch_pom_content(group_id: &str, artifact_id: &str, version: &str) -> Option
     result
 }
 
+/// The endpoint in use, once it has been read.
+///
+/// A cell rather than an `OnceLock<String>` so that [`reset_maven_caches`] can empty it: `feluda
+/// watch` re-scans in the same process, and a `[maven] endpoint` edited while it runs has to be
+/// picked up by the next pass.
+fn maven_endpoint_cell() -> &'static Mutex<Option<String>> {
+    static ENDPOINT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    ENDPOINT.get_or_init(|| Mutex::new(None))
+}
+
+/// Base URL of the Maven repository the POM lookups read.
+///
+/// It comes from `[maven] endpoint`, which `FELUDA_MAVEN_ENDPOINT` overrides through the usual
+/// figment chain, the way `FELUDA_CLEARLYDEFINED_ENDPOINT` moves the ClearlyDefined URL; a test can
+/// therefore answer from a stub on localhost instead of Maven Central. Read once per pass: loading
+/// the configuration per dependency would log a line per POM, and `feluda watch` clears the cache
+/// before each re-scan.
+fn maven_endpoint() -> String {
+    let cell = maven_endpoint_cell();
+    if let Ok(cached) = cell.lock() {
+        if let Some(endpoint) = cached.as_ref() {
+            return endpoint.clone();
+        }
+    }
+
+    let endpoint = crate::config::load_config()
+        .map(|config| config.maven.endpoint)
+        // `FELUDA_MAVEN_ENDPOINT=` is how CI says "unset", and figment keeps it as an empty
+        // string; an empty base URL would make every uncached artifact Unknown.
+        .ok()
+        .filter(|endpoint| !endpoint.trim().is_empty())
+        // A mirror URL copied from Nexus or Artifactory ends in a slash, and joining it as
+        // `.../maven-public//com/...` makes some repositories answer 404 for everything.
+        .map(|endpoint| endpoint.trim_end_matches('/').to_string())
+        .unwrap_or_else(|| FeludaConfig::default().maven.endpoint);
+
+    if let Ok(mut cached) = cell.lock() {
+        *cached = Some(endpoint.clone());
+    }
+
+    endpoint
+}
+
+/// Forget what the local Maven repository and the configuration answered last time, and keep what the
+/// next pass cannot get differently.
+///
+/// `feluda watch` calls this before every pass. Without it a `pom.xml` edit re-scans the tree before
+/// `mvn` has downloaded the new dependency, the miss is cached, and every later pass asks the registry
+/// (or reports `Unknown` offline) even once the file is on disk.
+///
+/// A local POM's miss only says what `mvn` has downloaded *so far*, so the whole local cache goes, and
+/// the endpoint is configuration rather than an answer, so it goes too. A POM's fetched content is kept
+/// — clearing it as well made every pass ask the registry again for every POM outside `~/.m2` — but
+/// only for a coordinate that cannot move between two passes: `RELEASE`, an empty version and a
+/// `-SNAPSHOT` are re-resolved by the next pass, so their content is forgotten with the misses.
+/// A hit fetched from an earlier `[maven] endpoint` also survives: the coordinate names the artifact,
+/// and a mirror serving different content for the same coordinate is not something a per-process
+/// cache can tell apart.
+pub(crate) fn reset_maven_caches() {
+    if let Ok(mut cache) = local_pom_cache().lock() {
+        cache.clear();
+    }
+    if let Ok(mut cache) = pom_content_cache().lock() {
+        cache.retain(|key, content| {
+            content.is_some()
+                && key.rsplit(':').next().is_some_and(|version| {
+                    !version.is_empty() && version != "RELEASE" && !version.ends_with("-SNAPSHOT")
+                })
+        });
+    }
+    if let Ok(mut endpoint) = maven_endpoint_cell().lock() {
+        *endpoint = None;
+    }
+}
+
 fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) -> Option<String> {
     let group_path = group_id.replace('.', "/");
     let effective_version = if version == "RELEASE" || version.is_empty() {
@@ -775,7 +969,8 @@ fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) 
     };
 
     let pom_url = format!(
-        "https://repo1.maven.org/maven2/{group_path}/{artifact_id}/{effective_version}/{artifact_id}-{effective_version}.pom"
+        "{}/{group_path}/{artifact_id}/{effective_version}/{artifact_id}-{effective_version}.pom",
+        maven_endpoint()
     );
 
     log(LogLevel::Info, &format!("Fetching POM: {pom_url}"));
@@ -791,8 +986,12 @@ fn fetch_pom_content_uncached(group_id: &str, artifact_id: &str, version: &str) 
 fn extract_license_from_pom_content(content: &str) -> Option<String> {
     // Extract <licenses><license><name>...</name>
     let re = Regex::new(r"(?s)<licenses>.*?<license>.*?<name>(.*?)</name>.*?</license>").ok()?;
+    // A `<name>` is written by the artifact's authors, not in SPDX: "Apache License, Version 2.0",
+    // "EPL 2.0", "GPL2 w/ CPE". Everything downstream — the registry lookup, the restrictive list,
+    // the CycloneDX writer — speaks ids, and a prose copyleft name matches none of them, so it would
+    // classify as permissive. Normalize here, where the prose enters.
     re.captures(content)
-        .map(|c| c[1].trim().to_string())
+        .map(|c| normalize_license_id(c[1].trim()))
         .filter(|s| !s.is_empty())
 }
 
@@ -966,6 +1165,207 @@ mod tests {
                 assert_eq!(missing, None);
             },
         );
+    }
+
+    /// The artifact's own POM declares nothing, its parent — also on disk — declares GPL-2.0, and the
+    /// jar next to it bundles the MIT text. The parent chain has to answer: most multi-module projects
+    /// declare the license only in a parent, and reading the jar first would report whatever that jar
+    /// happens to bundle.
+    #[test]
+    fn test_local_parent_pom_answers_before_the_jar() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo = temp_dir.path();
+        let child_pom = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>parentpom</artifactId>
+    <version>1.0</version>
+  </parent>
+  <artifactId>childmod</artifactId>
+</project>
+"#;
+        let parent_pom = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>parentpom</artifactId>
+  <version>1.0</version>
+  <licenses>
+    <license>
+      <name>GPL-2.0</name>
+    </license>
+  </licenses>
+</project>
+"#;
+        let write = |path: std::path::PathBuf, content: &str| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, content).unwrap();
+        };
+        write(
+            repo.join("com/example/childmod/1.0/childmod-1.0.pom"),
+            child_pom,
+        );
+        write(
+            repo.join("com/example/parentpom/1.0/parentpom-1.0.pom"),
+            parent_pom,
+        );
+        write_jar(
+            &repo.join("com/example/childmod/1.0/childmod-1.0.jar"),
+            &[(
+                "META-INF/LICENSE",
+                b"MIT License\n\nCopyright (c) 2024 Example",
+            )],
+        );
+
+        temp_env::with_var("MAVEN_REPO_LOCAL", Some(repo.to_str().unwrap()), || {
+            assert_eq!(
+                fetch_maven_license("com.example", "childmod", "1.0", false),
+                "GPL-2.0",
+                "the parent POM on disk must answer before the jar bundles its own text"
+            );
+        });
+    }
+
+    /// `--no-local` skips the whole local tier, the parent chain included: the contract grew from one
+    /// POM to a chain, and the flag has to cover what it grew into.
+    #[test]
+    fn test_no_local_skips_the_local_parent_chain() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo = temp_dir.path();
+        let child_pom = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>parentpom</artifactId>
+    <version>1.0</version>
+  </parent>
+  <artifactId>childmod</artifactId>
+</project>
+"#;
+        let parent_pom = r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <groupId>com.example</groupId>
+  <artifactId>parentpom</artifactId>
+  <version>1.0</version>
+  <licenses>
+    <license>
+      <name>GPL-2.0</name>
+    </license>
+  </licenses>
+</project>
+"#;
+        for (path, content) in [
+            ("com/example/childmod/1.0/childmod-1.0.pom", child_pom),
+            ("com/example/parentpom/1.0/parentpom-1.0.pom", parent_pom),
+        ] {
+            let path = repo.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, content).unwrap();
+        }
+
+        temp_env::with_vars(
+            [
+                ("MAVEN_REPO_LOCAL", Some(repo.to_str().unwrap())),
+                // Nothing listens on port 1, so the registry tier fails instead of reaching the
+                // network: the test stays offline and the answer is deterministic.
+                ("FELUDA_MAVEN_ENDPOINT", Some("http://127.0.0.1:1/maven2")),
+            ],
+            || {
+                reset_maven_caches();
+
+                assert_eq!(
+                    fetch_maven_license("com.example", "childmod", "1.0", false),
+                    "GPL-2.0",
+                    "the local parent chain answers before the jar"
+                );
+                // `--no-local` must skip the chain too: with no registry answer, the result is
+                // unknown rather than the local parent's license.
+                assert_eq!(
+                    fetch_maven_license("com.example", "childmod", "1.0", true),
+                    "Unknown"
+                );
+
+                reset_maven_caches();
+            },
+        );
+    }
+
+    /// A dependency `mvn` downloads while `feluda watch` is running must be seen by the next pass:
+    /// the miss is cached, so the cache has to be emptied at the start of a pass.
+    #[test]
+    fn test_reset_maven_caches_forgets_a_missed_local_pom() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo = temp_dir.path();
+        let artifact = repo.join("com/example/latepkg/1.0");
+        fs::create_dir_all(&artifact).unwrap();
+
+        temp_env::with_var("MAVEN_REPO_LOCAL", Some(repo.to_str().unwrap()), || {
+            // Pass one: not on disk yet, and the miss is what gets cached.
+            assert_eq!(read_local_pom("com.example", "latepkg", "1.0"), None);
+
+            // `mvn install` lands between passes. Without a reset the cached miss outlives the
+            // file and every later pass still answers "not there".
+            fs::write(artifact.join("latepkg-1.0.pom"), "<project></project>").unwrap();
+            assert_eq!(
+                read_local_pom("com.example", "latepkg", "1.0"),
+                None,
+                "the miss is cached for the rest of the pass"
+            );
+
+            reset_maven_caches();
+
+            assert_eq!(
+                read_local_pom("com.example", "latepkg", "1.0"),
+                Some("<project></project>".to_string()),
+                "the next pass has to see the file `mvn` downloaded"
+            );
+        });
+    }
+
+    /// A released POM does not change for a given coordinate, so the content a pass already fetched
+    /// has to survive the reset; a miss says something about the network and a `RELEASE` or
+    /// `-SNAPSHOT` coordinate is re-resolved every pass, so neither survives.
+    #[test]
+    fn test_reset_keeps_a_fetched_pom_and_forgets_a_miss() {
+        let hit = "com.example:hit:1.0";
+        let miss = "com.example:miss:1.0";
+        let floating = "com.example:floating:RELEASE";
+        let snapshot = "com.example:snapshot:2.0-SNAPSHOT";
+        {
+            let mut cache = pom_content_cache().lock().unwrap();
+            cache.insert(hit.to_string(), Some("<project></project>".to_string()));
+            cache.insert(miss.to_string(), None);
+            cache.insert(
+                floating.to_string(),
+                Some("<project></project>".to_string()),
+            );
+            cache.insert(
+                snapshot.to_string(),
+                Some("<project></project>".to_string()),
+            );
+        }
+
+        reset_maven_caches();
+
+        {
+            let cache = pom_content_cache().lock().unwrap();
+            assert_eq!(
+                cache.get(hit),
+                Some(&Some("<project></project>".to_string())),
+                "the next pass must not ask the registry again for a POM it already has"
+            );
+            assert!(
+                !cache.contains_key(miss),
+                "a miss is a statement about the network, not about the artifact"
+            );
+            assert!(
+                !cache.contains_key(floating),
+                "`RELEASE` re-resolves to a new version between passes"
+            );
+            assert!(
+                !cache.contains_key(snapshot),
+                "a `-SNAPSHOT` is republished under the same coordinate"
+            );
+        }
+        reset_maven_caches();
     }
 
     #[test]
@@ -1151,8 +1551,10 @@ dependencies {
   </license>
 </licenses>"#;
 
+        // The `<name>` is prose; what leaves this function is the SPDX id the rest of the pipeline
+        // speaks, because a prose copyleft name matches neither the registry nor the restrictive list.
         let license = extract_license_from_pom_content(content);
-        assert_eq!(license, Some("Apache License, Version 2.0".to_string()));
+        assert_eq!(license, Some("Apache-2.0".to_string()));
     }
 
     #[test]
@@ -1481,7 +1883,7 @@ dependencies {
 
         assert_eq!(
             extract_license_from_pom_content(content),
-            Some("MIT License".to_string())
+            Some("MIT".to_string())
         );
     }
 

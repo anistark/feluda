@@ -74,6 +74,8 @@ pub struct FeludaConfig {
     #[serde(default)]
     pub osi: OsiConfig,
     #[serde(default)]
+    pub maven: MavenConfig,
+    #[serde(default)]
     pub sbom: SbomConfig,
     #[serde(default)]
     pub strict: bool,
@@ -198,6 +200,33 @@ fn default_clearlydefined_endpoint() -> String {
 
 fn default_osi_endpoint() -> String {
     "https://opensource.org/api/licenses".to_string()
+}
+
+/// Configuration for the Maven repository the POM lookups read.
+///
+/// `endpoint` can point at a mirror or proxy of Maven Central. As with the rest of Feluda's
+/// configuration, `FELUDA_MAVEN_ENDPOINT` overrides `.feluda.toml`.
+///
+/// ```toml
+/// [maven]
+/// endpoint = "https://nexus.internal/repository/maven-public"
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MavenConfig {
+    #[serde(default = "default_maven_endpoint")]
+    pub endpoint: String,
+}
+
+impl Default for MavenConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: default_maven_endpoint(),
+        }
+    }
+}
+
+fn default_maven_endpoint() -> String {
+    "https://repo1.maven.org/maven2".to_string()
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -1004,6 +1033,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
             osi: OsiConfig::default(),
+            maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
@@ -1360,6 +1390,7 @@ match_all = ["Cal.com, Inc."]
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
             osi: OsiConfig::default(),
+            maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
@@ -1380,6 +1411,7 @@ match_all = ["Cal.com, Inc."]
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
             osi: OsiConfig::default(),
+            maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
@@ -1405,6 +1437,7 @@ match_all = ["Cal.com, Inc."]
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
             osi: OsiConfig::default(),
+            maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
@@ -1840,6 +1873,7 @@ reason = "All versions ignored"
         let config = FeludaConfig {
             clearlydefined: ClearlyDefinedConfig::default(),
             osi: OsiConfig::default(),
+            maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
             strict: false,
             licenses: LicenseConfig {
