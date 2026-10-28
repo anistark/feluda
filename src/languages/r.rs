@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -74,44 +75,14 @@ fn parse_renv_lock(
                     );
                     log_debug("Packages", packages);
 
-                    for (name, pkg_info) in packages {
-                        let version = pkg_info["Version"]
-                            .as_str()
-                            .unwrap_or("unknown")
-                            .to_string();
-
-                        log(
-                            LogLevel::Info,
-                            &format!("Processing R package: {name} ({version})"),
-                        );
-
-                        let license_result = fetch_license_for_r_dependency(name, &version);
-                        let license = Some(license_result);
-                        let is_restrictive =
-                            is_license_restrictive(&license, known_licenses, config.strict);
-
-                        if is_restrictive {
-                            log(
-                                LogLevel::Warn,
-                                &format!("Restrictive license found: {license:?} for {name}"),
-                            );
-                        }
-
-                        licenses.push(LicenseInfo {
-                            name: name.clone(),
-                            version,
-                            license: license.clone(),
-                            is_restrictive,
-                            compatibility: LicenseCompatibility::Unknown,
-                            osi_status: match &license {
-                                Some(l) => crate::licenses::get_osi_status(l),
-                                None => crate::licenses::OsiStatus::Unknown,
-                            },
-                            ecosystem: Ecosystem::Cran,
-                            sub_project: None,
-                            qualifiers: Default::default(),
-                        });
-                    }
+                    let deps = packages
+                        .iter()
+                        .map(|(name, pkg_info)| {
+                            let version = pkg_info["Version"].as_str().unwrap_or("unknown");
+                            (name.clone(), version.to_string())
+                        })
+                        .collect();
+                    licenses = lookup_r_licenses(deps, known_licenses, config);
                 } else {
                     log(LogLevel::Warn, "No 'Packages' section found in renv.lock");
                 }
@@ -153,41 +124,7 @@ fn parse_description_file(
                 ),
             );
 
-            let all_deps = direct_deps;
-
-            for (name, version) in all_deps {
-                log(
-                    LogLevel::Info,
-                    &format!("Processing R package: {name} ({version})"),
-                );
-
-                let license_result = fetch_license_for_r_dependency(&name, &version);
-                let license = Some(license_result);
-                let is_restrictive =
-                    is_license_restrictive(&license, known_licenses, config.strict);
-
-                if is_restrictive {
-                    log(
-                        LogLevel::Warn,
-                        &format!("Restrictive license found: {license:?} for {name}"),
-                    );
-                }
-
-                licenses.push(LicenseInfo {
-                    name,
-                    version,
-                    license: license.clone(),
-                    is_restrictive,
-                    compatibility: LicenseCompatibility::Unknown,
-                    osi_status: match &license {
-                        Some(l) => crate::licenses::get_osi_status(l),
-                        None => crate::licenses::OsiStatus::Unknown,
-                    },
-                    ecosystem: Ecosystem::Cran,
-                    sub_project: None,
-                    qualifiers: Default::default(),
-                });
-            }
+            licenses = lookup_r_licenses(direct_deps, known_licenses, config);
         }
         Err(err) => {
             log_error("Failed to read DESCRIPTION file", &err);
@@ -256,13 +193,65 @@ fn process_dependency_field(field: &str, value: &str, deps: &mut Vec<(String, St
     }
 }
 
+/// Look up each package's license on the shared lookup pool, keeping the order of `deps`.
+fn lookup_r_licenses(
+    deps: Vec<(String, String)>,
+    known_licenses: &HashMap<String, License>,
+    config: &FeludaConfig,
+) -> Vec<LicenseInfo> {
+    // Listed once for the whole list: each listing spawns `Rscript`.
+    let libraries = r_library_paths();
+
+    crate::languages::with_lookup_pool(config, || {
+        deps.into_par_iter()
+            .map(|(name, version)| {
+                log(
+                    LogLevel::Info,
+                    &format!("Processing R package: {name} ({version})"),
+                );
+
+                let license = Some(fetch_license_for_r_package(&libraries, &name, &version));
+                let is_restrictive =
+                    is_license_restrictive(&license, known_licenses, config.strict);
+
+                if is_restrictive {
+                    log(
+                        LogLevel::Warn,
+                        &format!("Restrictive license found: {license:?} for {name}"),
+                    );
+                }
+
+                LicenseInfo {
+                    name,
+                    version,
+                    license: license.clone(),
+                    is_restrictive,
+                    compatibility: LicenseCompatibility::Unknown,
+                    osi_status: match &license {
+                        Some(l) => crate::licenses::get_osi_status(l),
+                        None => crate::licenses::OsiStatus::Unknown,
+                    },
+                    ecosystem: Ecosystem::Cran,
+                    sub_project: None,
+                    qualifiers: Default::default(),
+                }
+            })
+            .collect()
+    })
+}
+
 pub fn fetch_license_for_r_dependency(name: &str, version: &str) -> String {
+    fetch_license_for_r_package(&r_library_paths(), name, version)
+}
+
+/// [`fetch_license_for_r_dependency`] against library directories the caller already listed.
+fn fetch_license_for_r_package(libraries: &[PathBuf], name: &str, version: &str) -> String {
     if let Some(license) = fetch_license_from_r_universe(name) {
         return license;
     }
 
     // Local fallback: probe the installed package's bundled LICENSE/COPYING files.
-    if let Some(license) = fetch_from_local_r_library(name) {
+    if let Some(license) = fetch_from_local_r_library(libraries, name) {
         return license;
     }
 
@@ -321,8 +310,8 @@ fn fetch_license_from_r_universe(name: &str) -> Option<String> {
 ///
 /// Installed packages live at `<lib>/<name>/`, where the library paths come from R's
 /// `.libPaths()` (via `Rscript`) plus the `R_LIBS_USER`/`R_LIBS`/`R_LIBS_SITE` env vars.
-fn fetch_from_local_r_library(name: &str) -> Option<String> {
-    r_library_paths()
+fn fetch_from_local_r_library(libraries: &[PathBuf], name: &str) -> Option<String> {
+    libraries
         .iter()
         .find_map(|lib| detect_license_in_dir(&lib.join(name)))
 }
@@ -420,10 +409,13 @@ Suggests:
         // R_LIBS_USER points the probe at our temp library directory.
         temp_env::with_var("R_LIBS_USER", Some(lib_dir.to_str().unwrap()), || {
             assert_eq!(
-                fetch_from_local_r_library(pkg_name),
+                fetch_from_local_r_library(&r_library_paths(), pkg_name),
                 Some("MIT".to_string())
             );
-            assert_eq!(fetch_from_local_r_library("feludaNonexistentPkg"), None);
+            assert_eq!(
+                fetch_from_local_r_library(&r_library_paths(), "feludaNonexistentPkg"),
+                None
+            );
         });
     }
 

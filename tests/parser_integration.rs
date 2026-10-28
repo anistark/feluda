@@ -760,3 +760,146 @@ snapshots:
     .collect();
     assert_eq!(rows, expected, "full report: {entries:#?}");
 }
+
+/// Write `go.mod` at `dir` requiring `modules`, each with an MIT license in the module cache
+/// under `gopath`. The caller points feluda at the cache with [`go_cache_env`].
+fn write_go_modules(dir: &Path, module: &str, gopath: &Path, modules: &[(String, String)]) {
+    let requires = modules
+        .iter()
+        .map(|(name, version)| format!("\t{name} {version}\n"))
+        .collect::<String>();
+    fs::create_dir_all(dir).unwrap();
+    fs::write(
+        dir.join("go.mod"),
+        format!("module {module}\n\ngo 1.22\n\nrequire (\n{requires})\n"),
+    )
+    .unwrap();
+
+    for (name, version) in modules {
+        let module_dir = gopath.join("pkg/mod").join(format!("{name}@{version}"));
+        fs::create_dir_all(&module_dir).unwrap();
+        fs::write(module_dir.join("LICENSE"), MIT_TEXT).unwrap();
+    }
+}
+
+fn go_cache_env(gopath: &Path) -> Vec<(String, String)> {
+    vec![
+        ("GOPATH".to_string(), gopath.display().to_string()),
+        (
+            "GOMODCACHE".to_string(),
+            gopath.join("pkg/mod").display().to_string(),
+        ),
+        // Every module is in the fixture cache; nothing should be fetched.
+        ("GOPROXY".to_string(), "off".to_string()),
+    ]
+}
+
+/// Run `feluda --json` with `dependencies.concurrency` set and return stdout as is.
+fn scan_at_concurrency(dir: &Path, envs: &[(String, String)], concurrency: &str) -> String {
+    let mut envs = as_env(envs);
+    envs.push(("FELUDA_DEPENDENCIES_CONCURRENCY", concurrency));
+    let output = run_feluda(dir, &["--json"], &envs);
+    assert!(
+        output.status.success(),
+        "feluda exited with {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// Lookups run on a pool, but the report is the same rows in the same order as a run that
+/// looks them up one at a time (#291).
+#[test]
+fn parallel_go_lookups_report_what_a_sequential_run_does() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    let gopath = root.join("gopath");
+    let modules: Vec<(String, String)> = (0..40)
+        .map(|i| (format!("example.com/mod{i:02}"), format!("v1.{i}.0")))
+        .collect();
+    write_go_modules(root, "example.com/fixture", &gopath, &modules);
+    let envs = go_cache_env(&gopath);
+
+    let sequential = scan_at_concurrency(root, &envs, "1");
+    let parallel = scan_at_concurrency(root, &envs, "8");
+
+    assert_eq!(parallel, sequential);
+    let entries: Vec<Value> = serde_json::from_str(&parallel).unwrap();
+    for (name, version) in &modules {
+        let dep = entry(&entries, name);
+        assert_eq!(dep["version"], version.as_str());
+        assert_eq!(dep["license"], "MIT");
+    }
+}
+
+/// A module two `go.work` members require is one row naming both members, and the workspace
+/// reports the same at any concurrency.
+#[test]
+fn go_workspace_lists_a_shared_module_once_under_both_members() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("LICENSE"), MIT_TEXT).unwrap();
+    fs::write(
+        root.join("go.work"),
+        "go 1.22\n\nuse (\n\t./api\n\t./worker\n)\n",
+    )
+    .unwrap();
+    let gopath = root.join("gopath");
+    let shared = ("example.com/shared".to_string(), "v1.0.0".to_string());
+    write_go_modules(
+        &root.join("api"),
+        "example.com/api",
+        &gopath,
+        &[
+            shared.clone(),
+            ("example.com/only-api".to_string(), "v0.1.0".to_string()),
+        ],
+    );
+    write_go_modules(
+        &root.join("worker"),
+        "example.com/worker",
+        &gopath,
+        &[
+            shared,
+            ("example.com/only-worker".to_string(), "v0.2.0".to_string()),
+        ],
+    );
+    let envs = go_cache_env(&gopath);
+
+    let sequential = scan_at_concurrency(root, &envs, "1");
+    let parallel = scan_at_concurrency(root, &envs, "8");
+    assert_eq!(parallel, sequential);
+
+    let entries: Vec<Value> = serde_json::from_str(&parallel).unwrap();
+    let shared_rows: Vec<_> = entries
+        .iter()
+        .filter(|e| e["name"] == "example.com/shared")
+        .collect();
+    assert_eq!(shared_rows.len(), 1, "full report: {entries:#?}");
+    assert_eq!(
+        shared_rows[0]["sub_project"],
+        "example.com/api, example.com/worker"
+    );
+    assert_eq!(
+        entry(&entries, "example.com/only-api")["sub_project"],
+        "example.com/api"
+    );
+    assert_eq!(
+        entry(&entries, "example.com/only-worker")["sub_project"],
+        "example.com/worker"
+    );
+}
+
+#[test]
+fn zero_concurrency_is_rejected() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    let envs = write_go_fixture(root, "example.com/mylib", "v1.2.3");
+    let mut envs = as_env(&envs);
+    envs.push(("FELUDA_DEPENDENCIES_CONCURRENCY", "0"));
+
+    let output = run_feluda(root, &["--json"], &envs);
+    assert!(!output.status.success());
+}

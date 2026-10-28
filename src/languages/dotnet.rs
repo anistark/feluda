@@ -1,10 +1,12 @@
+use rayon::prelude::*;
 use regex::Regex;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
@@ -23,7 +25,8 @@ pub struct NuGetPackage {
 #[derive(Deserialize, Serialize, Debug)]
 struct PackagesLockJson {
     version: i32,
-    dependencies: Option<HashMap<String, HashMap<String, PackageLockInfo>>>,
+    // Ordered maps, so packages come out in the same order on every run.
+    dependencies: Option<BTreeMap<String, BTreeMap<String, PackageLockInfo>>>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -78,39 +81,43 @@ pub fn analyze_dotnet_licenses(project_path: &str, config: &FeludaConfig) -> Vec
 
     let all_deps = resolve_dotnet_dependencies(project_path, &direct_deps, max_depth);
 
-    let mut licenses = Vec::new();
-    for (name, version) in all_deps {
-        log(
-            LogLevel::Info,
-            &format!("Processing dependency: {name} ({version})"),
-        );
+    let licenses: Vec<LicenseInfo> = crate::languages::with_lookup_pool(config, || {
+        all_deps
+            .into_par_iter()
+            .map(|(name, version)| {
+                log(
+                    LogLevel::Info,
+                    &format!("Processing dependency: {name} ({version})"),
+                );
 
-        let license_result = fetch_license_for_nuget_package(&name, &version);
-        let license = Some(license_result);
-        let is_restrictive = is_license_restrictive(&license, &known_licenses, config.strict);
+                let license = Some(fetch_license_for_nuget_package(&name, &version));
+                let is_restrictive =
+                    is_license_restrictive(&license, &known_licenses, config.strict);
 
-        if is_restrictive {
-            log(
-                LogLevel::Warn,
-                &format!("Restrictive license found: {license:?} for {name}"),
-            );
-        }
+                if is_restrictive {
+                    log(
+                        LogLevel::Warn,
+                        &format!("Restrictive license found: {license:?} for {name}"),
+                    );
+                }
 
-        licenses.push(LicenseInfo {
-            name,
-            version,
-            license: license.clone(),
-            is_restrictive,
-            compatibility: LicenseCompatibility::Unknown,
-            osi_status: match &license {
-                Some(l) => crate::licenses::get_osi_status(l),
-                None => crate::licenses::OsiStatus::Unknown,
-            },
-            ecosystem: Ecosystem::Nuget,
-            sub_project: None,
-            qualifiers: Default::default(),
-        });
-    }
+                LicenseInfo {
+                    name,
+                    version,
+                    license: license.clone(),
+                    is_restrictive,
+                    compatibility: LicenseCompatibility::Unknown,
+                    osi_status: match &license {
+                        Some(l) => crate::licenses::get_osi_status(l),
+                        None => crate::licenses::OsiStatus::Unknown,
+                    },
+                    ecosystem: Ecosystem::Nuget,
+                    sub_project: None,
+                    qualifiers: Default::default(),
+                }
+            })
+            .collect()
+    });
 
     log(
         LogLevel::Info,
@@ -405,11 +412,22 @@ fn fetch_from_local_nuget_cache(name: &str, version: &str) -> Result<String, Str
     detect_license_in_dir(&package_dir).ok_or_else(|| "Not found in local cache".to_string())
 }
 
+/// One NuGet client for the process, so lookups reuse its connections.
+fn nuget_client() -> Result<&'static Client, String> {
+    static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| format!("Failed to create HTTP client: {e}"))
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
 fn fetch_from_nuget_api(name: &str, version: &str) -> Result<String, String> {
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = nuget_client()?;
 
     let nuspec_url = format!(
         "https://api.nuget.org/v3-flatcontainer/{}/{}/{}.nuspec",

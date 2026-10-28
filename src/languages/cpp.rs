@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -88,43 +89,44 @@ pub fn analyze_cpp_licenses(project_path: &str, config: &FeludaConfig) -> Vec<Li
     );
     log_debug("All C++ dependencies", &all_deps);
 
-    let dependencies = all_deps;
-
-    dependencies
-        .into_iter()
-        .map(|(name, version)| {
-            log(
-                LogLevel::Info,
-                &format!("Processing dependency: {name} ({version})"),
-            );
-
-            let license_result = fetch_license_for_cpp_dependency(&name, &version);
-            let license = Some(license_result);
-            let is_restrictive = is_license_restrictive(&license, &known_licenses, config.strict);
-
-            if is_restrictive {
+    crate::languages::with_lookup_pool(config, || {
+        all_deps
+            .into_par_iter()
+            .map(|(name, version)| {
                 log(
-                    LogLevel::Warn,
-                    &format!("Restrictive license found: {license:?} for {name}"),
+                    LogLevel::Info,
+                    &format!("Processing dependency: {name} ({version})"),
                 );
-            }
 
-            LicenseInfo {
-                name,
-                version,
-                license: license.clone(),
-                is_restrictive,
-                compatibility: LicenseCompatibility::Unknown,
-                osi_status: match &license {
-                    Some(l) => crate::licenses::get_osi_status(l),
-                    None => crate::licenses::OsiStatus::Unknown,
-                },
-                ecosystem,
-                sub_project: None,
-                qualifiers: Default::default(),
-            }
-        })
-        .collect()
+                let license_result = fetch_license_for_cpp_dependency(&name, &version);
+                let license = Some(license_result);
+                let is_restrictive =
+                    is_license_restrictive(&license, &known_licenses, config.strict);
+
+                if is_restrictive {
+                    log(
+                        LogLevel::Warn,
+                        &format!("Restrictive license found: {license:?} for {name}"),
+                    );
+                }
+
+                LicenseInfo {
+                    name,
+                    version,
+                    license: license.clone(),
+                    is_restrictive,
+                    compatibility: LicenseCompatibility::Unknown,
+                    osi_status: match &license {
+                        Some(l) => crate::licenses::get_osi_status(l),
+                        None => crate::licenses::OsiStatus::Unknown,
+                    },
+                    ecosystem,
+                    sub_project: None,
+                    qualifiers: Default::default(),
+                }
+            })
+            .collect()
+    })
 }
 
 fn detect_cpp_dependencies_with_type(

@@ -120,6 +120,8 @@ ignore = []
 [dependencies]
 # Maximum depth for transitive dependency resolution (1–100).
 max_depth = 10
+# License lookups in flight at once (1–64). Lower it if a registry rate limits you.
+# concurrency = 8
 
 # To exclude a specific dependency from scanning, uncomment and fill in:
 # [[dependencies.ignore]]

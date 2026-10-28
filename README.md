@@ -965,6 +965,15 @@ reason = "This package is only used for development and testing, not distributed
 - When left empty or omitted, **all versions** of that dependency will be ignored
 - The `reason` field documents why the dependency is being ignored for auditing purposes
 
+### Concurrent Lookups
+
+Go, Python, .NET, R, C and C++ dependencies are looked up several at a time, on one pool shared by every project in the scan. `concurrency` caps how many lookups are in flight at once (default 8, at most 64); `FELUDA_DEPENDENCIES_CONCURRENCY` overrides the file setting. Lower it if a registry or proxy rate limits you; the report does not change with it.
+
+```toml
+[dependencies]
+concurrency = 4
+```
+
 ### Environment Variables
 
 You can also override the configuration using environment variables:
