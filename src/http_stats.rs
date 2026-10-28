@@ -79,13 +79,21 @@ fn record(stats: &Stats, url: &str, elapsed: Duration, status: Option<u16>) {
 ///
 /// A bare `reqwest::blocking::get` sends no User-Agent, and Maven Central's search API answers
 /// that with a 403.
+///
+/// The client is built once and shared, so lookups running side by side reuse its connections.
 pub fn get(url: &str) -> reqwest::Result<reqwest::blocking::Response> {
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
     send(url, || {
-        reqwest::blocking::Client::builder()
-            .user_agent("feluda-license-checker/1.0")
-            .build()?
-            .get(url)
-            .send()
+        let client = match CLIENT.get() {
+            Some(client) => client,
+            None => {
+                let client = reqwest::blocking::Client::builder()
+                    .user_agent("feluda-license-checker/1.0")
+                    .build()?;
+                CLIENT.get_or_init(|| client)
+            }
+        };
+        client.get(url).send()
     })
 }
 

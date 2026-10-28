@@ -465,6 +465,10 @@ pub struct DependencyConfig {
     /// Default is 10 levels deep
     #[serde(default = "default_max_depth")]
     pub max_depth: u32,
+    /// How many license lookups run at once, across every analyzer in the run.
+    /// One word so `FELUDA_DEPENDENCIES_CONCURRENCY` can reach it. Default is 8.
+    #[serde(default = "default_concurrency")]
+    pub concurrency: usize,
     /// Dependencies to exclude from license scanning
     #[serde(default)]
     pub ignore: Vec<IgnoreDependency>,
@@ -487,6 +491,7 @@ impl Default for DependencyConfig {
     fn default() -> Self {
         Self {
             max_depth: default_max_depth(),
+            concurrency: default_concurrency(),
             ignore: Vec::new(),
         }
     }
@@ -516,6 +521,19 @@ impl DependencyConfig {
                     self.max_depth
                 ),
             );
+        }
+
+        if self.concurrency == 0 {
+            return Err(FeludaError::Config(
+                "concurrency must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.concurrency > MAX_CONCURRENCY {
+            return Err(FeludaError::Config(format!(
+                "concurrency must be {MAX_CONCURRENCY} or less: registries answer a burst that \
+                 size with rate limits"
+            )));
         }
 
         // Validate ignore dependencies
@@ -590,6 +608,17 @@ impl DependencyConfig {
 /// Returns the default maximum depth for dependency resolution
 fn default_max_depth() -> u32 {
     10
+}
+
+/// The upper bound on `dependencies.concurrency`.
+const MAX_CONCURRENCY: usize = 64;
+
+/// Returns the default number of license lookups in flight at once.
+///
+/// pkg.go.dev answers bursts with 429 and Go's retry is a fixed sleep, so more threads can mean
+/// more sleeping. Eight cut a first scan of the 100 module Go rung from 170 s to 20 s with no 429s.
+fn default_concurrency() -> usize {
+    8
 }
 
 /// Returns the default list of restrictive licenses
@@ -801,6 +830,26 @@ max_depth = 5"#,
                     assert_eq!(config.osi.endpoint, "https://osi-env.example.test/licenses");
                 },
             );
+        });
+    }
+
+    #[test]
+    fn test_concurrency_from_toml_and_env() {
+        temp_env::with_var("FELUDA_DEPENDENCIES_CONCURRENCY", None::<&str>, || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.dependencies.concurrency, 8);
+
+            fs::write(".feluda.toml", "[dependencies]\nconcurrency = 4\n").unwrap();
+            let config = load_config().unwrap();
+            assert_eq!(config.dependencies.concurrency, 4);
+
+            temp_env::with_var("FELUDA_DEPENDENCIES_CONCURRENCY", Some("16"), || {
+                let config = load_config().unwrap();
+                assert_eq!(config.dependencies.concurrency, 16);
+            });
         });
     }
 
@@ -1043,6 +1092,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
             },
             dependencies: DependencyConfig {
                 max_depth: 5,
+                concurrency: default_concurrency(),
                 ignore: Vec::new(),
             },
         };
@@ -1342,6 +1392,7 @@ match_all = ["Cal.com, Inc."]
     fn test_dependency_config_validation_zero_depth() {
         let config = DependencyConfig {
             max_depth: 0,
+            concurrency: default_concurrency(),
             ignore: Vec::new(),
         };
         let result = config.validate();
@@ -1356,6 +1407,7 @@ match_all = ["Cal.com, Inc."]
     fn test_dependency_config_validation_excessive_depth() {
         let config = DependencyConfig {
             max_depth: 150,
+            concurrency: default_concurrency(),
             ignore: Vec::new(),
         };
         let result = config.validate();
@@ -1370,6 +1422,7 @@ match_all = ["Cal.com, Inc."]
     fn test_dependency_config_validation_high_depth_warning() {
         let config = DependencyConfig {
             max_depth: 75,
+            concurrency: default_concurrency(),
             ignore: Vec::new(),
         };
         // Should pass validation but generate a warning
@@ -1377,9 +1430,36 @@ match_all = ["Cal.com, Inc."]
     }
 
     #[test]
+    fn test_dependency_config_validation_concurrency_bounds() {
+        let with_concurrency = |concurrency| DependencyConfig {
+            concurrency,
+            ..DependencyConfig::default()
+        };
+
+        let zero = with_concurrency(0).validate().unwrap_err().to_string();
+        assert!(
+            zero.contains("concurrency must be greater than 0"),
+            "{zero}"
+        );
+
+        let excessive = with_concurrency(MAX_CONCURRENCY + 1)
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(
+            excessive.contains("concurrency must be 64 or less"),
+            "{excessive}"
+        );
+
+        assert!(with_concurrency(1).validate().is_ok());
+        assert!(with_concurrency(MAX_CONCURRENCY).validate().is_ok());
+    }
+
+    #[test]
     fn test_dependency_config_validation_valid_depth() {
         let config = DependencyConfig {
             max_depth: 10,
+            concurrency: default_concurrency(),
             ignore: Vec::new(),
         };
         assert!(config.validate().is_ok());
@@ -1400,6 +1480,7 @@ match_all = ["Cal.com, Inc."]
             },
             dependencies: DependencyConfig {
                 max_depth: 10,
+                concurrency: default_concurrency(),
                 ignore: Vec::new(),
             },
         };
@@ -1421,6 +1502,7 @@ match_all = ["Cal.com, Inc."]
             },
             dependencies: DependencyConfig {
                 max_depth: 10,
+                concurrency: default_concurrency(),
                 ignore: Vec::new(),
             },
         };
@@ -1447,6 +1529,7 @@ match_all = ["Cal.com, Inc."]
             },
             dependencies: DependencyConfig {
                 max_depth: 0,
+                concurrency: default_concurrency(),
                 ignore: Vec::new(),
             }, // Invalid zero depth
         };
@@ -1714,6 +1797,7 @@ ignore = [
     fn test_dependency_config_ignore_basic() {
         let config = DependencyConfig {
             max_depth: 10,
+            concurrency: default_concurrency(),
             ignore: vec![IgnoreDependency {
                 name: "lodash".to_string(),
                 version: "4.17.21".to_string(),
@@ -1729,6 +1813,7 @@ ignore = [
     fn test_dependency_config_ignore_all_versions() {
         let config = DependencyConfig {
             max_depth: 10,
+            concurrency: default_concurrency(),
             ignore: vec![IgnoreDependency {
                 name: "lodash".to_string(),
                 version: "".to_string(),
@@ -1745,6 +1830,7 @@ ignore = [
     fn test_dependency_config_should_ignore_dependency_multiple() {
         let config = DependencyConfig {
             max_depth: 10,
+            concurrency: default_concurrency(),
             ignore: vec![
                 IgnoreDependency {
                     name: "lodash".to_string(),
@@ -1768,6 +1854,7 @@ ignore = [
     fn test_dependency_config_validation_empty_ignore() {
         let config = DependencyConfig {
             max_depth: 10,
+            concurrency: default_concurrency(),
             ignore: Vec::new(),
         };
         assert!(config.validate().is_ok());
@@ -1777,6 +1864,7 @@ ignore = [
     fn test_dependency_config_validation_empty_name() {
         let config = DependencyConfig {
             max_depth: 10,
+            concurrency: default_concurrency(),
             ignore: vec![IgnoreDependency {
                 name: "".to_string(),
                 version: "1.0.0".to_string(),
@@ -1795,6 +1883,7 @@ ignore = [
     fn test_dependency_config_validation_duplicate_dependencies() {
         let config = DependencyConfig {
             max_depth: 10,
+            concurrency: default_concurrency(),
             ignore: vec![
                 IgnoreDependency {
                     name: "lodash".to_string(),
@@ -1820,6 +1909,7 @@ ignore = [
     fn test_dependency_config_validation_no_reason_warning() {
         let config = DependencyConfig {
             max_depth: 10,
+            concurrency: default_concurrency(),
             ignore: vec![IgnoreDependency {
                 name: "lodash".to_string(),
                 version: "4.17.21".to_string(),
@@ -1883,6 +1973,7 @@ reason = "All versions ignored"
             },
             dependencies: DependencyConfig {
                 max_depth: 10,
+                concurrency: default_concurrency(),
                 ignore: vec![IgnoreDependency {
                     name: "lodash".to_string(),
                     version: "4.17.21".to_string(),
@@ -1926,6 +2017,7 @@ reason = "All versions ignored"
     fn test_dependency_ignore_empty_version_field() {
         let config = DependencyConfig {
             max_depth: 10,
+            concurrency: default_concurrency(),
             ignore: vec![
                 IgnoreDependency {
                     name: "package1".to_string(),

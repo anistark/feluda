@@ -11,10 +11,46 @@ pub mod r;
 pub mod ruby;
 pub mod rust;
 
+use crate::config::FeludaConfig;
 use crate::debug::{log, LogLevel};
 use crate::licenses::{is_unresolved_license, LicenseInfo};
 use crate::purl::Ecosystem;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::path::Path;
+use std::sync::OnceLock;
+
+static LOOKUP_POOL: OnceLock<Option<ThreadPool>> = OnceLock::new();
+
+/// Run license lookups on the pool every analyzer shares, sized by `dependencies.concurrency`.
+///
+/// Project roots are analyzed in parallel on rayon's global pool, so a per analyzer pool would
+/// multiply the limit by the number of roots. One pool keeps the requests a registry sees bounded
+/// however many roots the run has. It is built from the first config that asks; a process loads
+/// its configuration once. If it cannot be built, `op` runs on the current pool.
+pub(crate) fn with_lookup_pool<R: Send>(config: &FeludaConfig, op: impl FnOnce() -> R + Send) -> R {
+    let pool = LOOKUP_POOL.get_or_init(|| {
+        let threads = config.dependencies.concurrency;
+        log(
+            LogLevel::Info,
+            &format!("License lookups run {threads} at a time"),
+        );
+        ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .thread_name(|i| format!("feluda-lookup-{i}"))
+            .build()
+            .inspect_err(|err| {
+                log(
+                    LogLevel::Warn,
+                    &format!("Could not build the lookup pool, using the global one: {err}"),
+                )
+            })
+            .ok()
+    });
+    match pool {
+        Some(pool) => pool.install(op),
+        None => op(),
+    }
+}
 
 /// Resolve a license from a package's coordinates alone, with no manifest or project tree behind
 /// it.
@@ -169,3 +205,40 @@ pub const RUBY_PATHS: [&str; 2] = ["Gemfile.lock", "Gemfile"];
 
 /// .NET project file patterns
 pub const DOTNET_PATHS: [&str; 4] = [".csproj", ".fsproj", ".vbproj", ".slnx"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    #[test]
+    fn lookup_pool_bounds_work_in_flight_and_keeps_order() {
+        let config = FeludaConfig::default();
+        let in_flight = AtomicUsize::new(0);
+        let peak = AtomicUsize::new(0);
+
+        let (threads, results) = with_lookup_pool(&config, || {
+            let results: Vec<usize> = (0..64)
+                .into_par_iter()
+                .map(|i| {
+                    let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(5));
+                    in_flight.fetch_sub(1, Ordering::SeqCst);
+                    i * 2
+                })
+                .collect();
+            (rayon::current_num_threads(), results)
+        });
+
+        // Every config in this test binary is the default, so whichever test built the pool
+        // built it at the default size.
+        assert_eq!(threads, config.dependencies.concurrency);
+        let peak = peak.load(Ordering::SeqCst);
+        assert!(peak <= threads, "{peak} lookups ran on a pool of {threads}");
+        assert!(peak > 1, "lookups did not overlap");
+        assert_eq!(results, (0..64).map(|i| i * 2).collect::<Vec<_>>());
+    }
+}

@@ -246,6 +246,27 @@ on stderr, and waits six hours before asking again. See :ref:`cli-cache`.
 
 ----
 
+Limit concurrent license lookups
+--------------------------------
+
+Go, Python, .NET, R, C and C++ dependencies are looked up several at a time, on one pool shared
+by every project root in the scan. ``concurrency`` caps how many lookups are in flight at once
+(default 8, at most 64):
+
+.. code-block:: toml
+
+   [dependencies]
+   concurrency = 4
+
+.. code-block:: bash
+
+   export FELUDA_DEPENDENCIES_CONCURRENCY=4
+
+Lower it when a registry or proxy answers with rate limits; ``1`` looks dependencies up one at a
+time. The report is the same rows in the same order whatever the setting.
+
+----
+
 Choose SBOM spec versions
 -------------------------
 

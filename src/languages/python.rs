@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -11,7 +12,7 @@ use toml::Value as TomlValue;
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
+    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive, License,
     LicenseCompatibility, LicenseInfo,
 };
 use crate::purl::Ecosystem;
@@ -233,45 +234,12 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                         let all_deps =
                             resolve_python_dependencies(&direct_deps, package_file_path, max_depth);
 
-                        // Process all resolved dependencies
-                        for (name, version) in all_deps {
-                            log(
-                                LogLevel::Info,
-                                &format!("Processing dependency: {name} ({version})"),
-                            );
-
-                            let license_result =
-                                fetch_license_for_python_dependency(&name, &version);
-                            let license = Some(license_result);
-                            let is_restrictive =
-                                is_license_restrictive(&license, &known_licenses, config.strict);
-
-                            if is_restrictive {
-                                log(
-                                    LogLevel::Warn,
-                                    &format!("Restrictive license found: {license:?} for {name}"),
-                                );
-                            }
-
-                            let sub_project = attribution.get(&name).map(|members| {
-                                members.iter().cloned().collect::<Vec<_>>().join(", ")
-                            });
-
-                            licenses.push(LicenseInfo {
-                                name,
-                                version,
-                                license: license.clone(),
-                                is_restrictive,
-                                compatibility: LicenseCompatibility::Unknown,
-                                osi_status: match &license {
-                                    Some(l) => crate::licenses::get_osi_status(l),
-                                    None => crate::licenses::OsiStatus::Unknown,
-                                },
-                                ecosystem: Ecosystem::Pypi,
-                                sub_project,
-                                qualifiers: Default::default(),
-                            });
-                        }
+                        licenses.extend(lookup_python_licenses(
+                            all_deps,
+                            &attribution,
+                            &known_licenses,
+                            config,
+                        ));
                     }
                 }
                 Err(err) => {
@@ -329,40 +297,12 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
                 let all_deps =
                     resolve_python_dependencies(&direct_deps, package_file_path, max_depth);
 
-                // Process all resolved dependencies
-                for (name, version) in all_deps {
-                    log(
-                        LogLevel::Info,
-                        &format!("Processing dependency: {name} ({version})"),
-                    );
-
-                    let license_result = fetch_license_for_python_dependency(&name, &version);
-                    let license = Some(license_result);
-                    let is_restrictive =
-                        is_license_restrictive(&license, &known_licenses, config.strict);
-
-                    if is_restrictive {
-                        log(
-                            LogLevel::Warn,
-                            &format!("Restrictive license found: {license:?} for {name}"),
-                        );
-                    }
-
-                    licenses.push(LicenseInfo {
-                        name,
-                        version,
-                        license: license.clone(),
-                        is_restrictive,
-                        compatibility: LicenseCompatibility::Unknown,
-                        osi_status: match &license {
-                            Some(l) => crate::licenses::get_osi_status(l),
-                            None => crate::licenses::OsiStatus::Unknown,
-                        },
-                        ecosystem: Ecosystem::Pypi,
-                        sub_project: None,
-                        qualifiers: Default::default(),
-                    });
-                }
+                licenses.extend(lookup_python_licenses(
+                    all_deps,
+                    &HashMap::new(),
+                    &known_licenses,
+                    config,
+                ));
 
                 log(
                     LogLevel::Info,
@@ -385,9 +325,76 @@ pub fn analyze_python_licenses(package_file_path: &str, config: &FeludaConfig) -
     licenses
 }
 
+/// Look up each package's license on the shared lookup pool, keeping the order of `deps`.
+/// `attribution` names the uv workspace members that declare a package, when there are any.
+fn lookup_python_licenses(
+    deps: Vec<(String, String)>,
+    attribution: &HashMap<String, BTreeSet<String>>,
+    known_licenses: &HashMap<String, License>,
+    config: &FeludaConfig,
+) -> Vec<LicenseInfo> {
+    // Listed once for the whole list: each listing spawns `python3` and `python`.
+    let site_packages = get_python_site_packages_paths();
+
+    crate::languages::with_lookup_pool(config, || {
+        deps.into_par_iter()
+            .map(|(name, version)| {
+                log(
+                    LogLevel::Info,
+                    &format!("Processing dependency: {name} ({version})"),
+                );
+
+                let license = Some(fetch_license_for_python_package(
+                    &site_packages,
+                    &name,
+                    &version,
+                ));
+                let is_restrictive =
+                    is_license_restrictive(&license, known_licenses, config.strict);
+
+                if is_restrictive {
+                    log(
+                        LogLevel::Warn,
+                        &format!("Restrictive license found: {license:?} for {name}"),
+                    );
+                }
+
+                let sub_project = attribution
+                    .get(&name)
+                    .map(|members| members.iter().cloned().collect::<Vec<_>>().join(", "));
+
+                LicenseInfo {
+                    name,
+                    version,
+                    license: license.clone(),
+                    is_restrictive,
+                    compatibility: LicenseCompatibility::Unknown,
+                    osi_status: match &license {
+                        Some(l) => crate::licenses::get_osi_status(l),
+                        None => crate::licenses::OsiStatus::Unknown,
+                    },
+                    ecosystem: Ecosystem::Pypi,
+                    sub_project,
+                    qualifiers: Default::default(),
+                }
+            })
+            .collect()
+    })
+}
+
 /// Fetch the license for a Python dependency, trying local sources first, then PyPI
 pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String {
-    if let Some(license) = get_license_from_local_site_packages(name) {
+    fetch_license_for_python_package(&get_python_site_packages_paths(), name, version)
+}
+
+/// [`fetch_license_for_python_dependency`] against site-packages directories the caller already
+/// listed.
+fn fetch_license_for_python_package(
+    site_packages: &[PathBuf],
+    name: &str,
+    version: &str,
+) -> String {
+    if let Some(license) = get_license_from_local_site_packages(site_packages, name) {
         log(
             LogLevel::Info,
             &format!("Found license in local site-packages for {name}: {license}"),
@@ -398,15 +405,16 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
     fetch_license_from_pypi(name, version)
 }
 
-fn get_license_from_local_site_packages(package_name: &str) -> Option<String> {
-    let python_paths = get_python_site_packages_paths();
-
-    for site_packages in python_paths {
-        if let Some(license) = check_site_package_metadata(&site_packages, package_name) {
+fn get_license_from_local_site_packages(
+    site_packages: &[PathBuf],
+    package_name: &str,
+) -> Option<String> {
+    for site_packages in site_packages {
+        if let Some(license) = check_site_package_metadata(site_packages, package_name) {
             return Some(license);
         }
 
-        if let Some(license) = check_site_package_license_file(&site_packages, package_name) {
+        if let Some(license) = check_site_package_license_file(site_packages, package_name) {
             return Some(license);
         }
     }
@@ -894,7 +902,10 @@ fn resolve_with_pypi(direct_deps: &[(String, String)], max_depth: u32) -> Vec<(S
         ),
     );
 
-    all_deps.into_iter().collect()
+    // `all_deps` is a HashMap; sorted, two runs over the same requirements report the same order.
+    let mut all_deps: Vec<(String, String)> = all_deps.into_iter().collect();
+    all_deps.sort();
+    all_deps
 }
 
 /// Fetch dependencies from PyPI for a specific package

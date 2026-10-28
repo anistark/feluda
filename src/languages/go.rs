@@ -1,17 +1,19 @@
+use rayon::prelude::*;
 use regex::Regex;
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 use std::thread::sleep;
 use std::time::Duration;
 
 use crate::config::FeludaConfig;
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
-    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive,
+    detect_license_in_dir, fetch_licenses_from_github, is_license_restrictive, License,
     LicenseCompatibility, LicenseInfo,
 };
 use crate::purl::Ecosystem;
@@ -48,6 +50,18 @@ pub fn analyze_go_licenses(go_mod_path: &str, config: &FeludaConfig) -> Vec<Lice
         }
     };
 
+    let all_deps = resolve_go_mod_dependencies(go_mod_path, config);
+    let licenses = lookup_go_licenses(all_deps, &known_licenses, config);
+
+    log(
+        LogLevel::Info,
+        &format!("Found {} Go dependencies with licenses", licenses.len()),
+    );
+    licenses
+}
+
+/// Every module a go.mod pulls in, direct and transitive, as `(name, version)`.
+fn resolve_go_mod_dependencies(go_mod_path: &str, config: &FeludaConfig) -> Vec<(String, String)> {
     let content = match fs::read_to_string(go_mod_path) {
         Ok(content) => content,
         Err(err) => {
@@ -69,48 +83,58 @@ pub fn analyze_go_licenses(go_mod_path: &str, config: &FeludaConfig) -> Vec<Lice
         LogLevel::Info,
         &format!("Using max dependency depth: {max_depth}"),
     );
-    let all_deps = resolve_go_dependencies(go_mod_path, &direct_dependencies, max_depth);
+    resolve_go_dependencies(go_mod_path, &direct_dependencies, max_depth)
+}
 
-    // Process all resolved dependencies
-    let mut licenses = Vec::new();
-    for (name, version) in all_deps {
-        log(
-            LogLevel::Info,
-            &format!("Processing dependency: {name} ({version})"),
-        );
+/// Look up each module's license on the shared lookup pool, keeping the order of `deps`.
+fn lookup_go_licenses(
+    deps: Vec<(String, String)>,
+    known_licenses: &HashMap<String, License>,
+    config: &FeludaConfig,
+) -> Vec<LicenseInfo> {
+    // Asked once for the whole list: `go env` is a process spawn per call.
+    let module_cache = get_gomodcache_path();
 
-        let license_result = fetch_license_for_go_dependency(name.as_str(), version.as_str());
-        let license = Some(license_result);
-        let is_restrictive = is_license_restrictive(&license, &known_licenses, config.strict);
+    crate::languages::with_lookup_pool(config, || {
+        deps.into_par_iter()
+            .map(|(name, version)| {
+                log(
+                    LogLevel::Info,
+                    &format!("Processing dependency: {name} ({version})"),
+                );
 
-        if is_restrictive {
-            log(
-                LogLevel::Warn,
-                &format!("Restrictive license found: {license:?} for {name}"),
-            );
-        }
+                let license = Some(fetch_license_for_go_module(
+                    module_cache.as_deref(),
+                    &name,
+                    &version,
+                ));
+                let is_restrictive =
+                    is_license_restrictive(&license, known_licenses, config.strict);
 
-        licenses.push(LicenseInfo {
-            name,
-            version,
-            license: license.clone(),
-            is_restrictive,
-            compatibility: LicenseCompatibility::Unknown,
-            osi_status: match &license {
-                Some(l) => crate::licenses::get_osi_status(l),
-                None => crate::licenses::OsiStatus::Unknown,
-            },
-            ecosystem: Ecosystem::Golang,
-            sub_project: None,
-            qualifiers: Default::default(),
-        });
-    }
+                if is_restrictive {
+                    log(
+                        LogLevel::Warn,
+                        &format!("Restrictive license found: {license:?} for {name}"),
+                    );
+                }
 
-    log(
-        LogLevel::Info,
-        &format!("Found {} Go dependencies with licenses", licenses.len()),
-    );
-    licenses
+                LicenseInfo {
+                    name,
+                    version,
+                    license: license.clone(),
+                    is_restrictive,
+                    compatibility: LicenseCompatibility::Unknown,
+                    osi_status: match &license {
+                        Some(l) => crate::licenses::get_osi_status(l),
+                        None => crate::licenses::OsiStatus::Unknown,
+                    },
+                    ecosystem: Ecosystem::Golang,
+                    sub_project: None,
+                    qualifiers: Default::default(),
+                }
+            })
+            .collect()
+    })
 }
 
 /// Analyze a Go workspace (go.work) by scanning each `use` directory's go.mod and
@@ -152,67 +176,72 @@ pub fn analyze_go_workspace_licenses(
         return Vec::new();
     }
 
-    let mut merged: HashMap<(String, String), (LicenseInfo, std::collections::BTreeSet<String>)> =
-        HashMap::new();
+    // Members resolve their graphs side by side; each is a `go mod graph` of its own.
+    let member_deps: Vec<(String, Vec<(String, String)>)> = use_dirs
+        .par_iter()
+        .filter_map(|rel_dir| {
+            let member_path = workspace_root.join(rel_dir);
+            let member_go_mod = member_path.join("go.mod");
+            if !member_go_mod.exists() {
+                log(
+                    LogLevel::Warn,
+                    &format!(
+                        "go.work member missing go.mod, skipping: {}",
+                        member_go_mod.display()
+                    ),
+                );
+                return None;
+            }
 
-    for rel_dir in &use_dirs {
-        let member_path = workspace_root.join(rel_dir);
-        let member_go_mod = member_path.join("go.mod");
-        if !member_go_mod.exists() {
+            let member_name =
+                read_go_module_name(&member_go_mod).unwrap_or_else(|| rel_dir.clone());
             log(
-                LogLevel::Warn,
+                LogLevel::Info,
                 &format!(
-                    "go.work member missing go.mod, skipping: {}",
-                    member_go_mod.display()
+                    "Scanning workspace member '{}' at {}",
+                    member_name,
+                    member_path.display()
                 ),
             );
-            continue;
-        }
 
-        let member_name = read_go_module_name(&member_go_mod).unwrap_or_else(|| rel_dir.clone());
-        log(
-            LogLevel::Info,
-            &format!(
-                "Scanning workspace member '{}' at {}",
-                member_name,
-                member_path.display()
-            ),
-        );
-
-        let member_path_str = match member_go_mod.to_str() {
-            Some(s) => s,
-            None => {
+            let Some(member_path_str) = member_go_mod.to_str() else {
                 log(LogLevel::Error, "Failed to convert member go.mod to string");
-                continue;
-            }
-        };
+                return None;
+            };
 
-        let member_deps = analyze_go_licenses(member_path_str, config);
-        log(
-            LogLevel::Info,
-            &format!(
-                "Member '{}' contributed {} deps",
-                member_name,
-                member_deps.len()
-            ),
-        );
+            let deps = resolve_go_mod_dependencies(member_path_str, config);
+            log(
+                LogLevel::Info,
+                &format!("Member '{}' contributed {} deps", member_name, deps.len()),
+            );
+            Some((member_name, deps))
+        })
+        .collect();
 
-        for info in member_deps {
-            let key = (info.name.clone(), info.version.clone());
-            let entry = merged
-                .entry(key)
-                .or_insert_with(|| (info.clone(), std::collections::BTreeSet::new()));
-            entry.1.insert(member_name.clone());
+    // A module several members require is looked up once and listed under all of them.
+    let mut members_of: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
+    for (member_name, deps) in member_deps {
+        for dep in deps {
+            members_of
+                .entry(dep)
+                .or_default()
+                .insert(member_name.clone());
         }
     }
 
-    let mut result: Vec<LicenseInfo> = merged
-        .into_iter()
-        .map(|(_, (mut info, members))| {
-            info.sub_project = Some(members.into_iter().collect::<Vec<_>>().join(", "));
-            info
-        })
-        .collect();
+    let known_licenses = match fetch_licenses_from_github() {
+        Ok(licenses) => licenses,
+        Err(err) => {
+            log_error("Failed to fetch licenses from GitHub", &err);
+            HashMap::new()
+        }
+    };
+
+    let (deps, members): (Vec<_>, Vec<_>) = members_of.into_iter().unzip();
+    let mut result = lookup_go_licenses(deps, &known_licenses, config);
+    for (info, members) in result.iter_mut().zip(members) {
+        info.sub_project = Some(members.into_iter().collect::<Vec<_>>().join(", "));
+    }
 
     log(
         LogLevel::Info,
@@ -222,7 +251,6 @@ pub fn analyze_go_workspace_licenses(
         ),
     );
 
-    result.sort_by(|a, b| a.name.cmp(&b.name));
     result
 }
 
@@ -541,7 +569,7 @@ fn parse_go_mod_graph_output(output: &str, max_depth: u32) -> Vec<(String, Strin
     }
 
     // Filter dependencies based on depth limit
-    let filtered_deps: Vec<(String, String)> = all_deps
+    let mut filtered_deps: Vec<(String, String)> = all_deps
         .into_iter()
         .filter(|(name, _version)| {
             // Find the full module name in depth_map
@@ -555,6 +583,8 @@ fn parse_go_mod_graph_output(output: &str, max_depth: u32) -> Vec<(String, Strin
             false
         })
         .collect();
+    // `all_deps` is a HashMap; sorted, two runs over the same graph report the same order.
+    filtered_deps.sort();
 
     // Log depth statistics
     for depth in 0..max_depth {
@@ -614,10 +644,19 @@ pub fn fetch_license_for_go_dependency(
     name: impl Into<String>,
     version: impl Into<String>,
 ) -> String {
-    let name = name.into();
-    let version = version.into();
+    fetch_license_for_go_module(
+        get_gomodcache_path().as_deref(),
+        &name.into(),
+        &version.into(),
+    )
+}
 
-    if let Some(license) = get_license_from_go_module_cache(&name, &version) {
+/// [`fetch_license_for_go_dependency`] against a module cache the caller already located, so a
+/// list of modules asks `go env` once rather than once per module.
+fn fetch_license_for_go_module(module_cache: Option<&Path>, name: &str, version: &str) -> String {
+    if let Some(license) =
+        module_cache.and_then(|cache| get_license_from_go_module_cache(cache, name, version))
+    {
         log(
             LogLevel::Info,
             &format!("Found license in Go module cache for {name}: {license}"),
@@ -625,16 +664,19 @@ pub fn fetch_license_for_go_dependency(
         return license;
     }
 
-    fetch_license_from_pkgsite_api(&name, &version)
+    fetch_license_from_pkgsite_api(name, version)
 }
 
-fn get_license_from_go_module_cache(package_name: &str, version: &str) -> Option<String> {
-    let module_cache = get_gomodcache_path()?;
-    let exact_path = build_module_cache_path(&module_cache, package_name, version);
+fn get_license_from_go_module_cache(
+    module_cache: &Path,
+    package_name: &str,
+    version: &str,
+) -> Option<String> {
+    let exact_path = build_module_cache_path(module_cache, package_name, version);
     if let Some(license) = detect_license_in_dir(&exact_path) {
         return Some(license);
     }
-    find_license_in_any_version(&module_cache, package_name)
+    find_license_in_any_version(module_cache, package_name)
 }
 
 pub(crate) fn get_gomodcache_path() -> Option<PathBuf> {
@@ -733,25 +775,10 @@ pub(crate) fn fetch_pkgsite_module_licenses(
     name: &str,
     version: &str,
 ) -> Option<Vec<PkgsiteLicense>> {
-    let client = match Client::builder()
-        .user_agent(concat!(
-            "feluda/",
-            env!("CARGO_PKG_VERSION"),
-            " (+https://github.com/anistark/feluda)"
-        ))
-        .connect_timeout(Duration::from_secs(60))
-        .timeout(Duration::from_secs(10))
-        .build()
-    {
-        Ok(client) => client,
-        Err(err) => {
-            log_error("Failed to build HTTP client", &err);
-            return None;
-        }
-    };
+    let client = pkgsite_client()?;
 
     if !version.is_empty() && version != "unknown" {
-        if let Some(licenses) = fetch_pkgsite_module_version(&client, name, Some(version)) {
+        if let Some(licenses) = fetch_pkgsite_module_version(client, name, Some(version)) {
             return Some(licenses);
         }
         log(
@@ -759,7 +786,27 @@ pub(crate) fn fetch_pkgsite_module_licenses(
             &format!("pkg.go.dev has no entry for {name}@{version}, falling back to latest"),
         );
     }
-    fetch_pkgsite_module_version(&client, name, None)
+    fetch_pkgsite_module_version(client, name, None)
+}
+
+/// One pkg.go.dev client for the process, so lookups reuse its connections.
+fn pkgsite_client() -> Option<&'static Client> {
+    static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .user_agent(concat!(
+                    "feluda/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (+https://github.com/anistark/feluda)"
+                ))
+                .connect_timeout(Duration::from_secs(60))
+                .timeout(Duration::from_secs(10))
+                .build()
+                .inspect_err(|err| log_error("Failed to build HTTP client", err))
+                .ok()
+        })
+        .as_ref()
 }
 
 /// Query the pkg.go.dev module endpoint for one version (`None` means latest)
