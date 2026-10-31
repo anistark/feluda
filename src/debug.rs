@@ -112,6 +112,10 @@ pub enum FeludaError {
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
+    /// A request that was never sent, because its host stopped answering earlier in the run.
+    #[error("Skipped a request to {0}: it failed repeatedly earlier in this run")]
+    HostSkipped(String),
+
     #[error("Configuration error: {0}")]
     Config(String),
 

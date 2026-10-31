@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
-use std::time::Duration;
 use toml::Value as TomlValue;
 
 use crate::cache;
@@ -290,9 +289,7 @@ async fn fetch_licenses_concurrent(
     let mut licenses_map = HashMap::new();
 
     // Create async HTTP client with optional authentication
-    let mut client_builder = reqwest::Client::builder()
-        .user_agent("feluda-license-checker/1.0")
-        .timeout(Duration::from_secs(30));
+    let mut client_builder = crate::http_stats::async_client_builder();
 
     if let Some(token) = get_github_token() {
         log(
@@ -605,10 +602,7 @@ pub fn fetch_osi_licenses() -> HashMap<String, OsiStatus> {
 fn fetch_osi_licenses_from_api() -> FeludaResult<HashMap<String, OsiStatus>> {
     log(LogLevel::Info, "Fetching OSI approved licenses");
     let endpoint = config::load_config()?.osi.endpoint;
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("feluda-license-checker/1.0")
-        .timeout(Duration::from_secs(30))
-        .build()?;
+    let client = crate::http_stats::client_builder().build()?;
     let response =
         crate::http_stats::send(&endpoint, || client.get(&endpoint).send())?.error_for_status()?;
     let osi_licenses: Vec<serde_json::Value> = response.json()?;

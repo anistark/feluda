@@ -504,15 +504,12 @@ struct LatestRelease {
 /// (offline, rate limited, unexpected payload) so the caller can degrade
 /// gracefully.
 fn fetch_latest_release() -> Option<LatestRelease> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("feluda-license-checker/1.0")
+    let client = crate::http_stats::client_builder()
         .timeout(Duration::from_secs(2))
         .build()
         .ok()?;
-    let response = client
-        .get("https://api.github.com/repos/anistark/feluda/releases/latest")
-        .send()
-        .ok()?;
+    let url = "https://api.github.com/repos/anistark/feluda/releases/latest";
+    let response = crate::http_stats::send(url, || client.get(url).send()).ok()?;
     if !response.status().is_success() {
         return None;
     }
