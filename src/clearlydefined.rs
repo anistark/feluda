@@ -495,7 +495,7 @@ fn fetch_batch(batch: &[String], endpoint: &str) -> Option<HashMap<String, Defin
 fn fetch_batch_once(batch: &[String], endpoint: &str) -> Option<HashMap<String, Definition>> {
     // HTTP/1.1 by negotiation, not by preference: the service accepts an HTTP/2 POST and then
     // never answers it at all.
-    let client = reqwest::blocking::Client::builder()
+    let client = crate::http_stats::client_builder()
         .user_agent(concat!("feluda/", env!("CARGO_PKG_VERSION")))
         .timeout(REQUEST_TIMEOUT)
         .http1_only()

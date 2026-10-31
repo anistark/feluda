@@ -974,6 +974,16 @@ Go, Python, .NET, R, C and C++ dependencies are looked up several at a time, on 
 concurrency = 4
 ```
 
+### Timeouts
+
+Registry requests give up on a connection after `connect` seconds (default 7) and on a whole request after `request` seconds (default 30); pkg.go.dev, NuGet, crates.io and ClearlyDefined keep their own 10 seconds. A host that fails three requests in a row without answering is skipped for the rest of the run, with one line on stderr saying so. `FELUDA_TIMEOUTS_CONNECT` and `FELUDA_TIMEOUTS_REQUEST` override the file.
+
+```toml
+[timeouts]
+connect = 7
+request = 30
+```
+
 ### Environment Variables
 
 You can also override the configuration using environment variables:
