@@ -146,7 +146,7 @@ When adding new features, include appropriate logging using the debug module:
 Counting Network Requests
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Set ``FELUDA_REQUEST_STATS`` to a file path and Feluda writes a per host tally of every HTTP request it sent when the run ends: how many, which statuses came back, how many failed before any status, and the total and slowest time to the response headers.
+Set ``FELUDA_REQUEST_STATS`` to a file path and Feluda writes a per host tally of every HTTP request it sent when the run ends: how many, which statuses came back, how many failed before any status, how many were never sent because the host had already been given up on, and the total and slowest time to the response headers.
 
 .. code-block:: sh
 
@@ -160,6 +160,7 @@ Set ``FELUDA_REQUEST_STATS`` to a file path and Feluda writes a per host tally o
        "pypi.org": {
          "requests": 18,
          "transport_errors": 0,
+         "skipped": 0,
          "statuses": { "200": 18 },
          "total_ms": 9349.2,
          "max_ms": 1104.7
@@ -167,7 +168,7 @@ Set ``FELUDA_REQUEST_STATS`` to a file path and Feluda writes a per host tally o
      }
    }
 
-Requests run concurrently, so a host's ``total_ms`` can be longer than the run itself. A new request site goes through ``http_stats::get``, ``http_stats::send`` or ``http_stats::send_async`` in ``src/http_stats.rs`` so it is counted.
+Requests run concurrently, so a host's ``total_ms`` can be longer than the run itself. A new request site goes through ``http_stats::get``, ``http_stats::send`` or ``http_stats::send_async`` in ``src/http_stats.rs`` so it is counted and its host can be given up on; a client of its own starts from ``http_stats::client_builder`` (or ``async_client_builder``) so it gets the configured timeouts.
 
 Benchmarks
 ^^^^^^^^^^

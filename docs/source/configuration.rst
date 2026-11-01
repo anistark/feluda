@@ -267,6 +267,32 @@ time. The report is the same rows in the same order whatever the setting.
 
 ----
 
+Set network timeouts
+--------------------
+
+Every registry request has a connect timeout and a total timeout, in seconds:
+
+.. code-block:: toml
+
+   [timeouts]
+   connect = 7    # opening a connection
+   request = 30   # one whole request
+   command = 300  # reserved for external commands such as dotnet list package
+
+.. code-block:: bash
+
+   export FELUDA_TIMEOUTS_CONNECT=3
+
+``connect`` is what keeps a registry that accepts no connection from costing the whole ``request``
+timeout. ``request`` applies to the clients that set no shorter limit of their own: pkg.go.dev,
+NuGet, crates.io and ClearlyDefined keep 10 seconds. Every value has to be greater than 0.
+
+A host that fails three requests in a row without answering (connection refused, TLS failure,
+timeout) is skipped for the rest of the run, and Feluda says so once on stderr. Licenses that host
+would have answered read ``Unknown``. Any answer, an error status included, resets the count.
+
+----
+
 Choose SBOM spec versions
 -------------------------
 

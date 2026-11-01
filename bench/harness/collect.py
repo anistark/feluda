@@ -57,7 +57,7 @@ for dirpath, dirs, files in os.walk(RAW):
         try:
             rq = json.load(open(f"{dirpath}/requests.json"))
             row["requests"] = rq["total_requests"]
-            row["request_hosts"] = {h: {"n": v["requests"], "errors": v["transport_errors"], "statuses": v["statuses"], "total_s": round(v["total_ms"] / 1000, 2), "max_s": round(v["max_ms"] / 1000, 2)} for h, v in rq["hosts"].items()}
+            row["request_hosts"] = {h: {"n": v["requests"], "errors": v["transport_errors"], "skipped": v.get("skipped", 0), "statuses": v["statuses"], "total_s": round(v["total_ms"] / 1000, 2), "max_s": round(v["max_ms"] / 1000, 2)} for h, v in rq["hosts"].items()}
             row["transport_errors"] = sum(v["transport_errors"] for v in rq["hosts"].values())
             row["http_4xx_5xx"] = sum(c for v in rq["hosts"].values() for s, c in v["statuses"].items() if int(s) >= 400)
         except Exception:

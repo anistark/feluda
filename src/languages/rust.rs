@@ -218,8 +218,7 @@ pub fn analyze_rust_licenses_with_config(
 /// registry is the only source left. crates.io rejects requests without a user agent, hence the
 /// explicit client.
 pub(crate) fn fetch_license_from_crates_io(name: &str, version: &str) -> Option<String> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("feluda-license-checker/1.0")
+    let client = crate::http_stats::client_builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .ok()?;

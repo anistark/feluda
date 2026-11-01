@@ -588,8 +588,7 @@ pub fn generate_third_party_licenses_file(license_data: &[LicenseInfo], path: &s
 
 /// HTTP client for API requests
 fn create_http_client() -> Option<Client> {
-    Client::builder()
-        .user_agent("feluda-license-checker/1.0")
+    crate::http_stats::client_builder()
         .timeout(Duration::from_secs(10))
         .build()
         .ok()

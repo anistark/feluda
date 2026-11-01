@@ -78,6 +78,8 @@ pub struct FeludaConfig {
     #[serde(default)]
     pub sbom: SbomConfig,
     #[serde(default)]
+    pub timeouts: TimeoutConfig,
+    #[serde(default)]
     pub strict: bool,
 }
 
@@ -86,6 +88,7 @@ impl FeludaConfig {
     pub fn validate(&self) -> FeludaResult<()> {
         self.licenses.validate()?;
         self.dependencies.validate()?;
+        self.timeouts.validate()?;
         Ok(())
     }
 }
@@ -227,6 +230,69 @@ impl Default for MavenConfig {
 
 fn default_maven_endpoint() -> String {
     "https://repo1.maven.org/maven2".to_string()
+}
+
+/// How long a network request or an external command may take, in seconds.
+///
+/// ```toml
+/// [timeouts]
+/// connect = 7
+/// request = 30
+/// command = 300
+/// ```
+///
+/// `connect` bounds opening a connection, so a registry that accepts none fails in seconds rather
+/// than after the whole request timeout. `request` is the total for one request, on the clients
+/// that set no shorter limit of their own. `command` is reserved for external commands such as
+/// `dotnet list package`. Each field is one word so `FELUDA_TIMEOUTS_CONNECT` and friends can
+/// reach it.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct TimeoutConfig {
+    #[serde(default = "default_connect_timeout")]
+    pub connect: u64,
+    #[serde(default = "default_request_timeout")]
+    pub request: u64,
+    #[serde(default = "default_command_timeout")]
+    pub command: u64,
+}
+
+impl Default for TimeoutConfig {
+    fn default() -> Self {
+        Self {
+            connect: default_connect_timeout(),
+            request: default_request_timeout(),
+            command: default_command_timeout(),
+        }
+    }
+}
+
+impl TimeoutConfig {
+    pub fn validate(&self) -> FeludaResult<()> {
+        for (name, value) in [
+            ("connect", self.connect),
+            ("request", self.request),
+            ("command", self.command),
+        ] {
+            if value == 0 {
+                return Err(FeludaError::Config(format!(
+                    "timeouts.{name} must be greater than 0"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn default_connect_timeout() -> u64 {
+    7
+}
+
+fn default_request_timeout() -> u64 {
+    30
+}
+
+fn default_command_timeout() -> u64 {
+    300
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -854,6 +920,42 @@ max_depth = 5"#,
     }
 
     #[test]
+    fn test_timeouts_from_toml_and_env() {
+        temp_env::with_vars(
+            [
+                ("FELUDA_TIMEOUTS_CONNECT", None::<&str>),
+                ("FELUDA_TIMEOUTS_REQUEST", None),
+                ("FELUDA_TIMEOUTS_COMMAND", None),
+            ],
+            || {
+                let dir = setup();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                let config = load_config().unwrap();
+                assert_eq!(config.timeouts, TimeoutConfig::default());
+                assert_eq!(config.timeouts.connect, 7);
+
+                fs::write(".feluda.toml", "[timeouts]\nconnect = 3\nrequest = 60\n").unwrap();
+                let config = load_config().unwrap();
+                assert_eq!(config.timeouts.connect, 3);
+                assert_eq!(config.timeouts.request, 60);
+                assert_eq!(config.timeouts.command, 300);
+
+                temp_env::with_var("FELUDA_TIMEOUTS_CONNECT", Some("2"), || {
+                    assert_eq!(load_config().unwrap().timeouts.connect, 2);
+                });
+
+                fs::write(".feluda.toml", "[timeouts]\nrequest = 0\n").unwrap();
+                let err = load_config().unwrap_err().to_string();
+                assert!(
+                    err.contains("timeouts.request must be greater than 0"),
+                    "{err}"
+                );
+            },
+        );
+    }
+
+    #[test]
     fn test_unsupported_sbom_version_is_rejected() {
         temp_env::with_var("FELUDA_SBOM_SPDX", None::<&str>, || {
             let dir = setup();
@@ -1084,6 +1186,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
             osi: OsiConfig::default(),
             maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
+            timeouts: TimeoutConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
@@ -1472,6 +1575,7 @@ match_all = ["Cal.com, Inc."]
             osi: OsiConfig::default(),
             maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
+            timeouts: TimeoutConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string(), "GPL-3.0".to_string()],
@@ -1494,6 +1598,7 @@ match_all = ["Cal.com, Inc."]
             osi: OsiConfig::default(),
             maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
+            timeouts: TimeoutConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["".to_string()], // Invalid empty license
@@ -1521,6 +1626,7 @@ match_all = ["Cal.com, Inc."]
             osi: OsiConfig::default(),
             maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
+            timeouts: TimeoutConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string()],
@@ -1965,6 +2071,7 @@ reason = "All versions ignored"
             osi: OsiConfig::default(),
             maven: MavenConfig::default(),
             sbom: SbomConfig::default(),
+            timeouts: TimeoutConfig::default(),
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["GPL-3.0".to_string()],

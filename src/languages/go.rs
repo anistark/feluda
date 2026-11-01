@@ -794,13 +794,12 @@ fn pkgsite_client() -> Option<&'static Client> {
     static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
-            Client::builder()
+            crate::http_stats::client_builder()
                 .user_agent(concat!(
                     "feluda/",
                     env!("CARGO_PKG_VERSION"),
                     " (+https://github.com/anistark/feluda)"
                 ))
-                .connect_timeout(Duration::from_secs(60))
                 .timeout(Duration::from_secs(10))
                 .build()
                 .inspect_err(|err| log_error("Failed to build HTTP client", err))

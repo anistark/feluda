@@ -417,7 +417,7 @@ fn nuget_client() -> Result<&'static Client, String> {
     static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
-            Client::builder()
+            crate::http_stats::client_builder()
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .map_err(|e| format!("Failed to create HTTP client: {e}"))

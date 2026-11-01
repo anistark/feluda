@@ -131,9 +131,10 @@ tally of requests, statuses and times as JSON when it exits. `run_cell.sh` sets 
 
 ### Networks that drop IPv6
 
-feluda's HTTP client has no connect timeout, so an address that never answers costs the full 30 s
-request timeout. On a network where IPv6 or some addresses are dead, run the IPv4 proxy and point the
-harness at it:
+feluda gives up on a connection after 7 s and skips a host for the rest of the run after three
+failures in a row, so a dead address no longer stalls a cell, but the dependencies that host would
+have answered read Unknown and the cell's numbers stop being comparable. On a network where IPv6 or
+some addresses are dead, run the IPv4 proxy and point the harness at it:
 
 ```sh
 (cd bench/harness && python3 -I v4proxy.py &)
