@@ -320,10 +320,10 @@ fn fetch_from_local_r_library(libraries: &[PathBuf], name: &str) -> Option<Strin
 fn r_library_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
-    if let Ok(output) = Command::new("Rscript")
-        .args(["-e", "cat(.libPaths(), sep=\"\\n\")"])
-        .output()
-    {
+    if let Ok(output) = crate::command::lookup(
+        "Rscript",
+        Command::new("Rscript").args(["-e", "cat(.libPaths(), sep=\"\\n\")"]),
+    ) {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {

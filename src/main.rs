@@ -1,6 +1,7 @@
 mod cache;
 mod clearlydefined;
 mod cli;
+mod command;
 mod config;
 mod debug;
 mod filesystem;

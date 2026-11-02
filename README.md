@@ -976,12 +976,15 @@ concurrency = 4
 
 ### Timeouts
 
-Registry requests give up on a connection after `connect` seconds (default 7) and on a whole request after `request` seconds (default 30); pkg.go.dev, NuGet, crates.io and ClearlyDefined keep their own 10 seconds. A host that fails three requests in a row without answering is skipped for the rest of the run, with one line on stderr saying so. `FELUDA_TIMEOUTS_CONNECT` and `FELUDA_TIMEOUTS_REQUEST` override the file.
+Registry requests give up on a connection after `connect` seconds (default 7) and on a whole request after `request` seconds (default 30); pkg.go.dev, NuGet, crates.io and ClearlyDefined keep their own 10 seconds. A host that fails three requests in a row without answering is skipped for the rest of the run, with one line on stderr saying so.
+
+External commands have deadlines too. A command that lists dependencies (`cargo metadata`, `go mod graph`, `dotnet list package`, `uv lock`, `npm ls`) gets `command` seconds (default 300); when it runs out, it is stopped and the report falls back to what feluda reads without it, such as the direct dependencies in `go.mod`. Per package commands such as `npm view` and `pkg-config` get `request`. `FELUDA_TIMEOUTS_CONNECT`, `FELUDA_TIMEOUTS_REQUEST` and `FELUDA_TIMEOUTS_COMMAND` override the file.
 
 ```toml
 [timeouts]
 connect = 7
 request = 30
+command = 300
 ```
 
 ### Environment Variables

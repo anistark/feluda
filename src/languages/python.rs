@@ -424,13 +424,13 @@ fn get_license_from_local_site_packages(
 pub(crate) fn get_python_site_packages_paths() -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
 
-    if let Ok(output) = Command::new("python3")
-        .args([
+    if let Ok(output) = crate::command::lookup(
+        "python3 -c site",
+        Command::new("python3").args([
             "-c",
             "import site; print('\\n'.join(site.getsitepackages()))",
-        ])
-        .output()
-    {
+        ]),
+    ) {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
@@ -439,13 +439,13 @@ pub(crate) fn get_python_site_packages_paths() -> Vec<std::path::PathBuf> {
         }
     }
 
-    if let Ok(output) = Command::new("python")
-        .args([
+    if let Ok(output) = crate::command::lookup(
+        "python -c site",
+        Command::new("python").args([
             "-c",
             "import site; print('\\n'.join(site.getsitepackages()))",
-        ])
-        .output()
-    {
+        ]),
+    ) {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
@@ -704,11 +704,12 @@ fn resolve_with_uv(
     );
 
     // Try uv lock command first (for uv-managed projects)
-    if let Ok(output) = Command::new("uv")
-        .args(["lock", "--dry-run"])
-        .current_dir(project_dir)
-        .output()
-    {
+    if let Ok(output) = crate::command::list(
+        "uv lock",
+        Command::new("uv")
+            .args(["lock", "--dry-run"])
+            .current_dir(project_dir),
+    ) {
         if output.status.success() {
             // Parse uv.lock file if it exists
             let lock_file = project_dir.join("uv.lock");
@@ -729,16 +730,17 @@ fn resolve_with_uv(
     let file_name = Path::new(package_file_path)
         .file_name()
         .ok_or("Cannot determine dependency file name")?;
-    if let Ok(output) = Command::new("uv")
-        .args([
-            "pip".as_ref(),
-            "compile".as_ref(),
-            "--quiet".as_ref(),
-            file_name,
-        ])
-        .current_dir(project_dir)
-        .output()
-    {
+    if let Ok(output) = crate::command::list(
+        "uv pip compile",
+        Command::new("uv")
+            .args([
+                "pip".as_ref(),
+                "compile".as_ref(),
+                "--quiet".as_ref(),
+                file_name,
+            ])
+            .current_dir(project_dir),
+    ) {
         if output.status.success() {
             let stdout_str = String::from_utf8_lossy(&output.stdout);
             let deps = parse_pip_compile_output(&stdout_str);

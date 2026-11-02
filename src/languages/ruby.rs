@@ -230,7 +230,9 @@ fn fetch_from_local_gem(name: &str, version: &str) -> Option<String> {
 fn gem_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
-    if let Ok(output) = Command::new("gem").args(["env", "gempath"]).output() {
+    if let Ok(output) =
+        crate::command::lookup("gem env", Command::new("gem").args(["env", "gempath"]))
+    {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for part in stdout.trim().split([':', ';']) {
