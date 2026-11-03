@@ -267,17 +267,18 @@ time. The report is the same rows in the same order whatever the setting.
 
 ----
 
-Set network timeouts
---------------------
+Set timeouts
+------------
 
-Every registry request has a connect timeout and a total timeout, in seconds:
+Every registry request has a connect timeout and a total timeout, and every external command a
+deadline, in seconds:
 
 .. code-block:: toml
 
    [timeouts]
    connect = 7    # opening a connection
-   request = 30   # one whole request
-   command = 300  # reserved for external commands such as dotnet list package
+   request = 30   # one whole request, and one per package command such as npm view
+   command = 300  # a command that lists dependencies, such as dotnet list package
 
 .. code-block:: bash
 
@@ -290,6 +291,19 @@ NuGet, crates.io and ClearlyDefined keep 10 seconds. Every value has to be great
 A host that fails three requests in a row without answering (connection refused, TLS failure,
 timeout) is skipped for the rest of the run, and Feluda says so once on stderr. Licenses that host
 would have answered read ``Unknown``. Any answer, an error status included, resets the count.
+
+``command`` is how long a command that lists dependencies may run: ``cargo metadata``,
+``go mod graph``, ``dotnet list package``, ``uv lock`` and ``uv pip compile``, the ``npm``,
+``pnpm`` and ``yarn`` list commands, ``bazel query``. One that runs past it is stopped, Feluda
+says so once on stderr and does not run it again in that scan, and the report falls back to what
+Feluda can read without it, as it does when the tool is not installed: the direct dependencies
+in ``go.mod`` or the ``.csproj``, or for Python its own walk of PyPI. A large .NET solution whose first
+``dotnet list package`` has to restore everything may need more than the default.
+
+Commands asked about one package (``npm view``, ``pnpm why``, ``pkg-config``, ``dpkg-query``,
+``rpm``) and one-off queries (``go env``, ``Rscript``, ``gem env``) stand in for a registry
+request, so they get ``request``. One that times out three times in a row is not run again in that
+scan, and Feluda answers from its other sources.
 
 ----
 

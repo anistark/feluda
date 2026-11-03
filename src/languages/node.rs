@@ -648,19 +648,21 @@ fn pnpm_list_all_recursive(project_root: &Path) -> Result<HashMap<String, String
         "Trying: pnpm list --recursive --depth Infinity",
     );
 
-    let output = Command::new("pnpm")
-        .args([
-            "list",
-            "--recursive",
-            "--depth",
-            "Infinity",
-            "--json",
-            "--prod",
-            "--dev",
-        ])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("pnpm list recursive failed: {e}"))?;
+    let output = crate::command::list(
+        "pnpm list",
+        Command::new("pnpm")
+            .args([
+                "list",
+                "--recursive",
+                "--depth",
+                "Infinity",
+                "--json",
+                "--prod",
+                "--dev",
+            ])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("pnpm list recursive failed: {e}"))?;
 
     parse_pnpm_json_output(&output)
 }
@@ -668,11 +670,13 @@ fn pnpm_list_all_recursive(project_root: &Path) -> Result<HashMap<String, String
 fn pnpm_list_json_depth_infinity(project_root: &Path) -> Result<HashMap<String, String>, String> {
     log(LogLevel::Info, "Trying: pnpm list --json --depth Infinity");
 
-    let output = Command::new("pnpm")
-        .args(["list", "--json", "--depth", "Infinity"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("pnpm list depth infinity failed: {e}"))?;
+    let output = crate::command::list(
+        "pnpm list",
+        Command::new("pnpm")
+            .args(["list", "--json", "--depth", "Infinity"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("pnpm list depth infinity failed: {e}"))?;
 
     parse_pnpm_json_output(&output)
 }
@@ -680,11 +684,13 @@ fn pnpm_list_json_depth_infinity(project_root: &Path) -> Result<HashMap<String, 
 fn pnpm_list_prod_dev(project_root: &Path) -> Result<HashMap<String, String>, String> {
     log(LogLevel::Info, "Trying: pnpm list --prod --dev --long");
 
-    let output = Command::new("pnpm")
-        .args(["list", "--prod", "--dev", "--long", "--depth", "999"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("pnpm list prod dev failed: {e}"))?;
+    let output = crate::command::list(
+        "pnpm list",
+        Command::new("pnpm")
+            .args(["list", "--prod", "--dev", "--long", "--depth", "999"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("pnpm list prod dev failed: {e}"))?;
 
     parse_pnpm_text_output(&output)
 }
@@ -716,11 +722,13 @@ fn get_pnpm_transitive_deps(
     project_root: &Path,
     package_name: &str,
 ) -> Result<HashMap<String, String>, String> {
-    let output = Command::new("pnpm")
-        .args(["why", package_name, "--json"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("pnpm why failed: {e}"))?;
+    let output = crate::command::lookup(
+        "pnpm why",
+        Command::new("pnpm")
+            .args(["why", package_name, "--json"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("pnpm why failed: {e}"))?;
 
     if !output.status.success() {
         return Ok(HashMap::new());
@@ -743,11 +751,13 @@ fn get_pnpm_transitive_deps(
 fn yarn_list_recursive(project_root: &Path) -> Result<HashMap<String, String>, String> {
     log(LogLevel::Info, "Trying: yarn list --recursive");
 
-    let output = Command::new("yarn")
-        .args(["list", "--recursive", "--json"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("yarn list recursive failed: {e}"))?;
+    let output = crate::command::list(
+        "yarn list",
+        Command::new("yarn")
+            .args(["list", "--recursive", "--json"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("yarn list recursive failed: {e}"))?;
 
     parse_yarn_json_output(&output)
 }
@@ -755,11 +765,13 @@ fn yarn_list_recursive(project_root: &Path) -> Result<HashMap<String, String>, S
 fn yarn_list_all_pattern(project_root: &Path) -> Result<HashMap<String, String>, String> {
     log(LogLevel::Info, "Trying: yarn list --pattern '*'");
 
-    let output = Command::new("yarn")
-        .args(["list", "--pattern", "*", "--json"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("yarn list pattern failed: {e}"))?;
+    let output = crate::command::list(
+        "yarn list",
+        Command::new("yarn")
+            .args(["list", "--pattern", "*", "--json"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("yarn list pattern failed: {e}"))?;
 
     parse_yarn_json_output(&output)
 }
@@ -767,11 +779,13 @@ fn yarn_list_all_pattern(project_root: &Path) -> Result<HashMap<String, String>,
 fn yarn_info_workspaces(project_root: &Path) -> Result<HashMap<String, String>, String> {
     log(LogLevel::Info, "Trying: yarn workspaces info");
 
-    let output = Command::new("yarn")
-        .args(["workspaces", "info", "--json"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("yarn workspaces info failed: {e}"))?;
+    let output = crate::command::list(
+        "yarn workspaces info",
+        Command::new("yarn")
+            .args(["workspaces", "info", "--json"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("yarn workspaces info failed: {e}"))?;
 
     parse_yarn_workspaces_output(&output)
 }
@@ -788,11 +802,13 @@ fn npm_ls_all_json(project_root: &Path) -> Result<HashMap<String, String>, Strin
     #[cfg(not(windows))]
     const NPM: &str = "npm";
 
-    let output = Command::new(NPM)
-        .args(["ls", "--all", "--json", "--production", "--dev"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("npm ls all failed: {e}"))?;
+    let output = crate::command::list(
+        "npm ls",
+        Command::new(NPM)
+            .args(["ls", "--all", "--json", "--production", "--dev"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("npm ls all failed: {e}"))?;
 
     parse_npm_json_output(&output)
 }
@@ -805,11 +821,13 @@ fn npm_ls_long_format(project_root: &Path) -> Result<HashMap<String, String>, St
     #[cfg(not(windows))]
     const NPM: &str = "npm";
 
-    let output = Command::new(NPM)
-        .args(["ls", "--long", "--parseable", "--all"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("npm ls long failed: {e}"))?;
+    let output = crate::command::list(
+        "npm ls",
+        Command::new(NPM)
+            .args(["ls", "--long", "--parseable", "--all"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("npm ls long failed: {e}"))?;
 
     parse_npm_parseable_output(&output)
 }
@@ -822,11 +840,13 @@ fn npm_list_global_style(project_root: &Path) -> Result<HashMap<String, String>,
     #[cfg(not(windows))]
     const NPM: &str = "npm";
 
-    let output = Command::new(NPM)
-        .args(["list", "--global-style", "--depth", "999"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("npm list global-style failed: {e}"))?;
+    let output = crate::command::list(
+        "npm list",
+        Command::new(NPM)
+            .args(["list", "--global-style", "--depth", "999"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("npm list global-style failed: {e}"))?;
 
     parse_npm_tree_output(&output)
 }
@@ -1767,13 +1787,15 @@ fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -
         &format!("Trying npm view for: {package_spec}"),
     );
 
-    let output = Command::new(npm_cmd)
-        .arg("view")
-        .arg(&package_spec)
-        .arg("license")
-        .arg("--json")
-        .output()
-        .ok()?;
+    let output = crate::command::lookup(
+        "npm view",
+        Command::new(npm_cmd)
+            .arg("view")
+            .arg(&package_spec)
+            .arg("license")
+            .arg("--json"),
+    )
+    .ok()?;
 
     if !output.status.success() {
         return None;
@@ -2177,18 +2199,20 @@ fn try_pnpm_list_comprehensive(project_root: &Path) -> Result<HashMap<String, St
         "Attempting: pnpm list --depth=Infinity --json --prod --dev",
     );
 
-    let output = Command::new("pnpm")
-        .args([
-            "list",
-            "--depth=Infinity",
-            "--json",
-            "--prod",
-            "--dev",
-            "--no-optional",
-        ])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("pnpm list comprehensive failed: {e}"))?;
+    let output = crate::command::list(
+        "pnpm list",
+        Command::new("pnpm")
+            .args([
+                "list",
+                "--depth=Infinity",
+                "--json",
+                "--prod",
+                "--dev",
+                "--no-optional",
+            ])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("pnpm list comprehensive failed: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2247,11 +2271,13 @@ fn try_pnpm_list_flat(project_root: &Path) -> Result<HashMap<String, String>, St
         "Attempting: pnpm list --depth=Infinity (flat output)",
     );
 
-    let output = Command::new("pnpm")
-        .args(["list", "--depth=Infinity"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("pnpm list flat failed: {e}"))?;
+    let output = crate::command::list(
+        "pnpm list",
+        Command::new("pnpm")
+            .args(["list", "--depth=Infinity"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("pnpm list flat failed: {e}"))?;
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let mut dependencies = HashMap::new();
@@ -2289,11 +2315,13 @@ fn parse_pnpm_tree_line(line: &str) -> Option<(String, String)> {
 fn try_pnpm_list_recursive_json(project_root: &Path) -> Result<HashMap<String, String>, String> {
     log(LogLevel::Info, "Attempting: pnpm list --recursive --json");
 
-    let output = Command::new("pnpm")
-        .args(["list", "--recursive", "--json"])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("pnpm list recursive json failed: {e}"))?;
+    let output = crate::command::list(
+        "pnpm list",
+        Command::new("pnpm")
+            .args(["list", "--recursive", "--json"])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("pnpm list recursive json failed: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2468,19 +2496,21 @@ fn try_pnpm_list_all_dependencies(project_root: &Path) -> Result<HashMap<String,
         "Attempting: pnpm list --all --depth=Infinity --json",
     );
 
-    let output = Command::new("pnpm")
-        .args([
-            "list",
-            "--all",
-            "--depth=Infinity",
-            "--json",
-            "--prod",
-            "--dev",
-            "--optional",
-        ])
-        .current_dir(project_root)
-        .output()
-        .map_err(|e| format!("pnpm list all failed: {e}"))?;
+    let output = crate::command::list(
+        "pnpm list",
+        Command::new("pnpm")
+            .args([
+                "list",
+                "--all",
+                "--depth=Infinity",
+                "--json",
+                "--prod",
+                "--dev",
+                "--optional",
+            ])
+            .current_dir(project_root),
+    )
+    .map_err(|e| format!("pnpm list all failed: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

@@ -332,11 +332,13 @@ fn resolve_with_dotnet_list(project_path: &str) -> Result<Vec<(String, String)>,
         path.parent().ok_or("Failed to get parent directory")?
     };
 
-    let output = Command::new("dotnet")
-        .args(["list", "package", "--include-transitive"])
-        .current_dir(work_dir)
-        .output()
-        .map_err(|e| format!("Failed to execute dotnet command: {e}"))?;
+    let output = crate::command::list(
+        "dotnet list package",
+        Command::new("dotnet")
+            .args(["list", "package", "--include-transitive"])
+            .current_dir(work_dir),
+    )
+    .map_err(|e| format!("Failed to execute dotnet command: {e}"))?;
 
     if !output.status.success() {
         return Err(format!(

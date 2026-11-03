@@ -243,8 +243,10 @@ fn default_maven_endpoint() -> String {
 ///
 /// `connect` bounds opening a connection, so a registry that accepts none fails in seconds rather
 /// than after the whole request timeout. `request` is the total for one request, on the clients
-/// that set no shorter limit of their own. `command` is reserved for external commands such as
-/// `dotnet list package`. Each field is one word so `FELUDA_TIMEOUTS_CONNECT` and friends can
+/// that set no shorter limit of their own. `command` is how long a command that lists dependencies
+/// (`cargo metadata`, `go mod graph`, `dotnet list package`, `uv lock`, `npm ls`) may run; the
+/// per package commands (`npm view`, `pkg-config`, `dpkg-query`) get `request`, since they stand in
+/// for a registry request. Each field is one word so `FELUDA_TIMEOUTS_CONNECT` and friends can
 /// reach it.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct TimeoutConfig {
@@ -281,6 +283,17 @@ impl TimeoutConfig {
         }
         Ok(())
     }
+}
+
+/// The `[timeouts]` section, read once for the process, for the HTTP clients and the external
+/// commands alike.
+pub fn timeouts() -> &'static TimeoutConfig {
+    static TIMEOUTS: std::sync::OnceLock<TimeoutConfig> = std::sync::OnceLock::new();
+    TIMEOUTS.get_or_init(|| {
+        load_config()
+            .map(|config| config.timeouts)
+            .unwrap_or_default()
+    })
 }
 
 fn default_connect_timeout() -> u64 {

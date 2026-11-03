@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::config::TimeoutConfig;
+use crate::config::timeouts;
 use crate::debug::{log, FeludaError, FeludaResult, LogLevel};
 
 const STATS_ENV: &str = "FELUDA_REQUEST_STATS";
@@ -157,16 +157,6 @@ fn skip(url: &str) -> FeludaError {
         record_skipped(stats, url);
     }
     FeludaError::HostSkipped(host_of(url))
-}
-
-/// The `[timeouts]` section, read once for the process.
-fn timeouts() -> &'static TimeoutConfig {
-    static TIMEOUTS: OnceLock<TimeoutConfig> = OnceLock::new();
-    TIMEOUTS.get_or_init(|| {
-        crate::config::load_config()
-            .map(|config| config.timeouts)
-            .unwrap_or_default()
-    })
 }
 
 /// A blocking client builder with feluda's User-Agent and the configured connect and request

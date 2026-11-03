@@ -235,10 +235,11 @@ fn resolve_c_transitive_deps(
 }
 
 fn get_pkgconfig_requires(package_name: &str) -> Result<Vec<(String, String)>, String> {
-    let output = Command::new("pkg-config")
-        .args(["--print-requires", package_name])
-        .output()
-        .map_err(|e| format!("Failed to run pkg-config --print-requires: {e}"))?;
+    let output = crate::command::lookup(
+        "pkg-config",
+        Command::new("pkg-config").args(["--print-requires", package_name]),
+    )
+    .map_err(|e| format!("Failed to run pkg-config --print-requires: {e}"))?;
 
     if !output.status.success() {
         return Ok(Vec::new());
@@ -265,9 +266,10 @@ fn get_pkgconfig_requires(package_name: &str) -> Result<Vec<(String, String)>, S
     }
 
     // Also check private requires
-    let private_output = Command::new("pkg-config")
-        .args(["--print-requires-private", package_name])
-        .output();
+    let private_output = crate::command::lookup(
+        "pkg-config",
+        Command::new("pkg-config").args(["--print-requires-private", package_name]),
+    );
 
     if let Ok(private_out) = private_output {
         if private_out.status.success() {
@@ -346,10 +348,10 @@ fn parse_pc_content(content: &str) -> Result<Vec<(String, String)>, String> {
 
 fn get_system_package_dependencies(package_name: &str) -> Result<Vec<(String, String)>, String> {
     // Try dpkg (Debian/Ubuntu)
-    if let Ok(output) = Command::new("dpkg-query")
-        .args(["-W", "-f", "${Depends}\\n", package_name])
-        .output()
-    {
+    if let Ok(output) = crate::command::lookup(
+        "dpkg-query",
+        Command::new("dpkg-query").args(["-W", "-f", "${Depends}\\n", package_name]),
+    ) {
         if output.status.success() {
             let depends_str = String::from_utf8_lossy(&output.stdout);
             return parse_debian_dependencies(&depends_str);
@@ -357,10 +359,10 @@ fn get_system_package_dependencies(package_name: &str) -> Result<Vec<(String, St
     }
 
     // Try rpm (RedHat/CentOS/Fedora)
-    if let Ok(output) = Command::new("rpm")
-        .args(["-q", "--requires", package_name])
-        .output()
-    {
+    if let Ok(output) = crate::command::lookup(
+        "rpm",
+        Command::new("rpm").args(["-q", "--requires", package_name]),
+    ) {
         if output.status.success() {
             let requires_str = String::from_utf8_lossy(&output.stdout);
             return parse_rpm_dependencies(&requires_str);
@@ -542,10 +544,10 @@ fn detect_license_in_doc_root(doc_root: &Path, package_name: &str) -> Option<Str
 }
 
 fn get_system_package_license(package_name: &str) -> Result<String, String> {
-    if let Ok(output) = Command::new("dpkg-query")
-        .args(["-f", "${Package} ${License}\n", "-W", package_name])
-        .output()
-    {
+    if let Ok(output) = crate::command::lookup(
+        "dpkg-query",
+        Command::new("dpkg-query").args(["-f", "${Package} ${License}\n", "-W", package_name]),
+    ) {
         if output.status.success() {
             let stdout_str = String::from_utf8_lossy(&output.stdout);
             if let Some(line) = stdout_str.lines().next() {
@@ -556,10 +558,10 @@ fn get_system_package_license(package_name: &str) -> Result<String, String> {
         }
     }
 
-    if let Ok(output) = Command::new("rpm")
-        .args(["-q", "--qf", "%{LICENSE}\n", package_name])
-        .output()
-    {
+    if let Ok(output) = crate::command::lookup(
+        "rpm",
+        Command::new("rpm").args(["-q", "--qf", "%{LICENSE}\n", package_name]),
+    ) {
         if output.status.success() {
             let license = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !license.is_empty() && license != "(none)" {

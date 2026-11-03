@@ -354,10 +354,10 @@ fn resolve_cmake_transitive(
     // This is complex as it depends on the system and CMake installation
 
     // Try pkg-config if the package has a .pc file
-    if let Ok(output) = Command::new("pkg-config")
-        .args(["--print-requires", package_name])
-        .output()
-    {
+    if let Ok(output) = crate::command::lookup(
+        "pkg-config",
+        Command::new("pkg-config").args(["--print-requires", package_name]),
+    ) {
         if output.status.success() {
             let stdout_str = String::from_utf8_lossy(&output.stdout);
             let mut dependencies = Vec::new();
@@ -394,10 +394,10 @@ fn resolve_bazel_transitive(
     // This would require being in a Bazel workspace
 
     // Try to run bazel query for dependencies
-    if let Ok(output) = Command::new("bazel")
-        .args(["query", &format!("deps(@{package_name}//...)")])
-        .output()
-    {
+    if let Ok(output) = crate::command::list(
+        "bazel query",
+        Command::new("bazel").args(["query", &format!("deps(@{package_name}//...)")]),
+    ) {
         if output.status.success() {
             let stdout_str = String::from_utf8_lossy(&output.stdout);
             let mut dependencies = Vec::new();
@@ -720,10 +720,10 @@ pub(crate) fn fetch_license_from_conan_center(package_name: &str, version: &str)
 }
 
 fn fetch_license_from_system_package(package_name: &str) -> String {
-    if let Ok(output) = Command::new("pkg-config")
-        .args(["--variable=license", package_name])
-        .output()
-    {
+    if let Ok(output) = crate::command::lookup(
+        "pkg-config",
+        Command::new("pkg-config").args(["--variable=license", package_name]),
+    ) {
         if output.status.success() {
             let license = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !license.is_empty() {

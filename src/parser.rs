@@ -452,10 +452,7 @@ fn parse_dependencies(
 
                 indicator.update_progress("analyzing Cargo.toml");
 
-                match MetadataCommand::new()
-                    .manifest_path(Path::new(&project_path))
-                    .exec()
-                {
+                match cargo_metadata(Path::new(&project_path)) {
                     Ok(metadata) => {
                         log(
                             LogLevel::Info,
@@ -737,6 +734,24 @@ fn parse_dependencies(
     });
 
     Ok(licenses)
+}
+
+/// `MetadataCommand::exec`, run with the command deadline: `cargo metadata` may fetch the registry
+/// index and git dependencies before it answers.
+fn cargo_metadata(manifest_path: &Path) -> cargo_metadata::Result<cargo_metadata::Metadata> {
+    let mut metadata = MetadataCommand::new();
+    metadata.manifest_path(manifest_path);
+    let output = crate::command::list("cargo metadata", &mut metadata.cargo_command())?;
+    if !output.status.success() {
+        return Err(cargo_metadata::Error::CargoMetadata {
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    let stdout = std::str::from_utf8(&output.stdout)?
+        .lines()
+        .find(|line| line.starts_with('{'))
+        .ok_or(cargo_metadata::Error::NoJson)?;
+    MetadataCommand::parse(stdout)
 }
 
 #[cfg(test)]

@@ -446,11 +446,13 @@ fn resolve_with_go_mod_graph(
     );
 
     // Run go mod graph to get dependency graph
-    let output = Command::new("go")
-        .args(["mod", "graph"])
-        .current_dir(project_dir)
-        .output()
-        .map_err(|e| format!("Failed to run go mod graph: {e}"))?;
+    let output = crate::command::list(
+        "go mod graph",
+        Command::new("go")
+            .args(["mod", "graph"])
+            .current_dir(project_dir),
+    )
+    .map_err(|e| format!("Failed to run go mod graph: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -680,7 +682,9 @@ fn get_license_from_go_module_cache(
 }
 
 pub(crate) fn get_gomodcache_path() -> Option<PathBuf> {
-    if let Ok(output) = Command::new("go").args(["env", "GOMODCACHE"]).output() {
+    if let Ok(output) =
+        crate::command::lookup("go env", Command::new("go").args(["env", "GOMODCACHE"]))
+    {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
