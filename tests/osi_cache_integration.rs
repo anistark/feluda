@@ -218,14 +218,14 @@ fn a_fresh_osi_cache_prevents_a_second_request() {
 fn a_failed_fetch_without_cache_warns_and_keeps_json_output_valid() {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
     let sbom = prepare(temp.path());
-    let stub = Stub::start("503 Service Unavailable", "unavailable");
+    let stub = Stub::start("500 Internal Server Error", "unavailable");
     let stats = temp.path().join("stats.json");
 
     let output = feluda(temp.path(), &sbom, &stub.endpoint, &stats.to_string_lossy());
     assert_eq!(report(&output)[0]["osi_status"], "Unknown");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Could not load OSI license data"));
-    assert!(stderr.contains("503 Service Unavailable"));
+    assert!(stderr.contains("500 Internal Server Error"));
     assert!(stderr.contains("may read Unknown"));
     assert_eq!(osi_warnings(&output), 1);
     assert_eq!(stub.request_count(), 1);
@@ -260,7 +260,7 @@ fn a_failed_refresh_uses_the_stale_cache() {
         json!({"EPL-2.0": "Approved"}),
         stale_timestamp,
     );
-    let stub = Stub::start("503 Service Unavailable", "unavailable");
+    let stub = Stub::start("500 Internal Server Error", "unavailable");
     let stats = temp.path().join("stats.json");
     let retry_stats = temp.path().join("retry-stats.json");
 

@@ -318,10 +318,9 @@ async fn fetch_licenses_concurrent(
 
     // First, get the list of available licenses
     let licenses_list_url = "https://api.github.com/licenses";
-    let response = match crate::http_stats::send_async(
-        licenses_list_url,
-        client.get(licenses_list_url).send(),
-    )
+    let response = match crate::http_stats::send_async(licenses_list_url, || {
+        client.get(licenses_list_url).send()
+    })
     .await
     {
         Ok(response) => response,
@@ -376,7 +375,8 @@ async fn fetch_licenses_concurrent(
 
             let license_url = format!("https://api.github.com/licenses/{license_key}");
 
-            match crate::http_stats::send_async(&license_url, client.get(&license_url).send()).await
+            match crate::http_stats::send_async(&license_url, || client.get(&license_url).send())
+                .await
             {
                 Ok(license_response) => {
                     if license_response.status().is_success() {
