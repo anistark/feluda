@@ -1,6 +1,7 @@
 use rayon::prelude::*;
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1659,6 +1660,9 @@ fn read_package_version_from_path(path: &str) -> Option<String> {
 // LICENSE DETECTION
 // =============================================================================
 
+/// What a package nothing could answer for reads as. `licenses::is_unresolved_license` matches it.
+const UNKNOWN_LICENSE: &str = "Unknown (failed to retrieve)";
+
 fn get_license_for_package(
     project_root: &Path,
     name: &str,
@@ -1679,10 +1683,19 @@ fn get_license_for_package(
         result = get_license_from_local_license_file(project_root, name);
     }
 
-    result
-        .or_else(|| get_license_from_npm_view(NPM, name, version))
-        .or_else(|| get_license_from_npm_registry_api(name, version))
-        .unwrap_or_else(|| "Unknown (failed to retrieve)".to_string())
+    if let Some(license) = result {
+        return license;
+    }
+
+    // One request per package beats one Node process per package, so the registry answers first.
+    match get_license_from_registry(project_root, name, version) {
+        RegistryAnswer::License(license) => license,
+        // The packument is the document `npm view` reads, so a version that states no license
+        // there states none for npm either, and a process cannot answer differently.
+        RegistryAnswer::NoLicense => UNKNOWN_LICENSE.to_string(),
+        RegistryAnswer::Unavailable => get_license_from_npm_view(NPM, name, version)
+            .unwrap_or_else(|| UNKNOWN_LICENSE.to_string()),
+    }
 }
 
 fn get_license_from_package_json(
@@ -1838,59 +1851,304 @@ fn license_from_npm_view_output(output: &str) -> Option<String> {
     }
 }
 
+/// The registry answer for a package with no project tree behind it (`--sbom-input`).
+///
+/// There is no `.npmrc` to read a project registry from, and no `npm view` to fall back to, so a
+/// registry that wants credentials answers nothing here.
 pub(crate) fn get_license_from_npm_registry_api(
     package_name: &str,
     version: &str,
 ) -> Option<String> {
-    log(
-        LogLevel::Info,
-        &format!("Trying npm registry API for {package_name}"),
-    );
+    let registry = npm_registry_for(None, package_name);
+    if registry.needs_auth {
+        return None;
+    }
+    match license_from_registry(&registry, package_name, version) {
+        RegistryAnswer::License(license) => Some(license),
+        RegistryAnswer::NoLicense | RegistryAnswer::Unavailable => None,
+    }
+}
 
-    let versions_to_try = if version == "latest" || version.is_empty() {
-        vec!["latest"]
-    } else {
-        vec![version, "latest"]
+/// The default npm registry, used when no `.npmrc` names another one.
+const DEFAULT_NPM_REGISTRY: &str = "https://registry.npmjs.org";
+
+/// Where npm would fetch a package from, and whether only `npm view` can ask it.
+struct NpmRegistry {
+    /// Without a trailing slash, so a package path can be appended.
+    url: String,
+    /// The `.npmrc` holds credentials for this registry, which `npm view` sends and feluda does not.
+    needs_auth: bool,
+}
+
+/// What a registry answered.
+///
+/// `NoLicense` and `Unavailable` are kept apart because they decide whether `npm view` is worth a
+/// process: a version that states no license in the packument states none for npm either.
+enum RegistryAnswer {
+    License(String),
+    NoLicense,
+    Unavailable,
+}
+
+/// The license from the registry npm would use, over HTTP: one request per package instead of one
+/// Node process per package.
+///
+/// `npm view` honours `.npmrc` (a custom or scoped registry, credentials, a proxy), which is why it
+/// was the first network step. Reading the registry keys out of `.npmrc` the way npm does lets the
+/// common case go over HTTP, and leaves `npm view` for what only it can do: a package from a
+/// registry the `.npmrc` holds credentials for, and a spec a packument cannot answer (`file:`, a
+/// git URL, an `npm:` alias).
+fn get_license_from_registry(
+    project_root: &Path,
+    package_name: &str,
+    version: &str,
+) -> RegistryAnswer {
+    let registry = npm_registry_for(Some(project_root), package_name);
+    if registry.needs_auth {
+        log(
+            LogLevel::Info,
+            &format!(
+                "The .npmrc holds credentials for {}; asking npm view, which sends them",
+                registry.url
+            ),
+        );
+        return RegistryAnswer::Unavailable;
+    }
+    license_from_registry(&registry, package_name, version)
+}
+
+fn license_from_registry(
+    registry: &NpmRegistry,
+    package_name: &str,
+    version: &str,
+) -> RegistryAnswer {
+    // npm's registries want a scope's `/` percent encoded: `@scope%2fname`.
+    let url = format!("{}/{}", registry.url, package_name.replace('/', "%2f"));
+    log(LogLevel::Info, &format!("Asking {url} for a license"));
+
+    let response = match crate::http_stats::get(&url) {
+        Ok(response) => response,
+        Err(err) => {
+            log_error(&format!("Registry request for {package_name} failed"), &err);
+            return RegistryAnswer::Unavailable;
+        }
+    };
+    if !response.status().is_success() {
+        log(
+            LogLevel::Warn,
+            &format!("{url} answered {}", response.status()),
+        );
+        return RegistryAnswer::Unavailable;
+    }
+    let packument: Value = match response.json() {
+        Ok(packument) => packument,
+        Err(err) => {
+            log_error(
+                &format!("Could not read the packument for {package_name}"),
+                &err,
+            );
+            return RegistryAnswer::Unavailable;
+        }
     };
 
-    for ver in versions_to_try {
-        let url = if ver == "latest" {
-            format!("https://registry.npmjs.org/{package_name}")
-        } else {
-            format!("https://registry.npmjs.org/{package_name}/{ver}")
-        };
-
-        if let Ok(response) = crate::http_stats::get(&url) {
-            if response.status().is_success() {
-                if let Ok(json) = response.json::<Value>() {
-                    let license_paths = [
-                        vec!["license"],
-                        vec!["licenses", "0", "type"],
-                        vec!["licenses", "0"],
-                        vec!["latest", "license"],
-                    ];
-
-                    for path in &license_paths {
-                        if let Some(license_value) = get_nested_json_value(&json, path) {
-                            if let Some(license_str) = license_value.as_str() {
-                                if !license_str.is_empty() && license_str != "UNLICENSED" {
-                                    log(
-                                        LogLevel::Info,
-                                        &format!(
-                                            "Found license via registry API for {package_name}: {license_str}"
-                                        ),
-                                    );
-                                    return Some(license_str.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    let Some(resolved) = resolve_packument_version(&packument, version) else {
+        log(
+            LogLevel::Info,
+            &format!("No version of {package_name} in {url} matches {version}"),
+        );
+        return RegistryAnswer::Unavailable;
+    };
+    let entry = packument
+        .get("versions")
+        .and_then(|versions| versions.get(&resolved));
+    match entry.and_then(license_from_packument_version) {
+        Some(license) => {
+            log(
+                LogLevel::Info,
+                &format!("Found license via registry API for {package_name} {resolved}: {license}"),
+            );
+            RegistryAnswer::License(license)
+        }
+        None => {
+            log(
+                LogLevel::Info,
+                &format!("{package_name} {resolved} states no license"),
+            );
+            RegistryAnswer::NoLicense
         }
     }
+}
 
-    None
+/// The version npm would install for `spec`: a dist tag's version, an exact version, else the
+/// newest version a semver range matches.
+fn resolve_packument_version(packument: &Value, spec: &str) -> Option<String> {
+    let versions = packument.get("versions")?.as_object()?;
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return latest_version(packument, versions);
+    }
+    if let Some(tagged) = dist_tag_version(packument, spec, versions) {
+        return Some(tagged);
+    }
+    if versions.contains_key(spec) {
+        return Some(spec.to_string());
+    }
+    if let Some(newest) = newest_matching(versions, spec) {
+        return Some(newest);
+    }
+    // `clean_version_string` reduces the specs cargo's range parser rejects (`>=1.0.0 <2.0.0`) to a
+    // single version, which is the version `npm view` is asked about too.
+    let cleaned = clean_version_string(spec);
+    (cleaned != spec && versions.contains_key(&cleaned)).then_some(cleaned)
+}
+
+fn latest_version(packument: &Value, versions: &Map<String, Value>) -> Option<String> {
+    dist_tag_version(packument, "latest", versions).or_else(|| newest_matching(versions, "*"))
+}
+
+fn dist_tag_version(packument: &Value, tag: &str, versions: &Map<String, Value>) -> Option<String> {
+    let tagged = packument.get("dist-tags")?.get(tag)?.as_str()?;
+    versions.contains_key(tagged).then(|| tagged.to_string())
+}
+
+fn newest_matching(versions: &Map<String, Value>, spec: &str) -> Option<String> {
+    let req = npm_version_req(spec)?;
+    versions
+        .keys()
+        .filter_map(|version| Some((Version::parse(version).ok()?, version)))
+        .filter(|(parsed, _)| req.matches(parsed))
+        .max_by(|a, b| a.0.cmp(&b.0))
+        .map(|(_, version)| version.clone())
+}
+
+/// The range npm reads `spec` as. The two differ on a bare version: npm's `1.2` is `1.2.x` and its
+/// `1` is `1.x`, which are cargo's `~1.2` and `~1`.
+fn npm_version_req(spec: &str) -> Option<VersionReq> {
+    let bare = spec.split('.').count() < 3
+        && spec.starts_with(|c: char| c.is_ascii_digit())
+        && spec.chars().all(|c| c.is_ascii_digit() || c == '.');
+    let req = if bare {
+        format!("~{spec}")
+    } else {
+        spec.to_string()
+    };
+    VersionReq::parse(&req).ok()
+}
+
+/// The license one version of a packument states: `license`, a string or a legacy `{"type": …}`
+/// object, then the first entry of the legacy `licenses` array.
+///
+/// `npm view`'s array answer is a different shape — one entry per matching version, newest last —
+/// so `license_from_npm_view_output` keeps its own reader.
+fn license_from_packument_version(version: &Value) -> Option<String> {
+    fn text(value: &Value) -> Option<String> {
+        let text = match value {
+            Value::String(text) => text.trim().to_string(),
+            Value::Object(map) => map.get("type")?.as_str()?.trim().to_string(),
+            _ => return None,
+        };
+        (!text.is_empty()).then_some(text)
+    }
+
+    version.get("license").and_then(text).or_else(|| {
+        version
+            .get("licenses")
+            .and_then(Value::as_array)?
+            .first()
+            .and_then(text)
+    })
+}
+
+/// The registry npm would use for `package_name`.
+fn npm_registry_for(project_root: Option<&Path>, package_name: &str) -> NpmRegistry {
+    registry_from_config(&npm_config(project_root), package_name)
+}
+
+fn registry_from_config(config: &HashMap<String, String>, package_name: &str) -> NpmRegistry {
+    // A scope's own registry wins for that scope's packages: npm resolves `@scope:registry`
+    // before `registry`.
+    let scope_key = package_name
+        .strip_prefix('@')
+        .and_then(|rest| rest.split('/').next())
+        .map(|scope| format!("@{scope}:registry"));
+    let url = scope_key
+        .and_then(|key| config.get(&key).cloned())
+        .or_else(|| config.get("registry").cloned())
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_NPM_REGISTRY.to_string());
+    let url = url.trim().trim_end_matches('/').to_string();
+
+    NpmRegistry {
+        needs_auth: registry_needs_auth(config, &url),
+        url,
+    }
+}
+
+/// Whether the `.npmrc` keeps credentials for this registry.
+///
+/// npm stores them under the registry's "nerf dart", `//host/path/:_authToken`, and the same shape
+/// with `_auth`, `username` or `_password`; a bare `_auth` or `_authToken` applies to every
+/// registry.
+fn registry_needs_auth(config: &HashMap<String, String>, registry: &str) -> bool {
+    const FIELDS: [&str; 4] = [":_authToken", ":_auth", ":username", ":_password"];
+    if config.contains_key("_auth") || config.contains_key("_authToken") {
+        return true;
+    }
+    let nerf = registry
+        .split_once("://")
+        .map(|(_, rest)| format!("//{rest}/"))
+        .unwrap_or_else(|| format!("//{registry}/"));
+    config.keys().any(|key| {
+        FIELDS
+            .iter()
+            .find_map(|field| key.strip_suffix(field))
+            .is_some_and(|prefix| prefix.starts_with("//") && nerf.starts_with(prefix))
+    })
+}
+
+/// The keys npm would see: `npm_config_registry`, the project's `.npmrc`, then the user's.
+fn npm_config(project_root: Option<&Path>) -> HashMap<String, String> {
+    let user = dirs::home_dir().map(|home| home.join(".npmrc"));
+    let project = project_root.map(|root| root.join(".npmrc"));
+    let mut config = layered_npm_config(user.as_deref(), project.as_deref());
+    // `npm_config_registry` beats every `.npmrc` npm read.
+    if let Ok(registry) = std::env::var("npm_config_registry") {
+        if !registry.trim().is_empty() {
+            config.insert("registry".to_string(), registry.trim().to_string());
+        }
+    }
+    config
+}
+
+/// npm layers `.npmrc` files per key: the user's first, then the project's, so a key the project
+/// states wins and a key it does not keeps the user's value.
+fn layered_npm_config(user: Option<&Path>, project: Option<&Path>) -> HashMap<String, String> {
+    let mut config = HashMap::new();
+    for path in [user, project].into_iter().flatten() {
+        if let Some(values) = read_npmrc(path) {
+            config.extend(values);
+        }
+    }
+    config
+}
+
+/// The `key=value` lines of one `.npmrc`, without `#` and `;` comments or a value's quotes.
+fn read_npmrc(path: &Path) -> Option<HashMap<String, String>> {
+    let content = fs::read_to_string(path).ok()?;
+    Some(
+        content
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+                    return None;
+                }
+                let (key, value) = line.split_once('=')?;
+                let value = value.trim().trim_matches(|c| c == '"' || c == '\'');
+                Some((key.trim().to_string(), value.to_string()))
+            })
+            .collect(),
+    )
 }
 
 /// The license of one exact version, from its directory in pnpm's virtual store.
@@ -1976,14 +2234,6 @@ fn get_license_from_local_license_file(project_root: &Path, package_name: &str) 
     }
 
     None
-}
-
-fn get_nested_json_value<'a>(json: &'a Value, path: &[&str]) -> Option<&'a Value> {
-    let mut current = json;
-    for key in path {
-        current = current.get(key)?;
-    }
-    Some(current)
 }
 
 fn clean_version_string(version: &str) -> String {
@@ -3300,5 +3550,162 @@ packages:
         assert_eq!(license_from_npm_view_output("[\n  \"ISC\",\n"), None);
         assert_eq!(license_from_npm_view_output(""), None);
         assert_eq!(license_from_npm_view_output("undefined"), None);
+    }
+
+    fn npmrc(dir: &std::path::Path, name: &str, body: &str) -> PathBuf {
+        let path = dir.join(name);
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_project_npmrc_beats_the_user_one() {
+        let temp = TempDir::new().unwrap();
+        let user = npmrc(
+            temp.path(),
+            "user.npmrc",
+            "# the user's registry\nregistry=https://user.example/\n//user.example/:_authToken=secret\n",
+        );
+        let project = npmrc(
+            temp.path(),
+            "project.npmrc",
+            "registry = \"https://project.example/\"\n",
+        );
+
+        let config = layered_npm_config(Some(&user), Some(&project));
+        let registry = registry_from_config(&config, "left-pad");
+        assert_eq!(registry.url, "https://project.example");
+        // npm layers per key, so the user's token stays where the project stated nothing.
+        assert!(!registry.needs_auth);
+
+        // Without the project file the user's registry and its credentials are what npm uses.
+        let registry = registry_from_config(&layered_npm_config(Some(&user), None), "left-pad");
+        assert_eq!(registry.url, "https://user.example");
+        assert!(registry.needs_auth);
+    }
+
+    #[test]
+    fn a_scoped_key_beats_the_default_registry() {
+        let mut config = HashMap::new();
+        config.insert(
+            "registry".to_string(),
+            "https://registry.example".to_string(),
+        );
+        config.insert(
+            "@acme:registry".to_string(),
+            "https://npm.acme.example".to_string(),
+        );
+
+        assert_eq!(
+            registry_from_config(&config, "@acme/widget").url,
+            "https://npm.acme.example"
+        );
+        assert_eq!(
+            registry_from_config(&config, "left-pad").url,
+            "https://registry.example"
+        );
+        assert_eq!(
+            registry_from_config(&HashMap::new(), "@acme/widget").url,
+            DEFAULT_NPM_REGISTRY
+        );
+    }
+
+    #[test]
+    fn a_nerf_darted_token_means_only_npm_view_can_ask() {
+        let mut config = HashMap::new();
+        config.insert(
+            "registry".to_string(),
+            "https://npm.pkg.github.com".to_string(),
+        );
+        config.insert(
+            "//npm.pkg.github.com/:_authToken".to_string(),
+            "ghp_fixture".to_string(),
+        );
+        assert!(registry_from_config(&config, "@acme/widget").needs_auth);
+
+        // Credentials for another registry do not stand in the way of this one.
+        let mut config = HashMap::new();
+        config.insert(
+            "registry".to_string(),
+            "https://registry.example/artifactory/api/npm/npm".to_string(),
+        );
+        config.insert(
+            "//npm.pkg.github.com/:_authToken".to_string(),
+            "ghp_fixture".to_string(),
+        );
+        assert!(!registry_from_config(&config, "left-pad").needs_auth);
+
+        config.insert(
+            "//registry.example/artifactory/api/npm/npm/:username".to_string(),
+            "me".to_string(),
+        );
+        assert!(registry_from_config(&config, "left-pad").needs_auth);
+    }
+
+    fn fixture_packument() -> Value {
+        serde_json::json!({
+            "dist-tags": {"latest": "2.0.0", "next": "3.0.0-rc.1"},
+            "versions": {
+                "1.0.0": {"license": "ISC"},
+                "1.3.0": {"license": "MIT"},
+                "1.3.1": {"license": "MIT"},
+                "2.0.0": {"license": "Apache-2.0"},
+                "3.0.0-rc.1": {"license": "Apache-2.0"}
+            }
+        })
+    }
+
+    #[test]
+    fn a_range_takes_the_newest_matching_version() {
+        let packument = fixture_packument();
+        let pick = |spec| resolve_packument_version(&packument, spec);
+
+        assert_eq!(pick("^1.3.0").as_deref(), Some("1.3.1"));
+        assert_eq!(pick("~1.0.0").as_deref(), Some("1.0.0"));
+        // npm reads a bare `1.3` as `1.3.x` and a bare `1` as `1.x`.
+        assert_eq!(pick("1.3").as_deref(), Some("1.3.1"));
+        assert_eq!(pick("1").as_deref(), Some("1.3.1"));
+        assert_eq!(pick("1.3.0").as_deref(), Some("1.3.0"));
+        assert_eq!(pick("latest").as_deref(), Some("2.0.0"));
+        assert_eq!(pick("next").as_deref(), Some("3.0.0-rc.1"));
+        assert_eq!(pick("").as_deref(), Some("2.0.0"));
+        // A prerelease is only picked by a range that names one, as npm does.
+        assert_eq!(pick("*").as_deref(), Some("2.0.0"));
+        // A spec no range parser reads keeps the version `npm view` is asked about.
+        assert_eq!(pick(">=1.0.0 <2.0.0").as_deref(), Some("1.0.0"));
+        assert_eq!(pick("file:../widget"), None);
+        assert_eq!(pick("github:acme/widget"), None);
+        assert_eq!(pick("^9.0.0"), None);
+    }
+
+    #[test]
+    fn a_packument_version_states_its_license_three_ways() {
+        assert_eq!(
+            license_from_packument_version(&serde_json::json!({"license": "MIT"})).as_deref(),
+            Some("MIT")
+        );
+        assert_eq!(
+            license_from_packument_version(
+                &serde_json::json!({"license": {"type": "BSD-2-Clause"}})
+            )
+            .as_deref(),
+            Some("BSD-2-Clause")
+        );
+        assert_eq!(
+            license_from_packument_version(&serde_json::json!({"licenses": [{"type": "ISC"}]}))
+                .as_deref(),
+            Some("ISC")
+        );
+        // npm's marker for a proprietary package, which `npm view` reports as a license too.
+        assert_eq!(
+            license_from_packument_version(&serde_json::json!({"license": "UNLICENSED"}))
+                .as_deref(),
+            Some("UNLICENSED")
+        );
+        assert_eq!(
+            license_from_packument_version(&serde_json::json!({"license": ""})),
+            None
+        );
+        assert_eq!(license_from_packument_version(&serde_json::json!({})), None);
     }
 }
