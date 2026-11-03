@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{LazyLock, Mutex};
 
 use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::{
@@ -1690,10 +1691,10 @@ fn get_license_for_package(
     // One request per package beats one Node process per package, so the registry answers first.
     match get_license_from_registry(project_root, name, version) {
         RegistryAnswer::License(license) => license,
-        // The packument is the document `npm view` reads, so a version that states no license
-        // there states none for npm either, and a process cannot answer differently.
+        // A version that states an empty license has said what it has, and `npm view` reads the
+        // same document, so a process cannot answer differently.
         RegistryAnswer::NoLicense => UNKNOWN_LICENSE.to_string(),
-        RegistryAnswer::Unavailable => get_license_from_npm_view(NPM, name, version)
+        RegistryAnswer::Unavailable => get_license_from_npm_view(project_root, NPM, name, version)
             .unwrap_or_else(|| UNKNOWN_LICENSE.to_string()),
     }
 }
@@ -1787,7 +1788,12 @@ fn get_license_from_package_json(
     None
 }
 
-fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -> Option<String> {
+fn get_license_from_npm_view(
+    project_root: &Path,
+    npm_cmd: &str,
+    package_name: &str,
+    version: &str,
+) -> Option<String> {
     let clean_version = clean_version_string(version);
     let package_spec = if clean_version == "latest" || clean_version.is_empty() {
         package_name.to_string()
@@ -1800,13 +1806,16 @@ fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -
         &format!("Trying npm view for: {package_spec}"),
     );
 
+    // Only the authoritative answer for a registry that wants credentials if it reads the same
+    // `.npmrc` the registry was picked from, so it runs in the project and not in feluda's cwd.
     let output = crate::command::lookup(
         "npm view",
         Command::new(npm_cmd)
             .arg("view")
             .arg(&package_spec)
             .arg("license")
-            .arg("--json"),
+            .arg("--json")
+            .current_dir(project_root),
     )
     .ok()?;
 
@@ -1853,16 +1862,15 @@ fn license_from_npm_view_output(output: &str) -> Option<String> {
 
 /// The registry answer for a package with no project tree behind it (`--sbom-input`).
 ///
-/// There is no `.npmrc` to read a project registry from, and no `npm view` to fall back to, so a
-/// registry that wants credentials answers nothing here.
+/// The public registry, never the user's `.npmrc`: an SBOM names packages, not a registry, so
+/// reading the user's config would make the same document answer differently on two machines, and
+/// on any machine that has run `npm login` (a token for the public registry is in `~/.npmrc` today)
+/// every npm component would stop being answered at all.
 pub(crate) fn get_license_from_npm_registry_api(
     package_name: &str,
     version: &str,
 ) -> Option<String> {
-    let registry = npm_registry_for(None, package_name);
-    if registry.needs_auth {
-        return None;
-    }
+    let registry = registry_from_config(&HashMap::new(), package_name);
     match license_from_registry(&registry, package_name, version) {
         RegistryAnswer::License(license) => Some(license),
         RegistryAnswer::NoLicense | RegistryAnswer::Unavailable => None,
@@ -1872,22 +1880,36 @@ pub(crate) fn get_license_from_npm_registry_api(
 /// The default npm registry, used when no `.npmrc` names another one.
 const DEFAULT_NPM_REGISTRY: &str = "https://registry.npmjs.org";
 
-/// Where npm would fetch a package from, and whether only `npm view` can ask it.
-struct NpmRegistry {
-    /// Without a trailing slash, so a package path can be appended.
-    url: String,
-    /// The `.npmrc` holds credentials for this registry, which `npm view` sends and feluda does not.
-    needs_auth: bool,
-}
-
 /// What a registry answered.
 ///
 /// `NoLicense` and `Unavailable` are kept apart because they decide whether `npm view` is worth a
-/// process: a version that states no license in the packument states none for npm either.
+/// process: a version that names an empty license has said what it has, while a version this could
+/// not read is a question `npm view` can still answer.
 enum RegistryAnswer {
     License(String),
     NoLicense,
     Unavailable,
+}
+
+/// Registries that answered 401 or 403 in this run.
+///
+/// feluda sends no credentials, so their packages go to `npm view`, which sends them. Decided from
+/// the answer rather than from the `.npmrc`: a token for the public registry sits in `~/.npmrc` on
+/// every machine that has run `npm login`, and taking its presence as "this registry needs it"
+/// would send every package of every scan back to one process per package. So the first package
+/// from such a registry costs one request that is refused, and the rest of the run is spared it.
+static DENIED_REGISTRIES: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+fn registry_denied(registry: &str) -> bool {
+    DENIED_REGISTRIES
+        .lock()
+        .is_ok_and(|denied| denied.contains(registry))
+}
+
+fn deny_registry(registry: &str) -> bool {
+    DENIED_REGISTRIES
+        .lock()
+        .is_ok_and(|mut denied| denied.insert(registry.to_string()))
 }
 
 /// The license from the registry npm would use, over HTTP: one request per package instead of one
@@ -1896,72 +1918,136 @@ enum RegistryAnswer {
 /// `npm view` honours `.npmrc` (a custom or scoped registry, credentials, a proxy), which is why it
 /// was the first network step. Reading the registry keys out of `.npmrc` the way npm does lets the
 /// common case go over HTTP, and leaves `npm view` for what only it can do: a package from a
-/// registry the `.npmrc` holds credentials for, and a spec a packument cannot answer (`file:`, a
-/// git URL, an `npm:` alias).
+/// registry that refused a request, and a spec a registry cannot answer (`file:`, a git URL, an
+/// `npm:` alias).
 fn get_license_from_registry(
     project_root: &Path,
     package_name: &str,
     version: &str,
 ) -> RegistryAnswer {
     let registry = npm_registry_for(Some(project_root), package_name);
-    if registry.needs_auth {
+    license_from_registry(&registry, package_name, version)
+}
+
+fn license_from_registry(registry: &str, package_name: &str, version: &str) -> RegistryAnswer {
+    if registry_denied(registry) {
         log(
             LogLevel::Info,
             &format!(
-                "The .npmrc holds credentials for {}; asking npm view, which sends them",
-                registry.url
+                "{} refused a request earlier in this run; asking npm view, which sends the credentials feluda does not",
+                redact(registry)
             ),
         );
         return RegistryAnswer::Unavailable;
     }
-    license_from_registry(&registry, package_name, version)
-}
 
-fn license_from_registry(
-    registry: &NpmRegistry,
-    package_name: &str,
-    version: &str,
-) -> RegistryAnswer {
-    // npm's registries want a scope's `/` percent encoded: `@scope%2fname`.
-    let url = format!("{}/{}", registry.url, package_name.replace('/', "%2f"));
-    log(LogLevel::Info, &format!("Asking {url} for a license"));
-
-    let response = match crate::http_stats::get(&url) {
-        Ok(response) => response,
-        Err(err) => {
-            log_error(&format!("Registry request for {package_name} failed"), &err);
+    // An exact version is asked for on its own endpoint: 4.8 KB instead of the 11 MB packument
+    // measured on `@types/node`, and a version the packument no longer lists cannot be answered
+    // for by a neighbouring one.
+    let spec = version.trim();
+    if Version::parse(spec).is_ok() {
+        let Some(document) = registry_json(registry, &[package_name, spec]) else {
             return RegistryAnswer::Unavailable;
-        }
-    };
-    if !response.status().is_success() {
-        log(
-            LogLevel::Warn,
-            &format!("{url} answered {}", response.status()),
-        );
-        return RegistryAnswer::Unavailable;
+        };
+        return answer_from_version(&document, package_name, spec);
     }
-    let packument: Value = match response.json() {
-        Ok(packument) => packument,
-        Err(err) => {
-            log_error(
-                &format!("Could not read the packument for {package_name}"),
-                &err,
-            );
-            return RegistryAnswer::Unavailable;
-        }
-    };
 
+    let Some(packument) = registry_json(registry, &[package_name]) else {
+        return RegistryAnswer::Unavailable;
+    };
     let Some(resolved) = resolve_packument_version(&packument, version) else {
         log(
             LogLevel::Info,
-            &format!("No version of {package_name} in {url} matches {version}"),
+            &format!(
+                "No version of {package_name} in {} matches {version}",
+                redact(registry)
+            ),
         );
         return RegistryAnswer::Unavailable;
     };
-    let entry = packument
+    let Some(entry) = packument
         .get("versions")
-        .and_then(|versions| versions.get(&resolved));
-    match entry.and_then(license_from_packument_version) {
+        .and_then(|versions| versions.get(&resolved))
+    else {
+        return RegistryAnswer::Unavailable;
+    };
+    answer_from_version(entry, package_name, &resolved)
+}
+
+/// One document from `registry`, counted, as JSON. `None` is every way it can fail: a transport
+/// error, a status that is not a success, an answer that is not JSON.
+fn registry_json(registry: &str, segments: &[&str]) -> Option<Value> {
+    let url = registry_url(registry, segments)?;
+    let asked = redact(url.as_str());
+    log(LogLevel::Info, &format!("Asking {asked} for a license"));
+
+    let response = match crate::http_stats::get_json(url.as_str()) {
+        Ok(response) => response,
+        Err(err) => {
+            log_error(&format!("Registry request to {asked} failed"), &err);
+            return None;
+        }
+    };
+    let status = response.status();
+    if matches!(status.as_u16(), 401 | 403) {
+        if deny_registry(registry) {
+            log(
+                LogLevel::Info,
+                &format!(
+                    "{asked} answered {status}; asking npm view for this registry for the rest of the run"
+                ),
+            );
+        }
+        return None;
+    }
+    if !status.is_success() {
+        log(LogLevel::Warn, &format!("{asked} answered {status}"));
+        return None;
+    }
+    match response.json() {
+        Ok(json) => Some(json),
+        Err(err) => {
+            log_error(&format!("Could not read the answer from {asked}"), &err);
+            None
+        }
+    }
+}
+
+/// The URL of one registry document. A package segment carries its own `/` percent encoded by the
+/// URL rather than by hand, so a name holding `%`, `?` or `#` stays one path segment.
+fn registry_url(registry: &str, segments: &[&str]) -> Option<reqwest::Url> {
+    let mut url = reqwest::Url::parse(&format!("{registry}/")).ok()?;
+    url.path_segments_mut()
+        .ok()?
+        .pop_if_empty()
+        .extend(segments);
+    Some(url)
+}
+
+/// A URL without its userinfo, for a log line: `https://user:token@npm.corp/` logs as
+/// `https://npm.corp/`.
+fn redact(url: &str) -> String {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return url.to_string();
+    };
+    if parsed.username().is_empty() && parsed.password().is_none() {
+        return url.to_string();
+    }
+    format!("{}{}", parsed.origin().ascii_serialization(), parsed.path())
+}
+
+/// What one version states. An entry with neither `license` nor `licenses` states nothing feluda can
+/// read — the abbreviated metadata npm asks for carries no license at all — so `npm view` is asked;
+/// only a key that is there and empty is a package saying it has no license.
+fn answer_from_version(entry: &Value, package_name: &str, resolved: &str) -> RegistryAnswer {
+    if entry.get("license").is_none() && entry.get("licenses").is_none() {
+        log(
+            LogLevel::Info,
+            &format!("{package_name} {resolved} states no license field; asking npm view"),
+        );
+        return RegistryAnswer::Unavailable;
+    }
+    match license_from_packument_version(entry) {
         Some(license) => {
             log(
                 LogLevel::Info,
@@ -1972,7 +2058,7 @@ fn license_from_registry(
         None => {
             log(
                 LogLevel::Info,
-                &format!("{package_name} {resolved} states no license"),
+                &format!("{package_name} {resolved} states an empty license"),
             );
             RegistryAnswer::NoLicense
         }
@@ -2022,12 +2108,15 @@ fn newest_matching(versions: &Map<String, Value>, spec: &str) -> Option<String> 
 }
 
 /// The range npm reads `spec` as. The two differ on a bare version: npm's `1.2` is `1.2.x` and its
-/// `1` is `1.x`, which are cargo's `~1.2` and `~1`.
+/// `1` is `1.x`, which are cargo's `~1.2` and `~1`; and `semver` reads a full version as `^`, so
+/// `1.3.0` is spelled `=1.3.0` or it would match `1.3.1` with nothing in the report saying so.
 fn npm_version_req(spec: &str) -> Option<VersionReq> {
     let bare = spec.split('.').count() < 3
         && spec.starts_with(|c: char| c.is_ascii_digit())
         && spec.chars().all(|c| c.is_ascii_digit() || c == '.');
-    let req = if bare {
+    let req = if Version::parse(spec).is_ok() {
+        format!("={spec}")
+    } else if bare {
         format!("~{spec}")
     } else {
         spec.to_string()
@@ -2035,8 +2124,8 @@ fn npm_version_req(spec: &str) -> Option<VersionReq> {
     VersionReq::parse(&req).ok()
 }
 
-/// The license one version of a packument states: `license`, a string or a legacy `{"type": …}`
-/// object, then the first entry of the legacy `licenses` array.
+/// The license one version of a packument, or a version document, states: `license`, a string or a
+/// legacy `{"type": …}` object, then the first entry of the legacy `licenses` array.
 ///
 /// `npm view`'s array answer is a different shape — one entry per matching version, newest last —
 /// so `license_from_npm_view_output` keeps its own reader.
@@ -2060,11 +2149,11 @@ fn license_from_packument_version(version: &Value) -> Option<String> {
 }
 
 /// The registry npm would use for `package_name`.
-fn npm_registry_for(project_root: Option<&Path>, package_name: &str) -> NpmRegistry {
+fn npm_registry_for(project_root: Option<&Path>, package_name: &str) -> String {
     registry_from_config(&npm_config(project_root), package_name)
 }
 
-fn registry_from_config(config: &HashMap<String, String>, package_name: &str) -> NpmRegistry {
+fn registry_from_config(config: &HashMap<String, String>, package_name: &str) -> String {
     // A scope's own registry wins for that scope's packages: npm resolves `@scope:registry`
     // before `registry`.
     let scope_key = package_name
@@ -2076,34 +2165,7 @@ fn registry_from_config(config: &HashMap<String, String>, package_name: &str) ->
         .or_else(|| config.get("registry").cloned())
         .filter(|url| !url.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_NPM_REGISTRY.to_string());
-    let url = url.trim().trim_end_matches('/').to_string();
-
-    NpmRegistry {
-        needs_auth: registry_needs_auth(config, &url),
-        url,
-    }
-}
-
-/// Whether the `.npmrc` keeps credentials for this registry.
-///
-/// npm stores them under the registry's "nerf dart", `//host/path/:_authToken`, and the same shape
-/// with `_auth`, `username` or `_password`; a bare `_auth` or `_authToken` applies to every
-/// registry.
-fn registry_needs_auth(config: &HashMap<String, String>, registry: &str) -> bool {
-    const FIELDS: [&str; 4] = [":_authToken", ":_auth", ":username", ":_password"];
-    if config.contains_key("_auth") || config.contains_key("_authToken") {
-        return true;
-    }
-    let nerf = registry
-        .split_once("://")
-        .map(|(_, rest)| format!("//{rest}/"))
-        .unwrap_or_else(|| format!("//{registry}/"));
-    config.keys().any(|key| {
-        FIELDS
-            .iter()
-            .find_map(|field| key.strip_suffix(field))
-            .is_some_and(|prefix| prefix.starts_with("//") && nerf.starts_with(prefix))
-    })
+    url.trim().trim_end_matches('/').to_string()
 }
 
 /// The keys npm would see: `npm_config_registry`, the project's `.npmrc`, then the user's.
@@ -3573,15 +3635,16 @@ packages:
         );
 
         let config = layered_npm_config(Some(&user), Some(&project));
-        let registry = registry_from_config(&config, "left-pad");
-        assert_eq!(registry.url, "https://project.example");
-        // npm layers per key, so the user's token stays where the project stated nothing.
-        assert!(!registry.needs_auth);
+        assert_eq!(
+            registry_from_config(&config, "left-pad"),
+            "https://project.example"
+        );
 
-        // Without the project file the user's registry and its credentials are what npm uses.
-        let registry = registry_from_config(&layered_npm_config(Some(&user), None), "left-pad");
-        assert_eq!(registry.url, "https://user.example");
-        assert!(registry.needs_auth);
+        // Without the project file the user's registry is what npm uses.
+        assert_eq!(
+            registry_from_config(&layered_npm_config(Some(&user), None), "left-pad"),
+            "https://user.example"
+        );
     }
 
     #[test]
@@ -3597,49 +3660,17 @@ packages:
         );
 
         assert_eq!(
-            registry_from_config(&config, "@acme/widget").url,
+            registry_from_config(&config, "@acme/widget"),
             "https://npm.acme.example"
         );
         assert_eq!(
-            registry_from_config(&config, "left-pad").url,
+            registry_from_config(&config, "left-pad"),
             "https://registry.example"
         );
         assert_eq!(
-            registry_from_config(&HashMap::new(), "@acme/widget").url,
+            registry_from_config(&HashMap::new(), "@acme/widget"),
             DEFAULT_NPM_REGISTRY
         );
-    }
-
-    #[test]
-    fn a_nerf_darted_token_means_only_npm_view_can_ask() {
-        let mut config = HashMap::new();
-        config.insert(
-            "registry".to_string(),
-            "https://npm.pkg.github.com".to_string(),
-        );
-        config.insert(
-            "//npm.pkg.github.com/:_authToken".to_string(),
-            "ghp_fixture".to_string(),
-        );
-        assert!(registry_from_config(&config, "@acme/widget").needs_auth);
-
-        // Credentials for another registry do not stand in the way of this one.
-        let mut config = HashMap::new();
-        config.insert(
-            "registry".to_string(),
-            "https://registry.example/artifactory/api/npm/npm".to_string(),
-        );
-        config.insert(
-            "//npm.pkg.github.com/:_authToken".to_string(),
-            "ghp_fixture".to_string(),
-        );
-        assert!(!registry_from_config(&config, "left-pad").needs_auth);
-
-        config.insert(
-            "//registry.example/artifactory/api/npm/npm/:username".to_string(),
-            "me".to_string(),
-        );
-        assert!(registry_from_config(&config, "left-pad").needs_auth);
     }
 
     fn fixture_packument() -> Value {
@@ -3707,5 +3738,114 @@ packages:
             None
         );
         assert_eq!(license_from_packument_version(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn an_exact_version_is_not_a_caret_range() {
+        // `semver` reads a bare `1.3.0` as `^1.3.0`, which matches 1.3.1.
+        let req = npm_version_req("1.3.0").unwrap();
+        assert!(req.matches(&Version::parse("1.3.0").unwrap()));
+        assert!(!req.matches(&Version::parse("1.3.1").unwrap()));
+        // A bare `1.3` and `1` stay npm's `1.3.x` and `1.x`.
+        assert!(npm_version_req("1.3")
+            .unwrap()
+            .matches(&Version::parse("1.3.9").unwrap()));
+        assert!(!npm_version_req("1.3")
+            .unwrap()
+            .matches(&Version::parse("1.4.0").unwrap()));
+        assert!(!npm_version_req("1")
+            .unwrap()
+            .matches(&Version::parse("2.0.0").unwrap()));
+    }
+
+    #[test]
+    fn a_version_without_a_license_field_is_a_question_for_npm_view() {
+        // Abbreviated metadata carries no license at all: that is not the package saying it has
+        // none, so `npm view` is asked.
+        let missing = serde_json::json!({"name": "left-pad", "version": "1.3.0"});
+        assert!(matches!(
+            answer_from_version(&missing, "left-pad", "1.3.0"),
+            RegistryAnswer::Unavailable
+        ));
+        // A key that is there and empty is.
+        let empty = serde_json::json!({"license": ""});
+        assert!(matches!(
+            answer_from_version(&empty, "left-pad", "1.3.0"),
+            RegistryAnswer::NoLicense
+        ));
+        match answer_from_version(&serde_json::json!({"license": "ISC"}), "left-pad", "1.3.0") {
+            RegistryAnswer::License(license) => assert_eq!(license, "ISC"),
+            _ => panic!("a stated license was not read"),
+        }
+    }
+
+    #[test]
+    fn a_package_name_is_one_path_segment() {
+        let url = registry_url("https://registry.example/npm", &["@acme/widget"]).unwrap();
+        assert_eq!(url.as_str(), "https://registry.example/npm/@acme%2Fwidget");
+
+        // `?`, `#` and `%` in a name belong to the segment, not to the URL.
+        let url = registry_url("https://registry.example", &["weird%name?#", "1.0.0"]).unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://registry.example/weird%25name%3F%23/1.0.0"
+        );
+
+        // An exact version is its own endpoint below the package.
+        let url = registry_url("https://registry.example", &["left-pad", "1.3.0"]).unwrap();
+        assert_eq!(url.as_str(), "https://registry.example/left-pad/1.3.0");
+    }
+
+    #[test]
+    fn a_log_line_carries_no_token() {
+        assert_eq!(
+            redact("https://user:token@npm.corp/registry/left-pad"),
+            "https://npm.corp/registry/left-pad"
+        );
+        assert_eq!(
+            redact("https://registry.npmjs.org/left-pad"),
+            "https://registry.npmjs.org/left-pad"
+        );
+    }
+
+    /// A registry that answers everything with `401`, counting the requests it was asked.
+    fn denied_registry() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let seen = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&seen);
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut buffer = [0u8; 1024];
+                let _ = stream.read(&mut buffer);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+        (url, seen)
+    }
+
+    #[test]
+    fn a_registry_that_refused_a_request_is_not_asked_again() {
+        use std::sync::atomic::Ordering;
+
+        let (registry, seen) = denied_registry();
+        // The first package costs one request that is refused, then npm view answers.
+        assert!(matches!(
+            license_from_registry(&registry, "left-pad", "1.3.0"),
+            RegistryAnswer::Unavailable
+        ));
+        // The rest of the run pays nothing for that registry.
+        assert!(matches!(
+            license_from_registry(&registry, "right-pad", "1.3.0"),
+            RegistryAnswer::Unavailable
+        ));
+        assert_eq!(seen.load(Ordering::SeqCst), 1);
     }
 }

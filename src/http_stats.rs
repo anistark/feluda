@@ -185,6 +185,20 @@ pub fn async_client_builder() -> reqwest::ClientBuilder {
 ///
 /// The client is built once and shared, so lookups running side by side reuse its connections.
 pub fn get(url: &str) -> FeludaResult<reqwest::blocking::Response> {
+    request(url, None)
+}
+
+/// [`get`] with an explicit `Accept: application/json`.
+///
+/// The npm registry answers an abbreviated document, with no `license` on any version, to the
+/// `vnd.npm.install-v1+json` npm asks for by default, so the full one has to be named.
+pub fn get_json(url: &str) -> FeludaResult<reqwest::blocking::Response> {
+    request(url, Some("application/json"))
+}
+
+/// A blocking GET from the shared client, which is built once so lookups running side by side reuse
+/// its connections.
+fn request(url: &str, accept: Option<&str>) -> FeludaResult<reqwest::blocking::Response> {
     static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
     send(url, || {
         let client = match CLIENT.get() {
@@ -194,7 +208,11 @@ pub fn get(url: &str) -> FeludaResult<reqwest::blocking::Response> {
                 CLIENT.get_or_init(|| client)
             }
         };
-        client.get(url).send()
+        let builder = client.get(url);
+        match accept {
+            Some(accept) => builder.header(reqwest::header::ACCEPT, accept).send(),
+            None => builder.send(),
+        }
     })
 }
 
