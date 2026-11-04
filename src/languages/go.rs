@@ -7,7 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
-use std::thread::sleep;
 use std::time::Duration;
 
 use crate::config::FeludaConfig;
@@ -774,7 +773,8 @@ struct PkgsiteModule {
 /// Fetch a module's license entries from the official pkg.go.dev API.
 ///
 /// Tries the exact version first and falls back to the latest version, since pkg.go.dev
-/// doesn't index every pseudo-version that appears in go.mod files.
+/// doesn't index every pseudo-version that appears in go.mod files. A host that is busy or not
+/// answering gets no second request for latest: it has already had its retries.
 pub(crate) fn fetch_pkgsite_module_licenses(
     name: &str,
     version: &str,
@@ -782,15 +782,28 @@ pub(crate) fn fetch_pkgsite_module_licenses(
     let client = pkgsite_client()?;
 
     if !version.is_empty() && version != "unknown" {
-        if let Some(licenses) = fetch_pkgsite_module_version(client, name, Some(version)) {
-            return Some(licenses);
+        match fetch_pkgsite_module_version(client, name, Some(version)) {
+            Pkgsite::Licenses(licenses) => return Some(licenses),
+            Pkgsite::Unavailable => return None,
+            Pkgsite::NoEntry => log(
+                LogLevel::Warn,
+                &format!("pkg.go.dev has no entry for {name}@{version}, falling back to latest"),
+            ),
         }
-        log(
-            LogLevel::Warn,
-            &format!("pkg.go.dev has no entry for {name}@{version}, falling back to latest"),
-        );
     }
-    fetch_pkgsite_module_version(client, name, None)
+    match fetch_pkgsite_module_version(client, name, None) {
+        Pkgsite::Licenses(licenses) => Some(licenses),
+        Pkgsite::NoEntry | Pkgsite::Unavailable => None,
+    }
+}
+
+/// What pkg.go.dev said about one module version.
+enum Pkgsite {
+    Licenses(Vec<PkgsiteLicense>),
+    /// Any other answer: not indexed, or a response that did not parse.
+    NoEntry,
+    /// Still busy after `http_stats` retried, or no answer at all.
+    Unavailable,
 }
 
 /// One pkg.go.dev client for the process, so lookups reuse its connections.
@@ -812,12 +825,11 @@ fn pkgsite_client() -> Option<&'static Client> {
         .as_ref()
 }
 
-/// Query the pkg.go.dev module endpoint for one version (`None` means latest)
-fn fetch_pkgsite_module_version(
-    client: &Client,
-    name: &str,
-    version: Option<&str>,
-) -> Option<Vec<PkgsiteLicense>> {
+/// Query the pkg.go.dev module endpoint for one version (`None` means latest).
+///
+/// pkg.go.dev answers bursts with 429; `http_stats::send` asks again on those, honouring
+/// `Retry-After`.
+fn fetch_pkgsite_module_version(client: &Client, name: &str, version: Option<&str>) -> Pkgsite {
     let mut api_url = format!("{PKGSITE_API_BASE}/module/{name}?licenses=true");
     if let Some(version) = version {
         // '+' (as in v2.0.0+incompatible) would decode as a space in a query string
@@ -829,61 +841,40 @@ fn fetch_pkgsite_module_version(
         &format!("Fetching license from pkg.go.dev API: {api_url}"),
     );
 
-    let mut attempts = 0;
-    let max_attempts = 7; // Retry max 7 times. Thala for a reason 🙌
-    let wait_time = 12;
+    let response = match crate::http_stats::send(&api_url, || client.get(&api_url).send()) {
+        Ok(response) => response,
+        Err(err) => {
+            log_error(&format!("Failed to fetch metadata for {name}"), &err);
+            return Pkgsite::Unavailable;
+        }
+    };
+    let status = response.status();
+    log(
+        LogLevel::Info,
+        &format!("pkg.go.dev API response status: {status}"),
+    );
 
-    while attempts < max_attempts {
-        match crate::http_stats::send(&api_url, || client.get(&api_url).send()) {
-            Ok(response) => {
-                let status = response.status();
-                log(
-                    LogLevel::Info,
-                    &format!("pkg.go.dev API response status: {status}"),
-                );
-
-                if status.as_u16() == 429 {
-                    log(
-                        LogLevel::Warn,
-                        &format!(
-                            "Received 429 Too Many Requests, retrying... (attempt {}/{})",
-                            attempts + 1,
-                            max_attempts
-                        ),
-                    );
-                    sleep(Duration::from_secs(wait_time));
-                    attempts += 1;
-                    continue;
-                }
-
-                if status.is_success() {
-                    match response.json::<PkgsiteModule>() {
-                        Ok(module) => return Some(module.licenses),
-                        Err(err) => {
-                            log_error(&format!("Failed to parse API response for {name}"), &err);
-                        }
-                    }
-                } else {
-                    log(
-                        LogLevel::Warn,
-                        &format!("Unexpected HTTP status: {status} for {name}"),
-                    );
-                }
-
-                return None;
-            }
-            Err(err) => {
-                log_error(&format!("Failed to fetch metadata for {name}"), &err);
-                return None;
-            }
+    if crate::http_stats::is_busy(status) {
+        log(
+            LogLevel::Warn,
+            &format!("pkg.go.dev still answered {status} for {name} after retrying"),
+        );
+        return Pkgsite::Unavailable;
+    }
+    if !status.is_success() {
+        log(
+            LogLevel::Warn,
+            &format!("Unexpected HTTP status: {status} for {name}"),
+        );
+        return Pkgsite::NoEntry;
+    }
+    match response.json::<PkgsiteModule>() {
+        Ok(module) => Pkgsite::Licenses(module.licenses),
+        Err(err) => {
+            log_error(&format!("Failed to parse API response for {name}"), &err);
+            Pkgsite::NoEntry
         }
     }
-
-    log(
-        LogLevel::Warn,
-        &format!("Unable to fetch license for {name} after {attempts} attempts"),
-    );
-    None
 }
 
 fn fetch_license_from_pkgsite_api(name: &str, version: &str) -> String {

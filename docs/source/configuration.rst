@@ -292,6 +292,14 @@ A host that fails three requests in a row without answering (connection refused,
 timeout) is skipped for the rest of the run, and Feluda says so once on stderr. Licenses that host
 would have answered read ``Unknown``. Any answer, an error status included, resets the count.
 
+A registry that answers ``429 Too Many Requests`` or ``503 Service Unavailable`` is asked again,
+up to four attempts in all. Feluda waits as long as the ``Retry-After`` header asks, or, without
+one, one second, then two, then four (with some jitter, so lookups running side by side do not ask
+again at the same moment). One request waits 30 seconds at most in total: a ``Retry-After`` that
+asks for longer is not waited out. When a registry is still answering 429 or 503 after its
+retries, Feluda says so once on stderr and that dependency's license reads ``Unknown``; lowering
+``concurrency`` asks it less at once.
+
 ``command`` is how long a command that lists dependencies may run: ``cargo metadata``,
 ``go mod graph``, ``dotnet list package``, ``uv lock`` and ``uv pip compile``, the ``npm``,
 ``pnpm`` and ``yarn`` list commands, ``bazel query``. One that runs past it is stopped, Feluda

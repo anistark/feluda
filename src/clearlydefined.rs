@@ -55,7 +55,8 @@ const BATCH_SIZE: usize = 100;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Attempts per batch, and the pause between them. The failure this retries is that silent hang,
-/// which a second attempt on a fresh connection usually does not hit.
+/// which a second attempt on a fresh connection usually does not hit. A 429 or 503 is not retried
+/// here: `http_stats::send` has already asked again on those.
 const ATTEMPTS: usize = 2;
 const RETRY_BACKOFF: Duration = Duration::from_secs(1);
 
@@ -484,15 +485,28 @@ impl Entry {
 /// has done that on tends to do it again, so each attempt gets its own client rather than sharing
 /// one across the batch.
 fn fetch_batch(batch: &[String], endpoint: &str) -> Option<HashMap<String, Definition>> {
-    (0..ATTEMPTS).find_map(|attempt| {
+    for attempt in 0..ATTEMPTS {
         if attempt > 0 {
             std::thread::sleep(RETRY_BACKOFF);
         }
-        fetch_batch_once(batch, endpoint)
-    })
+        match fetch_batch_once(batch, endpoint) {
+            Ok(definitions) => return Some(definitions),
+            Err(Miss::Busy) => return None,
+            Err(Miss::Failed) => {}
+        }
+    }
+    None
 }
 
-fn fetch_batch_once(batch: &[String], endpoint: &str) -> Option<HashMap<String, Definition>> {
+/// Why an attempt brought back no definitions.
+enum Miss {
+    /// Still answering 429 or 503 after `http_stats` retried, which another attempt would repeat.
+    Busy,
+    /// No answer, an error status, or a body that did not parse.
+    Failed,
+}
+
+fn fetch_batch_once(batch: &[String], endpoint: &str) -> Result<HashMap<String, Definition>, Miss> {
     // HTTP/1.1 by negotiation, not by preference: the service accepts an HTTP/2 POST and then
     // never answers it at all.
     let client = crate::http_stats::client_builder()
@@ -506,7 +520,7 @@ fn fetch_batch_once(batch: &[String], endpoint: &str) -> Option<HashMap<String, 
                 &format!("Could not build ClearlyDefined client: {e}"),
             )
         })
-        .ok()?;
+        .map_err(|_| Miss::Failed)?;
 
     let response = crate::http_stats::send(endpoint, || client.post(endpoint).json(&batch).send())
         .inspect_err(|e| {
@@ -515,14 +529,18 @@ fn fetch_batch_once(batch: &[String], endpoint: &str) -> Option<HashMap<String, 
                 &format!("ClearlyDefined request failed: {e}"),
             )
         })
-        .ok()?;
+        .map_err(|_| Miss::Failed)?;
 
     if !response.status().is_success() {
         log(
             LogLevel::Warn,
             &format!("ClearlyDefined returned {}", response.status()),
         );
-        return None;
+        return Err(if crate::http_stats::is_busy(response.status()) {
+            Miss::Busy
+        } else {
+            Miss::Failed
+        });
     }
 
     response
@@ -533,7 +551,7 @@ fn fetch_batch_once(batch: &[String], endpoint: &str) -> Option<HashMap<String, 
                 &format!("Could not read ClearlyDefined response: {e}"),
             )
         })
-        .ok()
+        .map_err(|_| Miss::Failed)
 }
 
 #[derive(Debug, Deserialize)]

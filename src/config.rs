@@ -694,8 +694,8 @@ const MAX_CONCURRENCY: usize = 64;
 
 /// Returns the default number of license lookups in flight at once.
 ///
-/// pkg.go.dev answers bursts with 429 and Go's retry is a fixed sleep, so more threads can mean
-/// more sleeping. Eight cut a first scan of the 100 module Go rung from 170 s to 20 s with no 429s.
+/// pkg.go.dev answers bursts with 429, and every 429 is a pause before asking again, so more
+/// threads can mean more pausing. Eight cut a first scan of the 100 module Go rung from 170 s to 20 s with no 429s.
 fn default_concurrency() -> usize {
     8
 }
