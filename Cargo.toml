@@ -57,7 +57,7 @@ dirs = "7.0"
 semver = "1.0"
 quick-xml = "0.42"
 notify = "8.2.0"
-zip = { version = "8.6", default-features = false, features = ["deflate"] }
+zip = { version = "9.0", default-features = false, features = ["deflate"] }
 # Image archives (--image-archive): tar for the docker save / OCI layout container and its layers,
 # flate2 and ruzstd for gzip and zstd layers. All pure Rust, so no C toolchain in front of the release builds.
 tar = "0.4"
