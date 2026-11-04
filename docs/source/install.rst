@@ -111,6 +111,20 @@ Community Maintained
 
 ----
 
+Staying Up to Date
+------------------
+
+Feluda can update itself through whichever of the methods above installed it:
+
+.. code-block:: bash
+
+   feluda update    # newest minor or patch release of your major version
+   feluda upgrade   # newest release, including a new major version
+
+See :ref:`cli-update` for what each install method runs.
+
+----
+
 Build from Source 🧪
 --------------------
 

@@ -28,7 +28,7 @@ pub fn set_github_token(token: Option<String>) {
 }
 
 /// Get the GitHub API token if set
-fn get_github_token() -> Option<&'static str> {
+pub fn get_github_token() -> Option<&'static str> {
     GITHUB_TOKEN.get().and_then(|t| t.as_deref())
 }
 

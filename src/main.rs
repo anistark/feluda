@@ -16,6 +16,7 @@ mod parser;
 mod purl;
 mod reporter;
 mod sbom;
+mod self_update;
 mod source_scan;
 mod spdx;
 mod table;
@@ -37,6 +38,7 @@ use parser::parse_root;
 use reporter::{generate_report, ReportConfig};
 use sbom::validate::handle_sbom_validate_command;
 use sbom::{handle_sbom_command, SbomFormats, SpecVersions};
+use self_update::{handle_self_update, Scope};
 use std::env;
 use std::path::Path;
 use std::process;
@@ -296,6 +298,8 @@ fn run() -> FeludaResult<()> {
                 handle_cache_command(clear)?;
                 Ok(())
             }
+            Commands::Update { check } => handle_self_update(Scope::SameMajor, check),
+            Commands::Upgrade { check } => handle_self_update(Scope::Latest, check),
             Commands::Init {
                 path,
                 force,
