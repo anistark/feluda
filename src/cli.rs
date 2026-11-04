@@ -1,7 +1,6 @@
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 use colored::*;
-use std::env;
 use std::io::{self, IsTerminal, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -212,6 +211,18 @@ pub enum Commands {
         /// Milliseconds to wait after a change before re-scanning (debounce window)
         #[arg(long, default_value_t = 500)]
         debounce: u64,
+    },
+    /// Update Feluda to the newest minor or patch release of the installed major version
+    Update {
+        /// Show what would be installed and how, without changing anything
+        #[arg(long)]
+        check: bool,
+    },
+    /// Upgrade Feluda to the newest release, including a new major version
+    Upgrade {
+        /// Show what would be installed and how, without changing anything
+        #[arg(long)]
+        check: bool,
     },
 }
 
@@ -565,78 +576,6 @@ fn truncate_chars(text: &str, max: usize) -> String {
     }
 }
 
-/// How this feluda binary was installed, used to suggest the right
-/// upgrade command
-#[derive(Debug, PartialEq)]
-enum InstallMethod {
-    Homebrew,
-    Cargo,
-    Aur,
-    SystemPackage,
-    Unknown,
-}
-
-impl InstallMethod {
-    fn upgrade_line(&self) -> String {
-        let command = match self {
-            InstallMethod::Homebrew => "brew upgrade feluda",
-            InstallMethod::Aur => "paru -S feluda",
-            InstallMethod::SystemPackage => {
-                return "Download from the releases page".yellow().to_string()
-            }
-            InstallMethod::Cargo | InstallMethod::Unknown => "cargo install feluda",
-        };
-        format!("{} {}", "Upgrade with:".yellow(), command.green().bold())
-    }
-}
-
-fn detect_install_method(
-    exe_path: &str,
-    cargo_home: Option<&str>,
-    has_arch_release: bool,
-    has_distro_package_manager: bool,
-) -> InstallMethod {
-    if exe_path.contains("/Cellar/")
-        || exe_path.contains("homebrew")
-        || exe_path.contains("linuxbrew")
-    {
-        return InstallMethod::Homebrew;
-    }
-    if exe_path.contains(".cargo")
-        || cargo_home.is_some_and(|home| !home.is_empty() && exe_path.starts_with(home))
-    {
-        return InstallMethod::Cargo;
-    }
-    if exe_path.starts_with("/usr/bin") {
-        if has_arch_release {
-            return InstallMethod::Aur;
-        }
-        if has_distro_package_manager {
-            return InstallMethod::SystemPackage;
-        }
-    }
-    InstallMethod::Unknown
-}
-
-fn current_install_method() -> InstallMethod {
-    let exe_path = env::current_exe()
-        .ok()
-        .and_then(|p| p.canonicalize().ok())
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let cargo_home = env::var("CARGO_HOME").ok();
-    let has_arch_release = std::path::Path::new("/etc/arch-release").exists();
-    let has_distro_package_manager = std::path::Path::new("/etc/debian_version").exists()
-        || std::path::Path::new("/etc/redhat-release").exists()
-        || std::path::Path::new("/etc/fedora-release").exists();
-    detect_install_method(
-        &exe_path,
-        cargo_home.as_deref(),
-        has_arch_release,
-        has_distro_package_manager,
-    )
-}
-
 fn is_newer_version(latest: &str, current: &str) -> bool {
     match (
         semver::Version::parse(latest),
@@ -645,6 +584,17 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
         (Ok(latest), Ok(current)) => latest > current,
         _ => false,
     }
+}
+
+/// The command that gets from `current` to `latest`.
+fn update_line(latest: &str, current: &str) -> String {
+    let major = |version: &str| semver::Version::parse(version).map(|v| v.major).ok();
+    let (label, command) = if major(latest) == major(current) {
+        ("Update with:", "feluda update")
+    } else {
+        ("Upgrade with:", "feluda upgrade")
+    };
+    format!("{} {}", label.yellow(), command.green().bold())
 }
 
 // Function to print a customized version info
@@ -675,7 +625,7 @@ pub fn print_version_info() {
                     .bold()
                     .to_string(),
             );
-            right.push(current_install_method().upgrade_line());
+            right.push(update_line(&release.version, current));
         }
         Some(_) => right.push("You're on the latest version ✓".green().to_string()),
         None => {}
@@ -987,7 +937,9 @@ mod tests {
             Commands::Sbom { .. }
             | Commands::Cache { .. }
             | Commands::Init { .. }
-            | Commands::Watch { .. } => {
+            | Commands::Watch { .. }
+            | Commands::Update { .. }
+            | Commands::Upgrade { .. } => {
                 panic!("Expected Generate command");
             }
         }
@@ -1045,7 +997,9 @@ mod tests {
             Commands::Sbom { .. }
             | Commands::Cache { .. }
             | Commands::Init { .. }
-            | Commands::Watch { .. } => {
+            | Commands::Watch { .. }
+            | Commands::Update { .. }
+            | Commands::Upgrade { .. } => {
                 panic!("Expected Generate command");
             }
         }
@@ -1155,77 +1109,10 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_install_method() {
-        // Homebrew resolves through the Cellar on macOS, both prefixes
-        assert_eq!(
-            detect_install_method(
-                "/opt/homebrew/Cellar/feluda/1.14.0/bin/feluda",
-                None,
-                false,
-                false
-            ),
-            InstallMethod::Homebrew
-        );
-        assert_eq!(
-            detect_install_method(
-                "/usr/local/Cellar/feluda/1.14.0/bin/feluda",
-                None,
-                false,
-                false
-            ),
-            InstallMethod::Homebrew
-        );
-        assert_eq!(
-            detect_install_method(
-                "/home/linuxbrew/.linuxbrew/Cellar/feluda/1.14.0/bin/feluda",
-                None,
-                false,
-                true
-            ),
-            InstallMethod::Homebrew
-        );
-        assert_eq!(
-            detect_install_method("/Users/dev/.cargo/bin/feluda", None, false, false),
-            InstallMethod::Cargo
-        );
-        assert_eq!(
-            detect_install_method(
-                "/custom/rust/bin/feluda",
-                Some("/custom/rust"),
-                false,
-                false
-            ),
-            InstallMethod::Cargo
-        );
-        assert_eq!(
-            detect_install_method("/usr/bin/feluda", None, true, false),
-            InstallMethod::Aur
-        );
-        assert_eq!(
-            detect_install_method("/usr/bin/feluda", None, false, true),
-            InstallMethod::SystemPackage
-        );
-        assert_eq!(
-            detect_install_method("/usr/local/bin/feluda", None, false, false),
-            InstallMethod::Unknown
-        );
-    }
-
-    #[test]
-    fn test_upgrade_line_per_method() {
-        assert!(InstallMethod::Homebrew
-            .upgrade_line()
-            .contains("brew upgrade feluda"));
-        assert!(InstallMethod::Cargo
-            .upgrade_line()
-            .contains("cargo install feluda"));
-        assert!(InstallMethod::Aur.upgrade_line().contains("paru -S feluda"));
-        assert!(InstallMethod::SystemPackage
-            .upgrade_line()
-            .contains("releases page"));
-        assert!(InstallMethod::Unknown
-            .upgrade_line()
-            .contains("cargo install feluda"));
+    fn test_update_line_names_the_command_for_the_jump() {
+        assert!(update_line("1.19.0", "1.18.0").contains("feluda update"));
+        assert!(update_line("1.18.1", "1.18.0").contains("feluda update"));
+        assert!(update_line("2.0.0", "1.18.0").contains("feluda upgrade"));
     }
 
     #[test]

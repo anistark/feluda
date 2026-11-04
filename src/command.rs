@@ -14,6 +14,8 @@
 //!   or a one-off query (`go env`, `Rscript`). It stands in for a registry request, so it gets
 //!   `[timeouts] request`. After [`GIVE_UP_AFTER`] timeouts in a row it is not run again for the
 //!   rest of the run, as `http_stats` does with a host that stops answering.
+//! - [`interactive`] is for a command the user watches and may answer, like `sudo dpkg -i` or a
+//!   `cargo install` compiling for minutes. It inherits the terminal and has no deadline.
 //!
 //! A command stopped at its deadline returns an [`io::ErrorKind::TimedOut`] error and whatever it
 //! printed is discarded, so a call site takes the fallback it already has for a command that fails
@@ -26,7 +28,7 @@
 
 use std::collections::HashMap;
 use std::io::{self, Read};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{LazyLock, Mutex};
 use std::thread;
@@ -64,6 +66,11 @@ pub fn lookup(label: &str, command: &mut Command) -> io::Result<Output> {
         Kind::Lookup,
         Duration::from_secs(timeouts().request),
     )
+}
+
+/// Run a command in the user's terminal and wait for as long as it takes.
+pub fn interactive(command: &mut Command) -> io::Result<ExitStatus> {
+    command.status()
 }
 
 #[derive(Clone, Copy)]
@@ -131,10 +138,7 @@ fn run(command: &mut Command, limit: Duration) -> io::Result<Output> {
 }
 
 /// Poll the child until it exits or `deadline` passes, backing off from 1 ms to [`MAX_POLL`].
-fn wait_until(
-    child: &mut Child,
-    deadline: Instant,
-) -> io::Result<Option<std::process::ExitStatus>> {
+fn wait_until(child: &mut Child, deadline: Instant) -> io::Result<Option<ExitStatus>> {
     let mut pause = Duration::from_millis(1);
     loop {
         if let Some(status) = child.try_wait()? {

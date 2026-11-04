@@ -55,6 +55,10 @@ Command Overview
      - Continuously re-scan when dependency files change
    * - ``feluda cache``
      - View and manage the license cache
+   * - ``feluda update``
+     - Move to the newest minor or patch release of Feluda
+   * - ``feluda upgrade``
+     - Move to the newest release of Feluda, including a new major version
    * - ``feluda generate``
      - Create NOTICE and THIRD_PARTY_LICENSES files
    * - ``feluda sbom``

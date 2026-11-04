@@ -141,6 +141,18 @@ pkgin install feluda
 
 Track releases on [github releases](https://github.com/anistark/feluda/releases) or [via release feed](https://github.com/anistark/feluda/releases.atom).
 
+### Staying Up to Date
+
+Feluda works out how it was installed (cargo, Homebrew, the AUR, a `.deb` or `.rpm` package, or pkgsrc) and updates itself the same way:
+
+```sh
+feluda update           # Newest minor or patch release of your major version
+feluda upgrade          # Newest release, including a new major version
+feluda update --check   # Show what would happen without changing anything
+```
+
+Homebrew, the AUR and pkgsrc only install the newest version they offer, so once a new major version is out, `feluda update` leaves them alone and points you to `feluda upgrade`. A copy Feluda can't place, such as one built from source, is left as it is. See the [update docs](https://feluda.readthedocs.io/en/latest/cli/update/) for details.
+
 <details>
 <summary>Build from Source (advanced users)</summary>
 

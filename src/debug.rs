@@ -135,6 +135,9 @@ pub enum FeludaError {
     #[error("Image archive error: {0}")]
     Image(String),
 
+    #[error("{0}")]
+    SelfUpdate(String),
+
     #[error("TUI initialization error: {0}")]
     TuiInit(String),
 
